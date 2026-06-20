@@ -1,0 +1,16 @@
+{
+	"compatibility_date": "2025-10-08",
+	"main": "src/index.ts",
+	"name": "d1-template",
+	"upload_source_maps": true,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "010b2320-ad10-4319-9de8-1652891f8d60",
+			"database_name": "maxcc_db"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}
