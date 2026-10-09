@@ -49,6 +49,13 @@ npm run dev                      # 自动建本地 D1，http://localhost:8787
 npm run seed:local               # 导入 seed/questions.json
 ```
 
+## 题库生命周期（自动精简）
+
+- 题目状态：`active` 复习中 / `mastered` 已掌握（15 天关通过或手动标记）/ `done` 同类题第一次就做对（不进复习、不再出现在练习）
+- 错题本分「复习中 / 已掌握」两页，每题可「删除」「标为已掌握」；删题不删作答记录（attempts 冗余存了 subject、topic）
+- 每日 Cron（北京时间 03:17）：mastered/done 超过 30 天删题；已批改作答的照片超过 30 天删除；已处理的上传超过 14 天删除；总结只留最近 30 条
+- Claude 查题库（`get_data kind=bank`）默认只看复习中的题，`all=true` 才列全部；作答记录不受删题影响
+
 ## 规则速记
 
 - 今日练习 = 到期错题 + 未做过的新题（`source=同类题`）

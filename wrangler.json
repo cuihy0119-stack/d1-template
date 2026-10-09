@@ -25,5 +25,10 @@
 		{
 			"binding": "OAUTH_KV"
 		}
-	]
+	],
+	"triggers": {
+		"crons": [
+			"17 19 * * *"
+		]
+	}
 }

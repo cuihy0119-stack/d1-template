@@ -1,6 +1,7 @@
 // 题库 / 错题本：简洁列表（学科标签 + 题目 + 状态）
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
+let tab = "active"; // 错题本：active 复习中 / mastered 已掌握
 let subject = new URLSearchParams(location.search).get("subject") || "";
 tabbar("/" + MODE);
 
@@ -9,11 +10,15 @@ const short = (s) => (s.length > 70 ? s.slice(0, 70) + "…" : s);
 
 function state(q) {
 	if (q.pending) return ["待批改", "wait"];
-	if (MODE === "wrong") return q.next_date ? ["待重做", "due"] : ["已掌握", "ok"];
+	if (MODE === "wrong") return tab === "mastered" ? ["已掌握", "ok"] : ["待重做", "due"];
 	return q.tries ? ["已做", "ok"] : ["未做", "new"];
 }
 
 function render() {
+	if (MODE === "wrong") {
+		$("#tabs").replaceChildren(...[["active", "复习中"], ["mastered", "已掌握"]].map(([k, name]) =>
+			el("button", { className: "tab" + (tab === k ? " on" : ""), textContent: name, onclick: () => { tab = k; load(); } })));
+	}
 	const subjects = [...new Set(data.items.map((q) => q.subject))];
 	if (subject && !subjects.includes(subject)) subject = "";
 	const chips = $("#chips");
@@ -23,7 +28,7 @@ function render() {
 	}
 
 	const shown = data.items.filter((q) => !subject || q.subject === subject);
-	const todo = shown.filter((q) => (MODE === "wrong" ? q.next_date : !q.tries));
+	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries));
 	const top = $("#redo");
 	top.replaceChildren();
 	if (todo.length) {
@@ -67,11 +72,20 @@ function row(q) {
 		}
 		detail.append(el("div", { className: "ans", textContent: "正确答案：" + d.answer.join(" / ") }));
 		if (d.explanation) detail.append(el("div", { className: "ans", textContent: "解析：" + d.explanation }));
-		detail.append(el("a", { className: "btn", href: quizHref([q.id]), textContent: "重做这题", style: "text-decoration:none;margin-top:8px" }));
+		const act = (path, msg) => async () => {
+			if (msg && !confirm(msg)) return;
+			await api(`/api/question/${q.id}/${path}`, { method: "POST" });
+			load();
+		};
+		detail.append(el("div", { className: "row", style: "margin-top:8px" },
+			tab === "active" ? el("a", { className: "btn", href: quizHref([q.id]), textContent: "重做", style: "text-decoration:none" }) : "",
+			tab === "active" ? el("button", { className: "btn", textContent: "标为已掌握", onclick: act("master") }) : "",
+			el("button", { className: "btn", textContent: "删除", style: "color:var(--bad)", onclick: act("delete", "删除这道题？（做题记录会保留）") })));
 		math(item.parentElement);
 	};
 	return el("div", { className: "wrapitem" }, item, detail);
 }
 
-api("/api/" + (MODE === "wrong" ? "wrong" : "bank")).then((d) => { data = d; render(); });
+function load() { api(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank").then((d) => { data = d; render(); }); }
+load();
 window.addEventListener("load", () => math($("#list")));
