@@ -191,12 +191,40 @@ export function buildServer(env: Env) {
 	return s;
 }
 
+// ---------- 旧工具名兼容 ----------
+// claude.ai 会缓存工具列表；工具合并后，旧名字的调用在这里转成 save / get_data，不用重连也能用，且不增加工具列表长度。
+const oldQ = (q: any) => ({ ...q, opts: q.opts ?? q.options, ans: q.ans ?? q.answer, exp: q.exp ?? q.explanation, origin: q.origin ?? q.origin_id, upload: q.upload ?? q.upload_id });
+const LEGACY: Record<string, (a: any) => [string, any]> = {
+	add_questions: (a) => ["save", { questions: (a.questions ?? []).map(oldQ) }],
+	add_wrong_questions: (a) => ["save", { wrong: (a.items ?? []).map(oldQ), done_uploads: a.done_upload_ids }],
+	grade: (a) => ["save", { grades: (a.items ?? [a]).map((g: any) => ({ id: g.id ?? g.attempt_id, score: g.score, comment: g.comment, reason: g.reason ?? g.error_reason })) }],
+	organize_questions: (a) => ["save", { organize: (a.items ?? []).map((i: any) => ({ ...i, id: i.id ?? i.question_id })) }],
+	post_summary: (a) => ["save", { summary: a.text }],
+	get_records: (a) => ["get_data", { kind: "records", days: a.days, subject: a.subject }],
+	get_question_bank: (a) => ["get_data", { kind: "bank", subject: a.subject, all: true }],
+};
+async function upgradeLegacy(request: Request): Promise<Request> {
+	if (request.method !== "POST") return request;
+	const body = await request.clone().json().catch(() => null);
+	if (!body) return request;
+	let changed = false;
+	const fix = (m: any) => {
+		const f = m?.method === "tools/call" && LEGACY[m.params?.name];
+		if (!f) return m;
+		changed = true;
+		const [name, args] = f(m.params.arguments ?? {});
+		return { ...m, params: { ...m.params, name, arguments: args } };
+	};
+	const out = Array.isArray(body) ? body.map(fix) : fix(body);
+	return changed ? new Request(request, { body: JSON.stringify(out) }) : request;
+}
+
 // 无状态：每个请求新建 server + transport
 export const mcpHandler = {
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const server = buildServer(env);
 		const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
 		await server.connect(transport);
-		return transport.handleRequest(request);
+		return transport.handleRequest(await upgradeLegacy(request));
 	},
 };
