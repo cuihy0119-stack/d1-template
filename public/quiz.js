@@ -7,7 +7,7 @@ async function start() {
 	const p = new URLSearchParams(location.search);
 	const m = location.hash.match(/^#r=([\d,]+)/);
 	if (m) return showResult(m[1]);
-	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : ""));
+	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : ""));
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
@@ -24,9 +24,7 @@ function render() {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		el("div", {}, el("span", { className: "tag", textContent: q.subject }),
-			el("span", { className: "tag", textContent: TYPE[q.type] }),
-			el("span", { className: "tag", textContent: [q.category, q.topic].filter(Boolean).join(" · ") })),
+		el("div", {}, el("span", { className: "tag", textContent: q.subject })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
 
 	if (q.type === "single" || q.type === "multi") {

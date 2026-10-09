@@ -26,8 +26,6 @@ textarea{min-height:120px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .chip{padding:4px 12px;border-radius:16px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:14px}
 .chip.on{background:var(--pri);color:#fff;border-color:var(--pri)}
-.wrong-item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
-.wrong-item>div{flex:1;min-width:0}
 .thumbs img{width:72px;height:72px;object-fit:cover;border-radius:8px;margin:4px 4px 0 0}
 .hide{display:none}
 .nav{display:flex;gap:10px;margin-top:14px}.nav .btn{flex:1}
@@ -43,21 +41,20 @@ body.has-tabs main{padding-bottom:84px}
 .subj{display:block;text-decoration:none;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
 .subj b{font-size:17px}.subj .due{color:var(--bad);font-weight:600}
 /* 题库 / 错题本 */
-details.cat{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;padding:0 12px}
-details.cat>summary{padding:12px 0;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center}
-details.cat>summary span.grow{flex:1}
-.topic{font-size:13px;color:var(--mute);margin:8px 0 0}
-.q{border-top:1px solid var(--line);padding:10px 0}
-.q .stem{white-space:pre-wrap;cursor:pointer}
-.q .meta{margin-bottom:2px}
-.q .detail{margin-top:8px}
-.st{font-size:12px;padding:1px 8px;border-radius:10px;margin-right:6px}
+#list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#list:empty{display:none}
+.item{display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer}
+.wrapitem+.wrapitem,.item+.item{border-top:1px solid var(--line)}
+.item .body{flex:1;min-width:0}
+.item .stem{margin-top:4px;white-space:pre-wrap}
+.detail{padding:0 14px 14px}
+.ans.bad{color:var(--bad)}
+.st{flex:none;font-size:12px;padding:2px 10px;border-radius:10px}
 .st.new{background:color-mix(in srgb,var(--pri) 15%,transparent);color:var(--pri)}
 .st.due{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
 .st.wait{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .st.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
-.st.go{background:var(--line);color:var(--mute)}
-.qbtns{display:flex;gap:8px;margin-top:6px}
+#redo{margin-bottom:12px}#redo:empty{display:none}
 /* 画板 */
 .draw{position:fixed;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column}
 .draw .tools{display:flex;gap:6px;flex-wrap:wrap;padding:8px;background:var(--card);border-bottom:1px solid var(--line);align-items:center}
