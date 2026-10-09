@@ -3,7 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import { addDays, today, updateQueue } from "./review";
 
-// 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案默认是文字描述，只有手绘笔迹才附图。
+// 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
 const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"] as const;
 const MAX_IMAGES = 6;
@@ -11,7 +11,7 @@ const MAX_IMAGES = 6;
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
 出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；作图题 board=coord(坐标系)/grid(方格)。
-作答里的「[作图]」是作图板的文字描述（坐标单位=格），据此批改；含「手绘」时才附图。`;
+作答里的「[作图]」是作图板描述（坐标单位=格），含代码算好的方程、交轴点、交点、点在哪条线上，以它为准，配小图核对整体。`;
 
 // 题目（短字段名省输出）。type 可省：有 opts 按答案个数判单/多选；无 opts 有 board 为简答，否则填空
 const Q = z.object({
@@ -83,8 +83,7 @@ export function buildServer(env: Env) {
 		).results;
 		for (const a of atts) {
 			const ans = String(a.answer_text ?? "");
-			// 作图板的图只在含手绘笔迹时才给，拍的照片总是给
-			const keys = String(a.photo_key ?? "").split(",").filter((k) => k && (!k.startsWith("boards/") || ans.includes("手绘")));
+			const keys = String(a.photo_key ?? "").split(",").filter(Boolean); // 作图板小图（约 500 token）+ 拍的照片
 			if (keys.length > budget) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
 			budget -= keys.length;
 			out.push(

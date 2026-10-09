@@ -1,5 +1,5 @@
 // 作图板：方格常驻、格点吸附、几何/函数作图。图形坐标以「格」为单位，原点在画板中心附近的格点。
-// 交卷时 describe() 生成文字描述发给 Claude（省用量）；只有手绘笔迹才需要附图。
+// 交卷时 describe() 生成文字描述 + 几何信息，配一张 600px 小图一起发给 Claude（准确且省用量）。
 
 const TOOLS = [
 	["seg", "／线段", "拖动画线段，两端吸附格点"],
@@ -17,7 +17,7 @@ const TOOLS = [
 	["erase", "⌫橡皮", "点一下删除一个图形"],
 ];
 const COLORS = ["#111111", "#d64545", "#2f6fed"];
-const CELL = 24, LIFT = 30; // 格距；触屏时预览点抬高 30px
+const CELL = 24; // 格距
 
 // ---------- 函数解析：+ - * / ^ ( ) | |、隐式乘法、sqrt sin cos tan abs ln log、pi e ----------
 function compileFn(src) {
@@ -98,14 +98,15 @@ class Board {
 	}
 	px(q) { return [this.ox + q[0] * CELL, this.oy - q[1] * CELL]; }
 	at(e) { // 返回 [吸附后的点, 原始点]
-		const r = this.cv.getBoundingClientRect(), lift = e.pointerType === "touch" && this.tool !== "pen" ? LIFT : 0;
-		const raw = [(e.clientX - r.left - this.ox) / CELL, (this.oy - (e.clientY - r.top - lift)) / CELL];
+		const r = this.cv.getBoundingClientRect();
+		const raw = [(e.clientX - r.left - this.ox) / CELL, (this.oy - (e.clientY - r.top)) / CELL];
 		return [this.snap && this.tool !== "pen" ? raw.map(Math.round) : raw, raw];
 	}
 
 	// ---------- 历史 ----------
 	change(fn) { this.hist.push(JSON.stringify(this.objs)); this.fut = []; fn(); this.draw(); }
-	add(o) { this.change(() => this.objs.push({ c: this.color, w: this.width, d: this.dash, ...o })); }
+	sty() { return { c: this.color, w: this.width, d: this.dash }; }
+	add(o) { this.change(() => this.objs.push({ ...this.sty(), ...o })); }
 	step(from, to) { if (this.pend) return this.reset(); if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.draw(); }
 	reset() { this.pend = null; this.build(); this.draw(); }
 
@@ -146,7 +147,7 @@ class Board {
 		if (t === "poly" || t === "curve") {
 			if (pd && t === "poly" && pd.pts.length > 2 && dist(p, pd.pts[0]) < 0.4) return this.finish();
 			pd ? pd.pts.push(p) : ((this.pend = { pts: [p] }), this.build());
-		} else if (t === "mark") this.add({ t: "mk", p });
+		} else if (t === "mark") { if (!this.objs.some((o) => o.t === "mk" && dist(o.p, p) < 0.01)) this.add({ t: "mk", p }); }
 		else if (t === "point") {
 			const used = new Set(this.objs.map((o) => o.name));
 			this.ask(p, [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !used.has(c)) || "", (name) => this.add({ t: "pt", p, name }));
@@ -160,8 +161,8 @@ class Board {
 			if (dist(pd.p, F) < 0.01) return alert("点在线上，换一个点");
 			const u = [L[1][0] - L[0][0], L[1][1] - L[0][1]], v = [pd.p[0] - F[0], pd.p[1] - F[1]], lu = Math.hypot(...u), lv = Math.hypot(...v);
 			this.change(() => this.objs.push(
-				{ c: this.color, w: this.width, d: this.dash, t: "seg", a: pd.p, b: F },
-				{ c: this.color, w: this.width, t: "ra", at: F, u: [u[0] / lu, u[1] / lu], v: [v[0] / lv, v[1] / lv] }));
+				{ ...this.sty(), t: "seg", a: pd.p, b: F },
+				{ ...this.sty(), d: false, t: "ra", at: F, u: [u[0] / lu, u[1] / lu], v: [v[0] / lv, v[1] / lv] }));
 		} else if (t === "para") {
 			if (!pd) { const L = this.lineAt(raw); if (!L) return alert("先点在一条线上"); this.pend = { dir: [L[1][0] - L[0][0], L[1][1] - L[0][1]] }; return this.build(); }
 			this.pend = null; this.build();
@@ -214,7 +215,9 @@ class Board {
 	}
 
 	// ---------- 绘制 ----------
-	draw() { if (this.W) this.paint(this.ctx, true); }
+	draw() { // 每帧最多重绘一次，拖动更跟手
+		if (this.W && !this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(this.ctx, true); });
+	}
 	paint(c, live) {
 		const { W, H, ox, oy } = this;
 		c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
@@ -224,20 +227,31 @@ class Board {
 		for (let y = oy % CELL; y <= H; y += CELL) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
 		c.stroke();
 		if (this.axes) this.paintAxes(c);
-		const style = { c: this.color, w: this.width, d: this.dash };
+		const style = this.sty();
 		const list = [...this.objs];
 		if (live && this.drag) list.push({ ...style, ...this.drag });
 		if (live && this.pend?.pts) list.push({ ...style, t: this.tool === "poly" ? "open" : "curve", pts: this.tap ? [...this.pend.pts, this.tap[0]] : this.pend.pts });
 		for (const o of list) this.obj(c, o);
 		if (!live) return;
 		for (const q of this.pend?.pts || (this.pend?.p ? [this.pend.p] : [])) this.dot(c, this.px(q), 3.5, "#d64545");
-		const sp = this.drag && this.drag.t !== "pen" ? [this.drag.a, this.drag.b] : this.tap ? [this.tap[0]] : this.hover ? [this.hover] : [];
-		for (const q of sp) { // 吸附预览点
-			const [x, y] = this.px(q);
-			c.setLineDash([]); c.strokeStyle = "#2f6fed"; c.lineWidth = 1.5;
-			c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke();
-			this.dot(c, [x, y], 2.5, "#2f6fed");
-		}
+		const cur = this.drag && this.drag.t !== "pen" ? this.drag.b : this.tap ? this.tap[0] : this.hover;
+		if (this.drag?.a) this.ring(c, this.px(this.drag.a));
+		if (cur) this.guide(c, cur);
+	}
+	ring(c, [x, y]) { c.setLineDash([]); c.strokeStyle = "#2f6fed"; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke(); this.dot(c, [x, y], 2.5, "#2f6fed"); }
+	// 当前落点：十字辅助线 + 手指上方的坐标气泡
+	guide(c, q) {
+		const [x, y] = this.px(q), { W, H } = this;
+		c.save();
+		c.strokeStyle = "rgba(47,111,237,.45)"; c.lineWidth = 1; c.setLineDash([4, 4]);
+		c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.moveTo(x, 0); c.lineTo(x, H); c.stroke();
+		this.ring(c, [x, y]);
+		const s = xy(q);
+		c.font = "bold 14px sans-serif";
+		const w = c.measureText(s).width + 14, bx = Math.min(Math.max(x - w / 2, 2), W - w - 2), by = y - 64 < 2 ? y + 30 : y - 64;
+		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect(bx, by, w, 24, 12); c.fill();
+		c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(s, bx + w / 2, by + 12);
+		c.restore();
 	}
 	paintAxes(c) {
 		const { W, H, ox, oy } = this;
@@ -282,7 +296,11 @@ class Board {
 		c.lineWidth = o.w || 2; c.lineCap = c.lineJoin = "round";
 		c.setLineDash(o.d ? [7, 6] : []);
 		const path = (pts, close) => { c.beginPath(); pts.map(P).forEach((q, i) => (i ? c.lineTo(...q) : c.moveTo(...q))); if (close) c.closePath(); c.stroke(); };
-		const label = (q, s, font = "italic 15px serif") => { c.font = font; c.textAlign = "left"; c.textBaseline = "bottom"; c.fillText(s, q[0] + 5, q[1] - 3); };
+		const label = (q, s, font = "italic 15px serif") => {
+			c.font = font; c.textAlign = "left"; c.textBaseline = "bottom";
+			c.save(); c.strokeStyle = "#fff"; c.lineWidth = 4; c.setLineDash([]); c.strokeText(s, q[0] + 6, q[1] - 4); c.restore();
+			c.fillText(s, q[0] + 6, q[1] - 4);
+		};
 		switch (o.t) {
 			case "seg": path([o.a, o.b]); break;
 			case "open": path(o.pts); break;
@@ -332,42 +350,67 @@ class Board {
 			B("虚线", this.dash, () => { this.dash = !this.dash; this.build(); }),
 			B("吸附格点", this.snap, () => { this.snap = !this.snap; this.build(); }),
 			B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); }),
-			B("↶撤销", false, () => this.step(this.hist, this.fut)),
-			B("↷重做", false, () => this.step(this.fut, this.hist)),
 			B("清空", false, () => this.objs.length && confirm("清空画板？") && this.change(() => (this.objs = []))),
 			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }));
 		const tip = this.pend?.p ? "已选点，再点一条线" : this.pend?.dir ? "已选线，再点一个点" : TOOLS.find(([k]) => k === this.tool)[2];
 		this.hint.replaceChildren(el("span", { textContent: tip }));
 		if (this.pend?.pts) this.hint.append(B("完成", true, () => this.finish()), B("取消", false, () => this.reset()));
+		// 撤销 / 重做：放在画板正上方，醒目又不挡画布
+		const fab = (t, title, f) => el("button", { type: "button", className: "fab", textContent: t, title, onclick: f });
+		this.hint.append(fab("↶", "撤销", () => this.step(this.hist, this.fut)), fab("↷", "重做", () => this.step(this.fut, this.hist)));
 	}
 
 	// ---------- 交卷 ----------
 	// 文字描述（坐标单位=格），Claude 据此批改，基本不用看图
+	// 文字描述 + 代码算好的几何信息（方程、截距、交点、点在哪条线上），Claude 直接核对，不用自己推算
 	describe() {
-		const col = { "#d64545": "红", "#2f6fed": "蓝" };
-		const pens = this.objs.filter((o) => o.t === "pen").length;
-		const parts = this.objs.filter((o) => o.t !== "pen").map((o) => {
-			const pre = (o.d ? "虚" : "") + (col[o.c] || "");
-			switch (o.t) {
-				case "seg": return `${pre}线段${xy(o.a)}${xy(o.b)}`;
-				case "line": return `${pre}直线过${xy(o.a)}${xy(o.b)}`;
-				case "ray": return `${pre}射线${xy(o.a)}→${xy(o.b)}`;
-				case "circle": return `${pre}圆 心${xy(o.a)} 半径${num(dist(o.a, o.b))}`;
-				case "poly": return `${pre}多边形${o.pts.map(xy).join("")}`;
-				case "curve": return `${pre}曲线过${o.pts.map(xy).join("")}`;
-				case "pt": return `点${o.name}${xy(o.p)}`;
-				case "mk": return `标点${xy(o.p)}`;
-				case "text": return `文字「${o.s}」@${xy(o.p)}`;
-				case "ra": return `直角@${xy(o.at)}`;
-				case "fn": return `函数 ${o.expr}`;
+		const col = { "#d64545": "红", "#2f6fed": "蓝" }, n2 = (v) => String(Math.round(v * 100) / 100 || 0), p2 = (q) => `(${n2(q[0])},${n2(q[1])})`;
+		const eq = (a, b) => {
+			if (Math.abs(a[0] - b[0]) < 1e-9) return `x=${n2(a[0])}`;
+			const k = (b[1] - a[1]) / (b[0] - a[0]), m = a[1] - k * a[0];
+			const kx = Math.abs(k) < 1e-9 ? "" : `${k === 1 ? "" : k === -1 ? "-" : n2(k)}x`;
+			return `y=${kx}${Math.abs(m) < 1e-9 ? (kx ? "" : "0") : (m > 0 && kx ? "+" : "") + n2(m)}`;
+		};
+		const on = (L, q) => dist(q, proj(q, L.a, L.b, L.k)) < 1e-6; // 点在线段/射线/直线范围内
+		const cross = (L1, L2) => { // 两线交点
+			const d1 = [L1.b[0] - L1.a[0], L1.b[1] - L1.a[1]], d2 = [L2.b[0] - L2.a[0], L2.b[1] - L2.a[1]], den = d1[0] * d2[1] - d1[1] * d2[0];
+			if (Math.abs(den) < 1e-9) return null;
+			const k = ((L2.a[0] - L1.a[0]) * d2[1] - (L2.a[1] - L1.a[1]) * d2[0]) / den, q = lerp(L1.a, L1.b, k);
+			return on(L1, q) && on(L2, q) ? q : null;
+		};
+		const lines = [], parts = [], items = this.objs.filter((o) => o.t !== "pen");
+		items.forEach((o, i) => {
+			const id = `[${i + 1}]`, pre = (o.d ? "虚" : "") + (col[o.c] || "");
+			let d = "";
+			if (["seg", "line", "ray"].includes(o.t)) {
+				const L = { a: o.a, b: o.b, k: o.t, id };
+				lines.push(L);
+				const name = { seg: `线段${xy(o.a)}${xy(o.b)}`, line: `直线过${xy(o.a)}${xy(o.b)}`, ray: `射线${xy(o.a)}→${xy(o.b)}` }[o.t];
+				const ix = [[0, 1], [1, 0]].map(([ax, ay]) => cross(L, { a: [0, 0], b: [ax, ay], k: "line" })).filter(Boolean);
+				d = `${pre}${name} ${eq(o.a, o.b)}` + (this.axes && ix.length ? ` 交轴${ix.map(p2).join("")}` : "");
+			} else if (o.t === "circle") d = `${pre}圆 心${xy(o.a)} 半径${n2(dist(o.a, o.b))}`;
+			else if (o.t === "poly") d = `${pre}多边形${o.pts.map(xy).join("")}`;
+			else if (o.t === "curve") d = `${pre}曲线过${o.pts.map(xy).join("")}`;
+			else if (o.t === "fn") d = `函数 ${o.expr}`;
+			else if (o.t === "ra") d = `直角@${xy(o.at)}`;
+			else if (o.t === "text") d = `文字「${o.s}」@${xy(o.p)}`;
+			else {
+				const hosts = items.filter((h) => h !== o && !["pt", "mk", "text", "ra"].includes(h.t) && this.distTo(h, o.p) < 0.05).map((h) => `[${items.indexOf(h) + 1}]`);
+				d = `${o.t === "pt" ? "点" + (o.name || "") : "标点"}${xy(o.p)}${hosts.length ? "在" + hosts.join("") + "上" : ""}`;
 			}
+			parts.push(id + d);
 		});
-		if (pens) parts.push(`手绘${pens}笔（见图）`);
+		for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+			const q = cross(lines[i], lines[j]);
+			if (q) parts.push(`${lines[i].id}∩${lines[j].id}=${p2(q)}`);
+		}
+		const pens = this.objs.length - items.length;
+		if (pens) parts.push(`手绘${pens}笔`);
 		return (this.axes ? "坐标轴；" : "") + parts.join("；");
 	}
 	toFile() {
 		this.draw(); // 先重绘一遍，确保导出清楚
-		const s = Math.min(2, 1000 / Math.max(this.W, this.H)), out = document.createElement("canvas");
+		const s = Math.min(2, 600 / Math.max(this.W, this.H)), out = document.createElement("canvas");
 		out.width = Math.round(this.W * s); out.height = Math.round(this.H * s);
 		const c = out.getContext("2d"); c.scale(s, s);
 		this.paint(c, false);
