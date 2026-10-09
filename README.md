@@ -1,59 +1,30 @@
-# Worker + D1 Database
+# 错题练习站
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/d1-template)
+只给自己用的手机刷题网站（Cloudflare Workers + Hono + D1（照片也存 D1，不需要 R2））。网站不调用任何 AI；出题、批改、总结由 claude.ai 通过 MCP（阶段二）完成。
 
-![Worker + D1 Template Preview](https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/cb7cb0a9-6102-4822-633c-b76b7bb25900/public)
+当前进度：**阶段一（网站）已完成**；阶段二（`/mcp` + OAuth）待做。
 
-<!-- dash-content-start -->
+## 部署步骤（阶段一）
 
-D1 is Cloudflare's native serverless SQL database ([docs](https://developers.cloudflare.com/d1/)). This project demonstrates using a Worker with a D1 binding to execute a SQL statement. A simple frontend displays the result of this query:
+1. `npm install`，`npx wrangler login`
+2. 部署（会自动执行 D1 迁移）：`npm run deploy`
+3. 设置登录口令：`npx wrangler secret put PASSCODE`
+   （或控制台 Worker → Settings → Variables and Secrets 添加 `PASSCODE`）
+4. 导入几道测试题（可选）：`npm run seed:remote`
 
-```SQL
-SELECT * FROM comments LIMIT 3;
+> 用 Cloudflare 的 Git 集成（Workers Builds）时，Deploy command 填 `npm run deploy`，口令在控制台添加。
+
+## 本地开发
+
+```bash
+cp .dev.vars.example .dev.vars   # 改成你的口令
+npm run dev                      # 自动建本地 D1，http://localhost:8787
+npm run seed:local               # 导入 seed/questions.json
 ```
 
-The D1 database is initialized with a `comments` table and this data:
+## 规则速记
 
-```SQL
-INSERT INTO comments (author, content)
-VALUES
-    ('Kristian', 'Congrats!'),
-    ('Serena', 'Great job!'),
-    ('Max', 'Keep up the good work!')
-;
-```
-
-> [!IMPORTANT]
-> When using C3 to create this project, select "no" when it asks if you want to deploy. You need to follow this project's [setup steps](https://github.com/cloudflare/templates/tree/main/d1-template#setup-steps) before deploying.
-
-<!-- dash-content-end -->
-
-## Getting Started
-
-Outside of this repo, you can start a new project with this template using [C3](https://developers.cloudflare.com/pages/get-started/c3/) (the `create-cloudflare` CLI):
-
-```
-npm create cloudflare@latest -- --template=cloudflare/templates/d1-template
-```
-
-A live public deployment of this template is available at [https://d1-template.templates.workers.dev](https://d1-template.templates.workers.dev)
-
-## Setup Steps
-
-1. Install the project dependencies with a package manager of your choice:
-   ```bash
-   npm install
-   ```
-2. Create a [D1 database](https://developers.cloudflare.com/d1/get-started/) with the name "d1-template-database":
-   ```bash
-   npx wrangler d1 create d1-template-database
-   ```
-   ...and update the `database_id` field in `wrangler.json` with the new database ID.
-3. Run the following db migration to initialize the database (notice the `migrations` directory in this project):
-   ```bash
-   npx wrangler d1 migrations apply --remote d1-template-database
-   ```
-4. Deploy the project!
-   ```bash
-   npx wrangler deploy
-   ```
+- 今日练习 = 到期错题 + 未做过的新题（`source=同类题`）
+- 做错 → 明天重做；重做对 → 按 1、2、4、7、15 天推进，15 天后算掌握；重做错 → 退回第 1 天
+- 选择/填空当场判分（去空格、全角转半角，填空可有多个可接受答案）；简答标「待批改」
+- 日期按北京时间
