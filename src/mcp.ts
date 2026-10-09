@@ -169,21 +169,21 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"get_data",
 		{
-			description: "查询（TSV）：kind=records 作答记录（days 默认 7）；kind=bank 题库清单（整理分类、避免重复出题）。",
-			inputSchema: { kind: z.enum(["records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional() },
+			description: "查询（TSV）：kind=records 作答记录（days 默认 7）；kind=bank 题库清单（默认只列复习中的题，all=true 列全部）。",
+			inputSchema: { kind: z.enum(["records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
 		},
-		async ({ kind, days, subject }) => {
+		async ({ kind, days, subject, all }) => {
 			const sql =
 				kind === "records"
-					? `SELECT substr(a.created_at, 6, 5) d, q.subject s, q.topic t, q.type ty,
+					? `SELECT substr(a.created_at, 6, 5) d, a.subject s, a.topic t, q.type ty,
 					        CASE a.status WHEN '待批改' THEN '?' ELSE a.is_correct END ok, a.score sc, a.error_reason why, a.time_spent_sec sec
-					   FROM attempts a JOIN questions q ON q.id = a.question_id
-					   WHERE a.created_at >= datetime('now', ?1) AND (?2 IS NULL OR q.subject = ?2) ORDER BY a.id LIMIT 1000`
+					   FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
+					   WHERE a.created_at >= datetime('now', ?1) AND (?2 IS NULL OR a.subject = ?2) AND ?3 IS NOT NULL ORDER BY a.id LIMIT 1000`
 					: `SELECT q.id, q.subject s, q.category c, q.topic t, substr(q.stem, 1, 30) stem,
 					        CASE WHEN r.question_id IS NOT NULL THEN '复习' WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN '已做' ELSE '未做' END st
 					   FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) ORDER BY q.id LIMIT 2000`;
-			const { results } = await db.prepare(sql).bind(`-${days ?? 7} days`, subject ?? null).all();
+					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR q.status = 'active') ORDER BY q.id LIMIT 2000`;
+			const { results } = await db.prepare(sql).bind(`-${days ?? 7} days`, subject ?? null, all ? 1 : 0).all();
 			return text(tsv(results as Record<string, unknown>[]));
 		},
 	);

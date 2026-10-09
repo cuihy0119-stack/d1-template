@@ -74,3 +74,7 @@ body.has-tabs main{padding-bottom:84px}
 .att{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .att div{position:relative}.att img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .att button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:var(--bad);color:#fff;font-size:13px;line-height:1}
+.tabs{display:flex;background:var(--line);border-radius:10px;padding:3px;margin-bottom:12px}
+.tab{flex:1;padding:7px 0;border:0;border-radius:8px;background:none;color:var(--mute);font-size:15px}
+.tab.on{background:var(--card);color:var(--fg);font-weight:600}
+.detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}

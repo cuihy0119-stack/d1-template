@@ -6,7 +6,7 @@ import { passcodeOk } from "./auth";
 import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { loginPage } from "./login";
-import { today, updateQueue } from "./review";
+import { dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 
 type Q = {
 	id: number;
@@ -109,27 +109,26 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 		.all<Q>();
 	const fresh = await db
 		.prepare(
-			`SELECT * FROM questions q WHERE q.source = '同类题'
+			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active'
 			 AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id`,
 		)
 		.all<Q>();
 	return [...due.results, ...fresh.results];
 }
 
-// 按科目自由练：没做过的 + 做错还没掌握的；都做完了就整科重练
+// 按科目自由练：没做过的 + 做错还没掌握的（已掌握/已做对的不再出现）
 async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 	const { results } = await db
 		.prepare(
 			`SELECT q.* FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE q.subject = ?
+			 WHERE q.subject = ? AND q.status = 'active'
 			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
 			   AND (r.question_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id))
 			 ORDER BY (r.question_id IS NOT NULL), q.id LIMIT 50`,
 		)
 		.bind(subject)
 		.all<Q>();
-	if (results.length) return results;
-	return (await db.prepare("SELECT * FROM questions WHERE subject = ? ORDER BY id LIMIT 50").bind(subject).all<Q>()).results;
+	return results;
 }
 
 // ---------- 首页 ----------
@@ -146,7 +145,7 @@ app.get("/api/home", async (c) => {
 				        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN 1 ELSE 0 END) undone,
 				        SUM(CASE WHEN r.next_date <= ? THEN 1 ELSE 0 END) due
 				 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-				 GROUP BY q.subject ORDER BY q.subject`,
+				 WHERE q.status = 'active' GROUP BY q.subject ORDER BY q.subject`,
 			)
 			.bind(today())
 			.all(),
@@ -221,17 +220,17 @@ app.post("/api/submit", async (c) => {
 		if (q.type === "short") {
 			res = await db
 				.prepare(
-					"INSERT INTO attempts (question_id, answer_text, photo_key, status, time_spent_sec) VALUES (?, ?, ?, '待批改', ?)",
+					"INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, '待批改', ?)",
 				)
-				.bind(q.id, ans, photo, secs)
+				.bind(q.id, q.subject, q.topic, ans, photo, secs)
 				.run();
 		} else {
 			const ok = judge(q.type, parse<string[]>(q.answer, []), it.answer);
 			res = await db
 				.prepare(
-					"INSERT INTO attempts (question_id, answer_text, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, '已判', ?)",
+					"INSERT INTO attempts (question_id, subject, topic, answer_text, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, '已判', ?)",
 				)
-				.bind(q.id, ans, ok ? 1 : 0, ok ? 100 : 0, secs)
+				.bind(q.id, q.subject, q.topic, ans, ok ? 1 : 0, ok ? 100 : 0, secs)
 				.run();
 			await updateQueue(db, q.id, ok);
 		}
@@ -247,8 +246,8 @@ app.get("/api/attempts", async (c) => {
 	const { results } = await c.env.DB
 		.prepare(
 			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status,
-			        q.id question_id, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation
-			 FROM attempts a JOIN questions q ON q.id = a.question_id
+			        a.question_id, a.subject, a.topic, q.type, COALESCE(q.stem, '（题目已删除）') stem, q.options, q.answer, q.explanation
+			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
 		.bind(...ids)
@@ -265,9 +264,12 @@ app.get("/api/attempts", async (c) => {
 });
 
 // ---------- 题库 / 错题本 ----------
-const WRONG_SQL = "EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)";
+const WRONG_SQL = {
+	active: "q.status = 'active' AND EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)",
+	mastered: "q.status = 'mastered'",
+};
 
-async function listQuestions(db: D1Database, onlyWrong: boolean) {
+async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.stem, q.source, r.next_date, r.stage,
@@ -275,15 +277,17 @@ async function listQuestions(db: D1Database, onlyWrong: boolean) {
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 ${onlyWrong ? "WHERE " + WRONG_SQL : ""}
+			 ${wrong ? "WHERE " + WRONG_SQL[wrong] : ""}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
 		.all();
 	return { items: results, today: today() };
 }
 
-app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB, false)));
-app.get("/api/wrong", async (c) => c.json(await listQuestions(c.env.DB, true)));
+app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB)));
+app.get("/api/wrong", async (c) => c.json(await listQuestions(c.env.DB, c.req.query("tab") === "mastered" ? "mastered" : "active")));
+app.post("/api/question/:id/delete", async (c) => (await removeQuestion(c.env.DB, Number(c.req.param("id"))), c.json({ ok: true })));
+app.post("/api/question/:id/master", async (c) => (await masterQuestion(c.env.DB, Number(c.req.param("id"))), c.json({ ok: true })));
 
 // 单题详情：答案、解析、历史作答（只有用户自己能看）
 app.get("/api/question/:id", async (c) => {
@@ -332,4 +336,5 @@ function providerFor(origin: string) {
 
 export default {
 	fetch: (req, env, ctx) => providerFor(new URL(req.url).origin).fetch(req, env, ctx),
+	scheduled: (_e, env, ctx) => ctx.waitUntil(dailyCleanup(env.DB)), // 每日清理
 } satisfies ExportedHandler<Env>;
