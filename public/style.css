@@ -32,3 +32,41 @@ textarea{min-height:120px}
 .hide{display:none}
 .nav{display:flex;gap:10px;margin-top:14px}.nav .btn{flex:1}
 .ans{background:color-mix(in srgb,var(--pri) 8%,transparent);border-radius:10px;padding:8px 10px;margin-top:8px;font-size:15px}
+/* 底部导航 */
+body.has-tabs main{padding-bottom:84px}
+.tabbar{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
+.tabbar a{flex:1;text-align:center;padding:9px 0 7px;color:var(--mute);text-decoration:none;font-size:12px}
+.tabbar a b{display:block;font-size:20px;font-weight:400;line-height:1.2}
+.tabbar a.on{color:var(--pri)}
+/* 各科概览 */
+.subjects{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.subj{display:block;text-decoration:none;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.subj b{font-size:17px}.subj .due{color:var(--bad);font-weight:600}
+/* 题库 / 错题本 */
+details.cat{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;padding:0 12px}
+details.cat>summary{padding:12px 0;font-weight:600;cursor:pointer;display:flex;gap:8px;align-items:center}
+details.cat>summary span.grow{flex:1}
+.topic{font-size:13px;color:var(--mute);margin:8px 0 0}
+.q{border-top:1px solid var(--line);padding:10px 0}
+.q .stem{white-space:pre-wrap;cursor:pointer}
+.q .meta{margin-bottom:2px}
+.q .detail{margin-top:8px}
+.st{font-size:12px;padding:1px 8px;border-radius:10px;margin-right:6px}
+.st.new{background:color-mix(in srgb,var(--pri) 15%,transparent);color:var(--pri)}
+.st.due{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.st.wait{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.st.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.st.go{background:var(--line);color:var(--mute)}
+.qbtns{display:flex;gap:8px;margin-top:6px}
+/* 画板 */
+.draw{position:fixed;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column}
+.draw .tools{display:flex;gap:6px;flex-wrap:wrap;padding:8px;background:var(--card);border-bottom:1px solid var(--line);align-items:center}
+.draw .tools button{padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:14px}
+.draw .tools button.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 15%,transparent)}
+.draw .tools .dot{width:26px;height:26px;padding:0;border-radius:50%}
+.draw .tools .grow{flex:1}
+.draw .wrap{flex:1;position:relative;background:#fff;touch-action:none}
+.draw canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.att{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.att div{position:relative}.att img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.att button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:var(--bad);color:#fff;font-size:13px;line-height:1}

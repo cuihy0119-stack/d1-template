@@ -9,6 +9,7 @@ const MAX_IMAGES = 8; // 一次最多返回的图片数，避免响应过大
 
 const questionShape = {
 	subject: z.string().describe("科目，如 化学、数学、物理、法语"),
+	category: z.string().optional().describe("章节/分类，如「第二单元 我们周围的空气」；与用户 Notion 错题库里的分类保持一致，网站按 科目→分类→考点 分组展示"),
 	topic: z.string().describe("考点，如 氧气的性质"),
 	type: z.enum(["single", "multi", "fill", "short"]).describe("single 单选 / multi 多选 / fill 填空 / short 简答和大题"),
 	stem: z.string().describe("题干。公式用 $...$，化学式用 $\\ce{...}$"),
@@ -37,10 +38,11 @@ async function loadImages(db: D1Database, keys: string[]): Promise<Img[]> {
 async function insertQuestion(db: D1Database, q: any, source: "原错题" | "同类题") {
 	const res = await db
 		.prepare(
-			"INSERT INTO questions (subject, topic, type, stem, options, answer, explanation, source, origin_id) VALUES (?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
 		)
 		.bind(
 			q.subject,
+			q.category ?? null,
 			q.topic,
 			q.type,
 			q.stem,
@@ -105,7 +107,7 @@ export function buildServer(env: Env) {
 					{
 						type: "text",
 						text: [
-							`[待批改 attempt_id=${a.id}，question_id=${a.qid}，${a.subject}·${a.topic}，用时 ${a.time_spent_sec ?? 0} 秒]`,
+							`[待批改 attempt_id=${a.id}，question_id=${a.qid}，${a.subject}·${a.topic}，用时 ${a.time_spent_sec ?? 0} 秒。用户的过程照片可能是手写/手绘的画板图，请直接读图批改]`,
 							`题干：${a.stem}`,
 							a.options ? `选项：${a.options}` : "",
 							`参考答案：${a.answer}`,
@@ -212,7 +214,7 @@ export function buildServer(env: Env) {
 		async ({ days, subject }) => {
 			const { results } = await db
 				.prepare(
-					`SELECT a.id attempt_id, a.created_at, q.id question_id, q.subject, q.topic, q.type, q.source,
+					`SELECT a.id attempt_id, a.created_at, q.id question_id, q.subject, q.category, q.topic, q.type, q.source,
 					        a.status, a.is_correct, a.score, a.error_reason, a.comment, a.time_spent_sec
 					 FROM attempts a JOIN questions q ON q.id = a.question_id
 					 WHERE a.created_at >= datetime('now', ?) AND (? IS NULL OR q.subject = ?)
@@ -221,6 +223,58 @@ export function buildServer(env: Env) {
 				.bind(`-${days ?? 7} days`, subject ?? null, subject ?? null)
 				.all();
 			return text(JSON.stringify({ count: results.length, records: results }));
+		},
+	);
+
+	server.registerTool(
+		"get_question_bank",
+		{
+			description:
+				"列出题库里所有题（question_id、科目、分类、考点、题型、题干摘要、来源、掌握状态），用于整理分类、同步到 Notion、避免出重复的题。subject 可选。",
+			inputSchema: { subject: z.string().optional() },
+		},
+		async ({ subject }) => {
+			const { results } = await db
+				.prepare(
+					`SELECT q.id question_id, q.subject, q.category, q.topic, q.type, substr(q.stem, 1, 60) stem, q.source,
+					        CASE WHEN r.question_id IS NULL THEN (CASE WHEN q.source = '原错题' THEN '已掌握' ELSE '未入复习' END) ELSE '复习中，下次 ' || r.next_date END status
+					 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
+					 WHERE (? IS NULL OR q.subject = ?) ORDER BY q.id LIMIT 2000`,
+				)
+				.bind(subject ?? null, subject ?? null)
+				.all();
+			return text(JSON.stringify({ count: results.length, questions: results }));
+		},
+	);
+
+	server.registerTool(
+		"organize_questions",
+		{
+			description:
+				"批量调整已有题目的分类：修改 subject / category / topic（只改你传的字段）。用于把题库整理成和用户 Notion 错题库一致的科目→章节→考点结构，网站会立刻按新分类展示。",
+			inputSchema: {
+				items: z.array(
+					z.object({
+						question_id: z.number().int(),
+						subject: z.string().optional(),
+						category: z.string().optional(),
+						topic: z.string().optional(),
+					}),
+				),
+			},
+		},
+		async ({ items }) => {
+			let n = 0;
+			for (const it of items) {
+				const r = await db
+					.prepare(
+						"UPDATE questions SET subject = COALESCE(?, subject), category = COALESCE(?, category), topic = COALESCE(?, topic) WHERE id = ?",
+					)
+					.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, it.question_id)
+					.run();
+				n += r.meta.changes;
+			}
+			return text(`已更新 ${n} 道题的分类。`);
 		},
 	);
 

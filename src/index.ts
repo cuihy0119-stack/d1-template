@@ -12,6 +12,7 @@ type Q = {
 	id: number;
 	subject: string;
 	topic: string | null;
+	category: string | null;
 	type: "single" | "multi" | "fill" | "short";
 	stem: string;
 	options: string | null;
@@ -64,6 +65,7 @@ const parse = <T>(s: string | null, d: T): T => {
 const clientQ = (q: Q) => ({
 	id: q.id,
 	subject: q.subject,
+	category: q.category,
 	topic: q.topic,
 	type: q.type,
 	stem: q.stem,
@@ -115,17 +117,28 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
-	const [qs, summary, pending, wrong] = await Promise.all([
+	const [qs, summary, pending, wrong, subjects] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
 		db.prepare("SELECT COUNT(*) n FROM review_queue").first<{ n: number }>(),
+		db
+			.prepare(
+				`SELECT q.subject, COUNT(*) total,
+				        SUM(CASE WHEN r.question_id IS NOT NULL THEN 1 ELSE 0 END) reviewing,
+				        SUM(CASE WHEN r.next_date <= ? THEN 1 ELSE 0 END) due
+				 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
+				 GROUP BY q.subject ORDER BY q.subject`,
+			)
+			.bind(today())
+			.all(),
 	]);
 	return c.json({
 		today_count: qs.length,
 		summary,
 		pending_uploads: pending?.n ?? 0,
 		queue_count: wrong?.n ?? 0,
+		subjects: subjects.results,
 	});
 });
 
@@ -230,28 +243,46 @@ app.get("/api/attempts", async (c) => {
 	);
 });
 
-// ---------- 错题库 ----------
-app.get("/api/wrong", async (c) => {
-	const subject = c.req.query("subject");
+// ---------- 题库 / 错题本 ----------
+const WRONG_SQL = `(q.source = '原错题' OR r.question_id IS NOT NULL
+	OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`;
+
+async function listQuestions(db: D1Database, onlyWrong: boolean) {
+	const { results } = await db
+		.prepare(
+			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.stem, q.source, r.next_date, r.stage,
+			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
+			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
+			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending
+			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
+			 ${onlyWrong ? "WHERE " + WRONG_SQL : ""}
+			 ORDER BY q.subject, q.category, q.topic, q.id`,
+		)
+		.all();
+	return { items: results, today: today() };
+}
+
+app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB, false)));
+app.get("/api/wrong", async (c) => c.json(await listQuestions(c.env.DB, true)));
+
+// 单题详情：答案、解析、历史作答（只有用户自己能看）
+app.get("/api/question/:id", async (c) => {
+	const id = Number(c.req.param("id"));
+	const q = await c.env.DB.prepare("SELECT * FROM questions WHERE id = ?").bind(id).first<Q>();
+	if (!q) return c.notFound();
 	const { results } = await c.env.DB
 		.prepare(
-			`SELECT q.id, q.subject, q.topic, q.type, q.stem, r.next_date, r.stage
-			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE (q.source = '原错题' OR r.question_id IS NOT NULL
-			        OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))
-			   AND (? IS NULL OR q.subject = ?)
-			 ORDER BY q.id DESC`,
+			`SELECT id, answer_text, photo_key, is_correct, score, comment, error_reason, status, created_at
+			 FROM attempts WHERE question_id = ? ORDER BY id DESC LIMIT 10`,
 		)
-		.bind(subject ?? null, subject ?? null)
-		.all();
-	const subjects = await c.env.DB
-		.prepare(
-			`SELECT DISTINCT q.subject FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE q.source = '原错题' OR r.question_id IS NOT NULL
-			    OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)`,
-		)
-		.all<{ subject: string }>();
-	return c.json({ items: results, subjects: subjects.results.map((s) => s.subject) });
+		.bind(id)
+		.all<Record<string, any>>();
+	return c.json({
+		...clientQ(q),
+		answer: parse<string[]>(q.answer, []),
+		explanation: q.explanation,
+		attempts: results.map((r) => ({ ...r, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
+	});
 });
 
 // 其余请求：已登录后交给静态页面

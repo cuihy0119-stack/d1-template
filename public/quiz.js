@@ -26,7 +26,7 @@ function render() {
 	box.append(
 		el("div", {}, el("span", { className: "tag", textContent: q.subject }),
 			el("span", { className: "tag", textContent: TYPE[q.type] }),
-			el("span", { className: "tag", textContent: q.topic || "" })),
+			el("span", { className: "tag", textContent: [q.category, q.topic].filter(Boolean).join(" · ") })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
 
 	if (q.type === "single" || q.type === "multi") {
@@ -64,9 +64,16 @@ function render() {
 		const ta = el("textarea", { value: ans[cur], placeholder: "写下作答过程（也可以拍照上传）", oninput: () => (ans[cur] = ta.value) });
 		const pick = el("input", { type: "file", accept: "image/*", multiple: true, hidden: true,
 			onchange: () => { files[cur].push(...pick.files); render(); } });
+		const att = el("div", { className: "att" });
+		files[cur].forEach((f, i) => att.append(el("div", {},
+			el("img", { src: URL.createObjectURL(f) }),
+			el("button", { type: "button", textContent: "×", onclick: () => { files[cur].splice(i, 1); render(); } }))));
 		box.append(ta,
-			el("label", { className: "btn small", style: "margin-top:8px", textContent: "📷 拍照上传过程" }, pick),
-			el("span", { className: "mute", textContent: files[cur].length ? `  已选 ${files[cur].length} 张` : "" }));
+			el("div", { className: "row", style: "margin-top:8px" },
+				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
+				el("button", { type: "button", className: "btn small", textContent: "🎨 画板（画图/演算）",
+					onclick: async () => { const f = await openDraw(); if (f) { files[cur].push(f); render(); } } })),
+			att);
 	}
 
 	const last = cur === qs.length - 1;
