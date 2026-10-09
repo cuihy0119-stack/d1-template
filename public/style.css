@@ -67,7 +67,7 @@ body.has-tabs main{padding-bottom:84px}
 .bhint span{flex:1}
 .bhint button{padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 .bhint button.on{background:var(--pri);border-color:var(--pri);color:#fff}
-.bwrap{position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.bwrap{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;aspect-ratio:1/1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
 .board.big .bwrap{aspect-ratio:3/4}
 .bwrap input.btext{position:absolute;width:130px;padding:4px 6px;font-size:16px;border:1.5px solid var(--pri);border-radius:6px;background:#fff;color:#111;z-index:2}
 .bwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
@@ -78,3 +78,6 @@ body.has-tabs main{padding-bottom:84px}
 .tab{flex:1;padding:7px 0;border:0;border-radius:8px;background:none;color:var(--mute);font-size:15px}
 .tab.on{background:var(--card);color:var(--fg);font-weight:600}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
+.bundo{position:absolute;top:8px;right:8px;display:flex;gap:8px;z-index:2}
+.bundo button{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);color:#111;font-size:22px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
+.bundo button:active{background:#e8eefc}

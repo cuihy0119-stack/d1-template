@@ -17,7 +17,7 @@ const TOOLS = [
 	["erase", "⌫橡皮", "点一下删除一个图形"],
 ];
 const COLORS = ["#111111", "#d64545", "#2f6fed"];
-const CELL = 24, LIFT = 30; // 格距；触屏时预览点抬高 30px
+const CELL = 24; // 格距
 
 // ---------- 函数解析：+ - * / ^ ( ) | |、隐式乘法、sqrt sin cos tan abs ln log、pi e ----------
 function compileFn(src) {
@@ -78,6 +78,8 @@ class Board {
 		this.bar1 = el("div", { className: "btools" });
 		this.bar2 = el("div", { className: "btools" });
 		this.hint = el("div", { className: "bhint" });
+		const fab = (t, f, title) => el("button", { type: "button", textContent: t, title, onclick: f });
+		this.wrap.append(el("div", { className: "bundo" }, fab("↶", () => this.step(this.hist, this.fut), "撤销"), fab("↷", () => this.step(this.fut, this.hist), "重做")));
 		this.el = el("div", { className: "board" }, this.bar1, this.bar2, this.hint, this.wrap);
 		this.ctx = this.cv.getContext("2d");
 		this.bind();
@@ -98,14 +100,15 @@ class Board {
 	}
 	px(q) { return [this.ox + q[0] * CELL, this.oy - q[1] * CELL]; }
 	at(e) { // 返回 [吸附后的点, 原始点]
-		const r = this.cv.getBoundingClientRect(), lift = e.pointerType === "touch" && this.tool !== "pen" ? LIFT : 0;
-		const raw = [(e.clientX - r.left - this.ox) / CELL, (this.oy - (e.clientY - r.top - lift)) / CELL];
+		const r = this.cv.getBoundingClientRect();
+		const raw = [(e.clientX - r.left - this.ox) / CELL, (this.oy - (e.clientY - r.top)) / CELL];
 		return [this.snap && this.tool !== "pen" ? raw.map(Math.round) : raw, raw];
 	}
 
 	// ---------- 历史 ----------
 	change(fn) { this.hist.push(JSON.stringify(this.objs)); this.fut = []; fn(); this.draw(); }
-	add(o) { this.change(() => this.objs.push({ c: this.color, w: this.width, d: this.dash, ...o })); }
+	sty() { return { c: this.color, w: this.width, d: this.dash }; }
+	add(o) { this.change(() => this.objs.push({ ...this.sty(), ...o })); }
 	step(from, to) { if (this.pend) return this.reset(); if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.draw(); }
 	reset() { this.pend = null; this.build(); this.draw(); }
 
@@ -146,7 +149,7 @@ class Board {
 		if (t === "poly" || t === "curve") {
 			if (pd && t === "poly" && pd.pts.length > 2 && dist(p, pd.pts[0]) < 0.4) return this.finish();
 			pd ? pd.pts.push(p) : ((this.pend = { pts: [p] }), this.build());
-		} else if (t === "mark") this.add({ t: "mk", p });
+		} else if (t === "mark") { if (!this.objs.some((o) => o.t === "mk" && dist(o.p, p) < 0.01)) this.add({ t: "mk", p }); }
 		else if (t === "point") {
 			const used = new Set(this.objs.map((o) => o.name));
 			this.ask(p, [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !used.has(c)) || "", (name) => this.add({ t: "pt", p, name }));
@@ -160,8 +163,8 @@ class Board {
 			if (dist(pd.p, F) < 0.01) return alert("点在线上，换一个点");
 			const u = [L[1][0] - L[0][0], L[1][1] - L[0][1]], v = [pd.p[0] - F[0], pd.p[1] - F[1]], lu = Math.hypot(...u), lv = Math.hypot(...v);
 			this.change(() => this.objs.push(
-				{ c: this.color, w: this.width, d: this.dash, t: "seg", a: pd.p, b: F },
-				{ c: this.color, w: this.width, t: "ra", at: F, u: [u[0] / lu, u[1] / lu], v: [v[0] / lv, v[1] / lv] }));
+				{ ...this.sty(), t: "seg", a: pd.p, b: F },
+				{ ...this.sty(), d: false, t: "ra", at: F, u: [u[0] / lu, u[1] / lu], v: [v[0] / lv, v[1] / lv] }));
 		} else if (t === "para") {
 			if (!pd) { const L = this.lineAt(raw); if (!L) return alert("先点在一条线上"); this.pend = { dir: [L[1][0] - L[0][0], L[1][1] - L[0][1]] }; return this.build(); }
 			this.pend = null; this.build();
@@ -214,7 +217,9 @@ class Board {
 	}
 
 	// ---------- 绘制 ----------
-	draw() { if (this.W) this.paint(this.ctx, true); }
+	draw() { // 每帧最多重绘一次，拖动更跟手
+		if (this.W && !this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(this.ctx, true); });
+	}
 	paint(c, live) {
 		const { W, H, ox, oy } = this;
 		c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
@@ -224,20 +229,31 @@ class Board {
 		for (let y = oy % CELL; y <= H; y += CELL) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
 		c.stroke();
 		if (this.axes) this.paintAxes(c);
-		const style = { c: this.color, w: this.width, d: this.dash };
+		const style = this.sty();
 		const list = [...this.objs];
 		if (live && this.drag) list.push({ ...style, ...this.drag });
 		if (live && this.pend?.pts) list.push({ ...style, t: this.tool === "poly" ? "open" : "curve", pts: this.tap ? [...this.pend.pts, this.tap[0]] : this.pend.pts });
 		for (const o of list) this.obj(c, o);
 		if (!live) return;
 		for (const q of this.pend?.pts || (this.pend?.p ? [this.pend.p] : [])) this.dot(c, this.px(q), 3.5, "#d64545");
-		const sp = this.drag && this.drag.t !== "pen" ? [this.drag.a, this.drag.b] : this.tap ? [this.tap[0]] : this.hover ? [this.hover] : [];
-		for (const q of sp) { // 吸附预览点
-			const [x, y] = this.px(q);
-			c.setLineDash([]); c.strokeStyle = "#2f6fed"; c.lineWidth = 1.5;
-			c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke();
-			this.dot(c, [x, y], 2.5, "#2f6fed");
-		}
+		const cur = this.drag && this.drag.t !== "pen" ? this.drag.b : this.tap ? this.tap[0] : this.hover;
+		if (this.drag?.a) this.ring(c, this.px(this.drag.a));
+		if (cur) this.guide(c, cur);
+	}
+	ring(c, [x, y]) { c.setLineDash([]); c.strokeStyle = "#2f6fed"; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke(); this.dot(c, [x, y], 2.5, "#2f6fed"); }
+	// 当前落点：十字辅助线 + 手指上方的坐标气泡
+	guide(c, q) {
+		const [x, y] = this.px(q), { W, H } = this;
+		c.save();
+		c.strokeStyle = "rgba(47,111,237,.45)"; c.lineWidth = 1; c.setLineDash([4, 4]);
+		c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.moveTo(x, 0); c.lineTo(x, H); c.stroke();
+		this.ring(c, [x, y]);
+		const s = xy(q);
+		c.font = "bold 14px sans-serif";
+		const w = c.measureText(s).width + 14, bx = Math.min(Math.max(x - w / 2, 2), W - w - 2), by = y - 64 < 2 ? y + 30 : y - 64;
+		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect(bx, by, w, 24, 12); c.fill();
+		c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(s, bx + w / 2, by + 12);
+		c.restore();
 	}
 	paintAxes(c) {
 		const { W, H, ox, oy } = this;
@@ -282,7 +298,11 @@ class Board {
 		c.lineWidth = o.w || 2; c.lineCap = c.lineJoin = "round";
 		c.setLineDash(o.d ? [7, 6] : []);
 		const path = (pts, close) => { c.beginPath(); pts.map(P).forEach((q, i) => (i ? c.lineTo(...q) : c.moveTo(...q))); if (close) c.closePath(); c.stroke(); };
-		const label = (q, s, font = "italic 15px serif") => { c.font = font; c.textAlign = "left"; c.textBaseline = "bottom"; c.fillText(s, q[0] + 5, q[1] - 3); };
+		const label = (q, s, font = "italic 15px serif") => {
+			c.font = font; c.textAlign = "left"; c.textBaseline = "bottom";
+			c.save(); c.strokeStyle = "#fff"; c.lineWidth = 4; c.setLineDash([]); c.strokeText(s, q[0] + 6, q[1] - 4); c.restore();
+			c.fillText(s, q[0] + 6, q[1] - 4);
+		};
 		switch (o.t) {
 			case "seg": path([o.a, o.b]); break;
 			case "open": path(o.pts); break;
@@ -332,8 +352,6 @@ class Board {
 			B("虚线", this.dash, () => { this.dash = !this.dash; this.build(); }),
 			B("吸附格点", this.snap, () => { this.snap = !this.snap; this.build(); }),
 			B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); }),
-			B("↶撤销", false, () => this.step(this.hist, this.fut)),
-			B("↷重做", false, () => this.step(this.fut, this.hist)),
 			B("清空", false, () => this.objs.length && confirm("清空画板？") && this.change(() => (this.objs = []))),
 			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }));
 		const tip = this.pend?.p ? "已选点，再点一条线" : this.pend?.dir ? "已选线，再点一个点" : TOOLS.find(([k]) => k === this.tool)[2];
