@@ -28,3 +28,5 @@ npm run seed:local               # 导入 seed/questions.json
 - 做错 → 明天重做；重做对 → 按 1、2、4、7、15 天推进，15 天后算掌握；重做错 → 退回第 1 天
 - 选择/填空当场判分（去空格、全角转半角，填空可有多个可接受答案）；简答标「待批改」
 - 日期按北京时间
+
+> 部署由 Cloudflare Workers Builds 从 `main` 自动触发。
