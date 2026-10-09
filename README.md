@@ -21,9 +21,12 @@ MCP 地址：`https://<你的 Worker 域名>/mcp`（例如 `https://d1-template.
 1. claude.ai → 设置 → 连接器 → **添加自定义连接器**
 2. 名称随意（如「错题练习站」），URL 填上面的 `/mcp` 地址，保存
 3. 点连接，会弹出授权页，输入网站的 `PASSCODE` 并点「允许」
-4. 对话里就能让 Claude 用这些工具：`get_inbox`、`add_wrong_questions`、`add_questions`、`grade`（批量）、`get_records`、`post_summary`，以及分类用的 `get_question_bank`、`organize_questions`
+4. 对话里 Claude 只用 3 个工具：
+   - `get_inbox`：新照片 + 待批改作答
+   - `save`：一次写入——`grades` 批改、`wrong` 原错题、`questions` 新题、`organize` 改分类、`summary` 总结；`def` 给本批题共用的科目/章节；`type` 可省（自动推断）
+   - `get_data`：`kind=records` 作答记录 / `kind=bank` 题库清单（TSV）
 
-省用量设计：工具说明精简；记录/题库用 TSV 返回；作图答案转成文字描述（坐标单位=格），只有手绘笔迹才附图；照片压到 1280px；批改一次批量提交。
+省用量设计：工具少且说明短；一轮通常只要 get_inbox + save 两次调用；作图答案转成文字描述（坐标单位=格），只有手绘才附图；照片压到 1280px。
 
 OAuth 的令牌存在 KV（绑定名 `OAUTH_KV`）。`wrangler.json` 里没写 KV id，首次 `wrangler deploy` 会自动创建；若构建报 KV 权限错误，手动在控制台建一个 KV，把 id 填进 `kv_namespaces`。
 
