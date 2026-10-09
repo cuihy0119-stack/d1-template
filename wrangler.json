@@ -10,12 +10,6 @@
 			"database_name": "maxcc_db"
 		}
 	],
-	"r2_buckets": [
-		{
-			"binding": "PHOTOS",
-			"bucket_name": "wrongq-photos"
-		}
-	],
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS",

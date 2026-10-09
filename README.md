@@ -1,18 +1,16 @@
 # 错题练习站
 
-只给自己用的手机刷题网站（Cloudflare Workers + Hono + D1 + R2）。网站不调用任何 AI；出题、批改、总结由 claude.ai 通过 MCP（阶段二）完成。
+只给自己用的手机刷题网站（Cloudflare Workers + Hono + D1（照片也存 D1，不需要 R2））。网站不调用任何 AI；出题、批改、总结由 claude.ai 通过 MCP（阶段二）完成。
 
 当前进度：**阶段一（网站）已完成**；阶段二（`/mcp` + OAuth）待做。
 
 ## 部署步骤（阶段一）
 
-1. Cloudflare 控制台 → R2 → 开通 R2（一次性）。
-2. `npm install`，`npx wrangler login`
-3. 建 R2 桶：`npx wrangler r2 bucket create wrongq-photos`
-4. 部署（会自动执行 D1 迁移）：`npm run deploy`
-5. 设置登录口令：`npx wrangler secret put PASSCODE`
+1. `npm install`，`npx wrangler login`
+2. 部署（会自动执行 D1 迁移）：`npm run deploy`
+3. 设置登录口令：`npx wrangler secret put PASSCODE`
    （或控制台 Worker → Settings → Variables and Secrets 添加 `PASSCODE`）
-6. 导入几道测试题（可选）：`npm run seed:remote`
+4. 导入几道测试题（可选）：`npm run seed:remote`
 
 > 用 Cloudflare 的 Git 集成（Workers Builds）时，Deploy command 填 `npm run deploy`，口令在控制台添加。
 

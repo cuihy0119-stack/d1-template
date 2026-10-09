@@ -18,6 +18,7 @@ type Q = {
 
 const COOKIE = "session";
 const app = new Hono<{ Bindings: Env }>();
+app.onError((e, c) => c.json({ error: e.message }, 500));
 
 // ---------- 登录 ----------
 async function sha(s: string) {
@@ -81,10 +82,18 @@ const idsParam = (s: string | undefined) =>
 		.filter((n) => Number.isInteger(n) && n > 0)
 		.slice(0, 100);
 
+const MAX_PHOTO = 1_400_000; // D1 单行上限约 2MB，base64 后会变大
+
 async function savePhoto(env: Env, file: File, prefix: string) {
+	if (file.size > MAX_PHOTO) throw new Error("图片太大（需小于 1.4MB）");
 	const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "jpg";
 	const key = `${prefix}/${crypto.randomUUID()}.${ext}`;
-	await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type || "image/jpeg" } });
+	const bytes = new Uint8Array(await file.arrayBuffer());
+	let bin = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	await env.DB.prepare("INSERT INTO photos (key, content_type, data) VALUES (?, ?, ?)")
+		.bind(key, file.type || "image/jpeg", btoa(bin))
+		.run();
 	return key;
 }
 
@@ -145,13 +154,12 @@ app.post("/api/attempt-photo", async (c) => {
 
 app.get("/photo/*", async (c) => {
 	const key = decodeURIComponent(new URL(c.req.url).pathname.slice("/photo/".length));
-	const obj = await c.env.PHOTOS.get(key);
-	if (!obj) return c.notFound();
-	return new Response(obj.body, {
-		headers: {
-			"content-type": obj.httpMetadata?.contentType ?? "image/jpeg",
-			"cache-control": "private, max-age=86400",
-		},
+	const row = await c.env.DB.prepare("SELECT content_type, data FROM photos WHERE key = ?")
+		.bind(key)
+		.first<{ content_type: string; data: string }>();
+	if (!row) return c.notFound();
+	return new Response(Uint8Array.from(atob(row.data), (ch) => ch.charCodeAt(0)), {
+		headers: { "content-type": row.content_type, "cache-control": "private, max-age=86400" },
 	});
 });
 
