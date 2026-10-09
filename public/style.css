@@ -78,6 +78,5 @@ body.has-tabs main{padding-bottom:84px}
 .tab{flex:1;padding:7px 0;border:0;border-radius:8px;background:none;color:var(--mute);font-size:15px}
 .tab.on{background:var(--card);color:var(--fg);font-weight:600}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
-.bundo{position:absolute;top:8px;right:8px;display:flex;gap:8px;z-index:2}
-.bundo button{width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.92);color:#111;font-size:22px;box-shadow:0 1px 4px rgba(0,0,0,.15)}
-.bundo button:active{background:#e8eefc}
+.bhint .fab{width:44px;height:40px;padding:0;border-radius:12px;font-size:22px;line-height:1;background:var(--card);border:1px solid var(--line);color:var(--fg)}
+.bhint .fab:active{background:color-mix(in srgb,var(--pri) 15%,transparent)}

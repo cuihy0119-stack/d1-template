@@ -1,5 +1,5 @@
 // 作图板：方格常驻、格点吸附、几何/函数作图。图形坐标以「格」为单位，原点在画板中心附近的格点。
-// 交卷时 describe() 生成文字描述发给 Claude（省用量）；只有手绘笔迹才需要附图。
+// 交卷时 describe() 生成文字描述 + 几何信息，配一张 600px 小图一起发给 Claude（准确且省用量）。
 
 const TOOLS = [
 	["seg", "／线段", "拖动画线段，两端吸附格点"],
@@ -78,8 +78,6 @@ class Board {
 		this.bar1 = el("div", { className: "btools" });
 		this.bar2 = el("div", { className: "btools" });
 		this.hint = el("div", { className: "bhint" });
-		const fab = (t, f, title) => el("button", { type: "button", textContent: t, title, onclick: f });
-		this.wrap.append(el("div", { className: "bundo" }, fab("↶", () => this.step(this.hist, this.fut), "撤销"), fab("↷", () => this.step(this.fut, this.hist), "重做")));
 		this.el = el("div", { className: "board" }, this.bar1, this.bar2, this.hint, this.wrap);
 		this.ctx = this.cv.getContext("2d");
 		this.bind();
@@ -357,35 +355,62 @@ class Board {
 		const tip = this.pend?.p ? "已选点，再点一条线" : this.pend?.dir ? "已选线，再点一个点" : TOOLS.find(([k]) => k === this.tool)[2];
 		this.hint.replaceChildren(el("span", { textContent: tip }));
 		if (this.pend?.pts) this.hint.append(B("完成", true, () => this.finish()), B("取消", false, () => this.reset()));
+		// 撤销 / 重做：放在画板正上方，醒目又不挡画布
+		const fab = (t, title, f) => el("button", { type: "button", className: "fab", textContent: t, title, onclick: f });
+		this.hint.append(fab("↶", "撤销", () => this.step(this.hist, this.fut)), fab("↷", "重做", () => this.step(this.fut, this.hist)));
 	}
 
 	// ---------- 交卷 ----------
 	// 文字描述（坐标单位=格），Claude 据此批改，基本不用看图
+	// 文字描述 + 代码算好的几何信息（方程、截距、交点、点在哪条线上），Claude 直接核对，不用自己推算
 	describe() {
-		const col = { "#d64545": "红", "#2f6fed": "蓝" };
-		const pens = this.objs.filter((o) => o.t === "pen").length;
-		const parts = this.objs.filter((o) => o.t !== "pen").map((o) => {
-			const pre = (o.d ? "虚" : "") + (col[o.c] || "");
-			switch (o.t) {
-				case "seg": return `${pre}线段${xy(o.a)}${xy(o.b)}`;
-				case "line": return `${pre}直线过${xy(o.a)}${xy(o.b)}`;
-				case "ray": return `${pre}射线${xy(o.a)}→${xy(o.b)}`;
-				case "circle": return `${pre}圆 心${xy(o.a)} 半径${num(dist(o.a, o.b))}`;
-				case "poly": return `${pre}多边形${o.pts.map(xy).join("")}`;
-				case "curve": return `${pre}曲线过${o.pts.map(xy).join("")}`;
-				case "pt": return `点${o.name}${xy(o.p)}`;
-				case "mk": return `标点${xy(o.p)}`;
-				case "text": return `文字「${o.s}」@${xy(o.p)}`;
-				case "ra": return `直角@${xy(o.at)}`;
-				case "fn": return `函数 ${o.expr}`;
+		const col = { "#d64545": "红", "#2f6fed": "蓝" }, n2 = (v) => String(Math.round(v * 100) / 100 || 0), p2 = (q) => `(${n2(q[0])},${n2(q[1])})`;
+		const eq = (a, b) => {
+			if (Math.abs(a[0] - b[0]) < 1e-9) return `x=${n2(a[0])}`;
+			const k = (b[1] - a[1]) / (b[0] - a[0]), m = a[1] - k * a[0];
+			const kx = Math.abs(k) < 1e-9 ? "" : `${k === 1 ? "" : k === -1 ? "-" : n2(k)}x`;
+			return `y=${kx}${Math.abs(m) < 1e-9 ? (kx ? "" : "0") : (m > 0 && kx ? "+" : "") + n2(m)}`;
+		};
+		const on = (L, q) => dist(q, proj(q, L.a, L.b, L.k)) < 1e-6; // 点在线段/射线/直线范围内
+		const cross = (L1, L2) => { // 两线交点
+			const d1 = [L1.b[0] - L1.a[0], L1.b[1] - L1.a[1]], d2 = [L2.b[0] - L2.a[0], L2.b[1] - L2.a[1]], den = d1[0] * d2[1] - d1[1] * d2[0];
+			if (Math.abs(den) < 1e-9) return null;
+			const k = ((L2.a[0] - L1.a[0]) * d2[1] - (L2.a[1] - L1.a[1]) * d2[0]) / den, q = lerp(L1.a, L1.b, k);
+			return on(L1, q) && on(L2, q) ? q : null;
+		};
+		const lines = [], parts = [], items = this.objs.filter((o) => o.t !== "pen");
+		items.forEach((o, i) => {
+			const id = `[${i + 1}]`, pre = (o.d ? "虚" : "") + (col[o.c] || "");
+			let d = "";
+			if (["seg", "line", "ray"].includes(o.t)) {
+				const L = { a: o.a, b: o.b, k: o.t, id };
+				lines.push(L);
+				const name = { seg: `线段${xy(o.a)}${xy(o.b)}`, line: `直线过${xy(o.a)}${xy(o.b)}`, ray: `射线${xy(o.a)}→${xy(o.b)}` }[o.t];
+				const ix = [[0, 1], [1, 0]].map(([ax, ay]) => cross(L, { a: [0, 0], b: [ax, ay], k: "line" })).filter(Boolean);
+				d = `${pre}${name} ${eq(o.a, o.b)}` + (this.axes && ix.length ? ` 交轴${ix.map(p2).join("")}` : "");
+			} else if (o.t === "circle") d = `${pre}圆 心${xy(o.a)} 半径${n2(dist(o.a, o.b))}`;
+			else if (o.t === "poly") d = `${pre}多边形${o.pts.map(xy).join("")}`;
+			else if (o.t === "curve") d = `${pre}曲线过${o.pts.map(xy).join("")}`;
+			else if (o.t === "fn") d = `函数 ${o.expr}`;
+			else if (o.t === "ra") d = `直角@${xy(o.at)}`;
+			else if (o.t === "text") d = `文字「${o.s}」@${xy(o.p)}`;
+			else {
+				const hosts = items.filter((h) => h !== o && !["pt", "mk", "text", "ra"].includes(h.t) && this.distTo(h, o.p) < 0.05).map((h) => `[${items.indexOf(h) + 1}]`);
+				d = `${o.t === "pt" ? "点" + (o.name || "") : "标点"}${xy(o.p)}${hosts.length ? "在" + hosts.join("") + "上" : ""}`;
 			}
+			parts.push(id + d);
 		});
-		if (pens) parts.push(`手绘${pens}笔（见图）`);
+		for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+			const q = cross(lines[i], lines[j]);
+			if (q) parts.push(`${lines[i].id}∩${lines[j].id}=${p2(q)}`);
+		}
+		const pens = this.objs.length - items.length;
+		if (pens) parts.push(`手绘${pens}笔`);
 		return (this.axes ? "坐标轴；" : "") + parts.join("；");
 	}
 	toFile() {
 		this.draw(); // 先重绘一遍，确保导出清楚
-		const s = Math.min(2, 1000 / Math.max(this.W, this.H)), out = document.createElement("canvas");
+		const s = Math.min(2, 600 / Math.max(this.W, this.H)), out = document.createElement("canvas");
 		out.width = Math.round(this.W * s); out.height = Math.round(this.H * s);
 		const c = out.getContext("2d"); c.scale(s, s);
 		this.paint(c, false);
