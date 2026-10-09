@@ -24,8 +24,13 @@
 		"cf-typegen": "wrangler types",
 		"check": "tsc && wrangler deploy --dry-run",
 		"deploy": "wrangler deploy",
-		"dev": "pnpm seedLocalD1 && wrangler dev",
+		"dev": "npm run seedLocalD1 && wrangler dev",
 		"predeploy": "wrangler d1 migrations apply DB --remote",
-		"seedLocalD1": "wrangler d1 migrations apply DB --local"
+		"seedLocalD1": "wrangler d1 migrations apply DB --local",
+		"seed:local": "node scripts/seed.mjs",
+		"seed:remote": "node scripts/seed.mjs --remote"
+	},
+	"dependencies": {
+		"hono": "^4.13.13"
 	}
 }
