@@ -62,7 +62,7 @@ function row(q) {
 		if (d.options.length) detail.append(el("div", { className: "mute", textContent: d.options.join("\n"), style: "white-space:pre-wrap" }));
 		const wrong = d.attempts.find((a) => a.is_correct === 0);
 		if (wrong) {
-			detail.append(el("div", { className: "ans bad", textContent: "你的答案：" + (wrong.answer_text || "（空）") + (wrong.error_reason ? `（${wrong.error_reason}）` : "") }));
+			detail.append(el("div", { className: "ans bad", textContent: "你的答案：" + ((wrong.answer_text || "").replace(/\n?\[作图\][\s\S]*$/, " （见作图）") || "（空）") + (wrong.error_reason ? `（${wrong.error_reason}）` : "") }));
 			if (wrong.comment) detail.append(el("div", { className: "ans", textContent: "评语：" + wrong.comment }));
 		}
 		detail.append(el("div", { className: "ans", textContent: "正确答案：" + d.answer.join(" / ") }));

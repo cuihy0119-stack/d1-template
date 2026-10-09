@@ -98,14 +98,21 @@ async function submit() {
 		const items = [];
 		for (let i = 0; i < qs.length; i++) {
 			const photo_keys = [];
-			const list = [...files[i]];
-			if (boards[i] && !boards[i].isEmpty()) list.push(await boards[i].toFile());
-			for (const f of list) {
+			const up = async (f, kind) => {
 				const fd = new FormData();
-				fd.append("file", await compress(f));
+				fd.append("file", kind ? f : await compress(f));
+				if (kind) fd.append("kind", kind);
 				photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
+			};
+			for (const f of files[i]) await up(f);
+			let answer = ans[i];
+			const b = boards[i];
+			if (b && !b.isEmpty()) {
+				// 作图转成文字发给 Claude（省用量）；图也存一份，自己看结果时用
+				if (typeof answer === "string") answer = (answer ? answer + "\n" : "") + "[作图] " + b.describe();
+				await up(await b.toFile(), "board");
 			}
-			items.push({ question_id: qs[i].id, answer: ans[i], photo_keys, time_spent_sec: secs[i] });
+			items.push({ question_id: qs[i].id, answer, photo_keys, time_spent_sec: secs[i] });
 		}
 		const r = await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
 		location.hash = "r=" + r.attempt_ids.join(",");
@@ -131,7 +138,7 @@ async function showResult(ids) {
 			el("span", { className: "tag", textContent: " " + r.subject }),
 			el("p", { textContent: r.stem, style: "white-space:pre-wrap" }));
 		if (r.options.length) card.append(el("div", { className: "mute", textContent: r.options.join("\n"), style: "white-space:pre-wrap" }));
-		card.append(el("div", { className: "ans", textContent: "你的答案：" + (r.answer_text || "（空）") }));
+		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
 		if (r.photos.length) {
 			const t = el("div", { className: "thumbs" });
 			for (const k of r.photos) t.append(el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k })));
@@ -151,3 +158,6 @@ async function showResult(ids) {
 }
 
 window.addEventListener("load", start);
+
+// 作答里的「[作图] …」是给 Claude 的描述，自己看时换成提示
+function plain(t) { return (t || "").replace(/\n?\[作图\][\s\S]*$/, " （见作图）").trim(); }

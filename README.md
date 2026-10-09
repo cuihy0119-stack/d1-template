@@ -21,7 +21,9 @@ MCP 地址：`https://<你的 Worker 域名>/mcp`（例如 `https://d1-template.
 1. claude.ai → 设置 → 连接器 → **添加自定义连接器**
 2. 名称随意（如「错题练习站」），URL 填上面的 `/mcp` 地址，保存
 3. 点连接，会弹出授权页，输入网站的 `PASSCODE` 并点「允许」
-4. 对话里就能让 Claude 用这些工具：`get_inbox`、`add_wrong_questions`、`add_questions`、`grade`、`get_records`、`post_summary`，以及分类用的 `get_question_bank`、`organize_questions`
+4. 对话里就能让 Claude 用这些工具：`get_inbox`、`add_wrong_questions`、`add_questions`、`grade`（批量）、`get_records`、`post_summary`，以及分类用的 `get_question_bank`、`organize_questions`
+
+省用量设计：工具说明精简；记录/题库用 TSV 返回；作图答案转成文字描述（坐标单位=格），只有手绘笔迹才附图；照片压到 1280px；批改一次批量提交。
 
 OAuth 的令牌存在 KV（绑定名 `OAUTH_KV`）。`wrangler.json` 里没写 KV id，首次 `wrangler deploy` 会自动创建；若构建报 KV 权限错误，手动在控制台建一个 KV，把 id 填进 `kv_namespaces`。
 
@@ -33,7 +35,7 @@ OAuth 的令牌存在 KV（绑定名 `OAUTH_KV`）。`wrangler.json` 里没写 K
 
 - 首页：今日练习、拍照上传、Claude 总结、各科概览；底部导航 首页 / 题库 / 错题本
 - 题库、错题本：按 科目 → 分类（章节）→ 考点 分组，点题目看答案、解析和历史作答，可「练这组」「重做」
-- 作图题（Claude 出题时设 `board: coord|grid`）在题目下方直接显示作图板；其他简答题可手动打开。方格常驻，工具：画笔、线段、直线、射线、圆、矩形、多边形、平滑曲线、点（命名）、文字、垂线（带直角符号）、平行线、函数自动画图、橡皮，及颜色/粗细/虚线/吸附格点/坐标轴/撤销/重做/放大。交卷时导出为图片，Claude 在 `get_inbox` 里读图批改
+- 作图题（Claude 出题时设 `board: coord|grid`）在题目下方直接显示作图板，方格常驻。格点吸附（触屏时预览点抬高 30px 防遮挡）；直线/射线自动延长到边缘带箭头；标点自动写坐标；可在画板上直接打字；另有圆、多边形、平滑曲线、垂线、平行线、函数自动画图、画笔、橡皮、虚线、撤销/重做
 - 分类由 Claude 维护：可对它说「按我 Notion 错题库的分类整理题库」，它用 `get_question_bank` + `organize_questions` 调整，也可以把错题同步到 Notion（网站本身不连 Notion）
 
 ## 本地开发
