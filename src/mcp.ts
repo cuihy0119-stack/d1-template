@@ -18,6 +18,10 @@ const questionShape = {
 		.array(z.string())
 		.describe("选择题=正确选项字母，如 [\"B\"] 或 [\"A\",\"C\"]；填空题=所有可接受答案；简答题=[参考答案]"),
 	explanation: z.string().optional().describe("解析"),
+	board: z
+		.enum(["coord", "grid"])
+		.optional()
+		.describe("需要作图的题才填：coord=带坐标轴的方格（画函数图像），grid=方格纸（画几何图形、作垂线等）。填了以后做题页会在题目下方直接显示作图板，用户画的图会作为图片随作答提交"),
 };
 
 type Img = { type: "image"; data: string; mimeType: string };
@@ -38,7 +42,7 @@ async function loadImages(db: D1Database, keys: string[]): Promise<Img[]> {
 async function insertQuestion(db: D1Database, q: any, source: "原错题" | "同类题") {
 	const res = await db
 		.prepare(
-			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
 		)
 		.bind(
 			q.subject,
@@ -51,6 +55,7 @@ async function insertQuestion(db: D1Database, q: any, source: "原错题" | "同
 			q.explanation ?? null,
 			source,
 			q.origin_id ?? null,
+			q.board ?? null,
 		)
 		.run();
 	return res.meta.last_row_id;
