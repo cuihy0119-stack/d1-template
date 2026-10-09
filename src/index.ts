@@ -13,6 +13,7 @@ type Q = {
 	subject: string;
 	topic: string | null;
 	category: string | null;
+	board: string | null;
 	type: "single" | "multi" | "fill" | "short";
 	stem: string;
 	options: string | null;
@@ -70,6 +71,7 @@ const clientQ = (q: Q) => ({
 	type: q.type,
 	stem: q.stem,
 	options: parse<string[]>(q.options, []),
+	board: q.board,
 });
 const inList = (ids: number[]) => ids.map(() => "?").join(",");
 const idsParam = (s: string | undefined) =>

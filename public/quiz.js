@@ -1,7 +1,7 @@
 const app = $("#app");
 const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], secs = [], cur = 0, shownAt = 0;
+let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
 
 async function start() {
 	const p = new URLSearchParams(location.search);
@@ -11,6 +11,7 @@ async function start() {
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
+	boards = qs.map((q) => (q.board ? new Board({ axes: q.board === "coord" }) : null));
 	secs = qs.map(() => 0);
 	cur = 0;
 	render();
@@ -26,6 +27,7 @@ function render() {
 	box.append(
 		el("div", {}, el("span", { className: "tag", textContent: q.subject })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
+	if (boards[cur]) box.append(boards[cur].el);
 
 	if (q.type === "single" || q.type === "multi") {
 		q.options.forEach((o) => {
@@ -69,8 +71,8 @@ function render() {
 		box.append(ta,
 			el("div", { className: "row", style: "margin-top:8px" },
 				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
-				el("button", { type: "button", className: "btn small", textContent: "🎨 画板（画图/演算）",
-					onclick: async () => { const f = await openDraw(); if (f) { files[cur].push(f); render(); } } })),
+				boards[cur] ? "" : el("button", { type: "button", className: "btn small", textContent: "📐 打开作图板",
+					onclick: () => { boards[cur] = new Board(); render(); } })),
 			att);
 	}
 
@@ -96,7 +98,9 @@ async function submit() {
 		const items = [];
 		for (let i = 0; i < qs.length; i++) {
 			const photo_keys = [];
-			for (const f of files[i]) {
+			const list = [...files[i]];
+			if (boards[i] && !boards[i].isEmpty()) list.push(await boards[i].toFile());
+			for (const f of list) {
 				const fd = new FormData();
 				fd.append("file", await compress(f));
 				photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
