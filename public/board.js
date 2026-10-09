@@ -8,8 +8,7 @@ const TOOLS = [
 	["circle", "◯圆", "从圆心拖到圆上一点"],
 	["poly", "△多边形", "依次点顶点，点回起点或按「完成」"],
 	["curve", "∿曲线", "依次点经过的点，按「完成」连成平滑曲线"],
-	["mark", "⊙标点", "点一下标出坐标"],
-	["point", "•点", "点一下放点并起名"],
+	["point", "⊙标点", "点一下放点：起名并自动标坐标，如 A(1,-4)"],
 	["text", "T文字", "点一下，在那里打字"],
 	["perp", "⊥垂线", "先点一个点，再点一条线"],
 	["para", "∥平行线", "先点一条线，再点一个点"],
@@ -147,10 +146,12 @@ class Board {
 		if (t === "poly" || t === "curve") {
 			if (pd && t === "poly" && pd.pts.length > 2 && dist(p, pd.pts[0]) < 0.4) return this.finish();
 			pd ? pd.pts.push(p) : ((this.pend = { pts: [p] }), this.build());
-		} else if (t === "mark") { if (!this.objs.some((o) => o.t === "mk" && dist(o.p, p) < 0.01)) this.add({ t: "mk", p }); }
-		else if (t === "point") {
+		} else if (t === "point") {
+			// 起名 + 坐标一起标；点在已有的点上就是改名
+			const i = this.objs.findIndex((o) => o.t === "pt" && dist(o.p, p) < 0.01);
 			const used = new Set(this.objs.map((o) => o.name));
-			this.ask(p, [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !used.has(c)) || "", (name) => this.add({ t: "pt", p, name }));
+			const def = i >= 0 ? this.objs[i].name : [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !used.has(c)) || "";
+			this.ask(p, def, (name) => (i >= 0 ? this.change(() => (this.objs[i].name = name)) : this.add({ t: "pt", p, name })));
 		} else if (t === "text") this.ask(p, "", (s) => s && this.add({ t: "text", p, s }));
 		else if (t === "perp") {
 			if (!pd) { this.pend = { p }; this.build(); return this.draw(); }
@@ -316,8 +317,7 @@ class Board {
 				}
 				c.stroke(); break;
 			}
-			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); if (o.name) label(q, o.name); break; }
-			case "mk": { const q = P(o.p); this.dot(c, q, 3.5); label(q, xy(o.p), "13px sans-serif"); break; }
+			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); label(q, (o.name || "") + xy(o.p), o.name ? "italic 15px serif" : "13px sans-serif"); break; }
 			case "text": { const q = P(o.p); c.font = "16px sans-serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
 			case "ra": { const k = 0.45, a = o.at; path([[a[0] + o.u[0] * k, a[1] + o.u[1] * k], [a[0] + (o.u[0] + o.v[0]) * k, a[1] + (o.u[1] + o.v[1]) * k], [a[0] + o.v[0] * k, a[1] + o.v[1] * k]]); break; }
 			case "fn": {
@@ -395,8 +395,8 @@ class Board {
 			else if (o.t === "ra") d = `直角@${xy(o.at)}`;
 			else if (o.t === "text") d = `文字「${o.s}」@${xy(o.p)}`;
 			else {
-				const hosts = items.filter((h) => h !== o && !["pt", "mk", "text", "ra"].includes(h.t) && this.distTo(h, o.p) < 0.05).map((h) => `[${items.indexOf(h) + 1}]`);
-				d = `${o.t === "pt" ? "点" + (o.name || "") : "标点"}${xy(o.p)}${hosts.length ? "在" + hosts.join("") + "上" : ""}`;
+				const hosts = items.filter((h) => h !== o && !["pt", "text", "ra"].includes(h.t) && this.distTo(h, o.p) < 0.05).map((h) => `[${items.indexOf(h) + 1}]`);
+				d = `点${o.name || ""}${xy(o.p)}${hosts.length ? "在" + hosts.join("") + "上" : ""}`;
 			}
 			parts.push(id + d);
 		});
