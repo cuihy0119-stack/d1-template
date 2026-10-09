@@ -18,14 +18,14 @@ function math(root) {
 		throwOnError: false,
 	});
 }
-// 手机拍的照片压缩到最长边 1600px，省流量也方便 Claude 读取
+// 手机拍的照片压缩到最长边 1280px，省流量也方便 Claude 读取
 function compress(file) {
 	return new Promise((resolve) => {
 		if (!file.type.startsWith("image/")) return resolve(file);
 		const img = new Image();
 		const url = URL.createObjectURL(file);
 		img.onload = () => {
-			const s = Math.min(1, 1600 / Math.max(img.width, img.height));
+			const s = Math.min(1, 1280 / Math.max(img.width, img.height));
 			const c = document.createElement("canvas");
 			c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
 			c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);

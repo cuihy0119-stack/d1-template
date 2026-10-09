@@ -175,7 +175,8 @@ app.post("/api/attempt-photo", async (c) => {
 	const form = await c.req.formData();
 	const f = form.get("file");
 	if (!f || typeof f === "string") return c.json({ error: "没有文件" }, 400);
-	return c.json({ key: await savePhoto(c.env, f, "attempts") });
+	// kind=board：作图板导出的图（只有含手绘时才发给 Claude）
+	return c.json({ key: await savePhoto(c.env, f, form.get("kind") === "board" ? "boards" : "attempts") });
 });
 
 app.get("/photo/*", async (c) => {
@@ -214,7 +215,7 @@ app.post("/api/submit", async (c) => {
 		const q = await db.prepare("SELECT * FROM questions WHERE id = ?").bind(it.question_id).first<Q>();
 		if (!q) continue;
 		const ans = Array.isArray(it.answer) ? [...it.answer].sort().join("") : String(it.answer ?? "");
-		const photo = (it.photo_keys ?? []).filter((k) => /^attempts\/[\w.-]+$/.test(k)).join(",") || null;
+		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards)\/[\w.-]+$/.test(k)).join(",") || null;
 		const secs = Math.max(0, Math.min(Math.round(Number(it.time_spent_sec) || 0), 86400));
 		let res;
 		if (q.type === "short") {
