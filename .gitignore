@@ -197,4 +197,3 @@ dist
 !.env.example
 .dev.vars*
 !.dev.vars.example
-seed/.seed.sql
