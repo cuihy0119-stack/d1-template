@@ -114,6 +114,22 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 	return [...due.results, ...fresh.results];
 }
 
+// 按科目自由练：没做过的 + 做错还没掌握的；都做完了就整科重练
+async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
+	const { results } = await db
+		.prepare(
+			`SELECT q.* FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
+			 WHERE q.subject = ?
+			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
+			   AND (r.question_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id))
+			 ORDER BY (r.question_id IS NOT NULL), q.id LIMIT 50`,
+		)
+		.bind(subject)
+		.all<Q>();
+	if (results.length) return results;
+	return (await db.prepare("SELECT * FROM questions WHERE subject = ? ORDER BY id LIMIT 50").bind(subject).all<Q>()).results;
+}
+
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
@@ -125,7 +141,7 @@ app.get("/api/home", async (c) => {
 		db
 			.prepare(
 				`SELECT q.subject, COUNT(*) total,
-				        SUM(CASE WHEN r.question_id IS NOT NULL THEN 1 ELSE 0 END) reviewing,
+				        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN 1 ELSE 0 END) undone,
 				        SUM(CASE WHEN r.next_date <= ? THEN 1 ELSE 0 END) due
 				 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
 				 GROUP BY q.subject ORDER BY q.subject`,
@@ -174,6 +190,8 @@ app.get("/photo/*", async (c) => {
 // ---------- 做题 ----------
 app.get("/api/practice", async (c) => {
 	const ids = idsParam(c.req.query("ids"));
+	const subject = c.req.query("subject");
+	if (subject) return c.json((await subjectQuestions(c.env.DB, subject)).map(clientQ));
 	if (!ids.length) return c.json((await todayQuestions(c.env.DB)).map(clientQ));
 	const { results } = await c.env.DB
 		.prepare(`SELECT * FROM questions WHERE id IN (${inList(ids)})`)
@@ -244,8 +262,7 @@ app.get("/api/attempts", async (c) => {
 });
 
 // ---------- 题库 / 错题本 ----------
-const WRONG_SQL = `(q.source = '原错题' OR r.question_id IS NOT NULL
-	OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`;
+const WRONG_SQL = "EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)";
 
 async function listQuestions(db: D1Database, onlyWrong: boolean) {
 	const { results } = await db

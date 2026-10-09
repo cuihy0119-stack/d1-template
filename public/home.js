@@ -9,10 +9,9 @@ async function loadHome() {
 	box.replaceChildren();
 	if (!h.subjects.length) box.append(el("p", { className: "mute", textContent: "还没有题，拍照上传错题或让 Claude 出题" }));
 	for (const s of h.subjects) {
-		box.append(el("a", { className: "subj", href: "/wrong?subject=" + encodeURIComponent(s.subject) },
+		box.append(el("a", { className: "subj", href: "/quiz?subject=" + encodeURIComponent(s.subject) },
 			el("b", { textContent: s.subject }),
-			el("div", { className: "mute", textContent: `共 ${s.total} 题 · 复习中 ${s.reviewing}` }),
-			s.due ? el("div", { className: "due", textContent: `${s.due} 题该复习` }) : el("div", { className: "mute", textContent: "今天没有到期" })));
+			el("div", { className: "mute", textContent: s.undone ? `${s.undone} 题未做` : `共 ${s.total} 题` })));
 	}
 }
 

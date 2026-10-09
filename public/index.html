@@ -8,7 +8,9 @@
 
 <a id="today" class="btn primary" href="/quiz" style="text-decoration:none;margin-bottom:14px">今日练习</a>
 
-<div class="card">
+<h2>按科目练</h2>
+<div id="subjects" class="subjects"></div>
+<div style="margin-bottom:14px">
   <label class="btn" for="pick">📷 拍照上传错题</label>
   <input id="pick" type="file" accept="image/*" multiple hidden>
   <p id="upmsg" class="mute" style="margin:8px 0 0"></p>
@@ -19,8 +21,6 @@
   <div id="summary" class="mute" style="white-space:pre-wrap">还没有总结</div>
 </div>
 
-<h2>各科</h2>
-<div id="subjects" class="subjects"></div>
 </main>
 <script src="/common.js"></script>
 <script src="/home.js"></script>
