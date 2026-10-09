@@ -9,8 +9,8 @@ const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 const items = JSON.parse(readFileSync("seed/questions.json", "utf8"));
 let sql = "";
 for (const x of items) {
-	sql += `INSERT INTO questions (subject,topic,type,stem,options,answer,explanation,source,origin_id) VALUES (${[
-		x.subject, x.topic, x.type, x.stem, x.options && JSON.stringify(x.options), JSON.stringify(x.answer), x.explanation, x.source, x.origin_id,
+	sql += `INSERT INTO questions (subject,category,topic,type,stem,options,answer,explanation,source,origin_id) VALUES (${[
+		x.subject, x.category, x.topic, x.type, x.stem, x.options && JSON.stringify(x.options), JSON.stringify(x.answer), x.explanation, x.source, x.origin_id,
 	].map(q).join(",")});\n`;
 	if (x.source === "原错题") sql += `INSERT INTO review_queue (question_id,next_date,stage) VALUES (last_insert_rowid(),'${today}',0);\n`;
 }

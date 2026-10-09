@@ -36,3 +36,14 @@ function compress(file) {
 		img.src = url;
 	});
 }
+
+// 底部导航
+function tabbar(active) {
+	document.body.classList.add("has-tabs");
+	const tabs = [["/", "首页", "🏠"], ["/bank", "题库", "📚"], ["/wrong", "错题本", "📕"]];
+	const nav = el("nav", { className: "tabbar" });
+	for (const [href, name, icon] of tabs) {
+		nav.append(el("a", { href, className: href === active ? "on" : "" }, el("b", { textContent: icon }), name));
+	}
+	document.body.append(nav);
+}

@@ -1,12 +1,19 @@
-let subject = "";
-let shown = [];
-const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
+tabbar("/");
 
 async function loadHome() {
 	const h = await api("/api/home");
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	if (h.summary) $("#summary").textContent = h.summary.text;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
+	const box = $("#subjects");
+	box.replaceChildren();
+	if (!h.subjects.length) box.append(el("p", { className: "mute", textContent: "还没有题，拍照上传错题或让 Claude 出题" }));
+	for (const s of h.subjects) {
+		box.append(el("a", { className: "subj", href: "/wrong?subject=" + encodeURIComponent(s.subject) },
+			el("b", { textContent: s.subject }),
+			el("div", { className: "mute", textContent: `共 ${s.total} 题 · 复习中 ${s.reviewing}` }),
+			s.due ? el("div", { className: "due", textContent: `${s.due} 题该复习` }) : el("div", { className: "mute", textContent: "今天没有到期" })));
+	}
 }
 
 $("#pick").onchange = async (e) => {
@@ -29,39 +36,4 @@ $("#pick").onchange = async (e) => {
 	e.target.value = "";
 };
 
-async function loadWrong() {
-	const d = await api("/api/wrong" + (subject ? "?subject=" + encodeURIComponent(subject) : ""));
-	const chips = $("#chips");
-	chips.replaceChildren();
-	for (const s of ["", ...d.subjects]) {
-		chips.append(el("button", {
-			className: "chip" + (s === subject ? " on" : ""),
-			textContent: s || "全部",
-			onclick: () => { subject = s; loadWrong(); },
-		}));
-	}
-	shown = d.items.map((i) => i.id);
-	$("#redoall").classList.toggle("hide", !shown.length);
-	const list = $("#list");
-	list.replaceChildren();
-	if (!d.items.length) list.append(el("p", { className: "mute", textContent: "暂无错题" }));
-	for (const it of d.items) {
-		const status = it.next_date ? `下次 ${it.next_date}` : "已掌握";
-		list.append(el("div", { className: "wrong-item" },
-			el("div", {},
-				el("span", { className: "tag", textContent: it.subject }),
-				el("span", { className: "tag", textContent: TYPE[it.type] || it.type }),
-				el("span", { className: "mute", textContent: status }),
-				el("div", { textContent: it.stem.length > 60 ? it.stem.slice(0, 60) + "…" : it.stem })),
-			el("a", { className: "btn small", href: "/quiz?ids=" + it.id, textContent: "重做", style: "text-decoration:none" })));
-	}
-	math(list);
-}
-
-$("#wrongbtn").onclick = () => {
-	$("#wrong").classList.toggle("hide");
-	if (!$("#wrong").classList.contains("hide")) loadWrong();
-};
-$("#redoall").onclick = () => { location.href = "/quiz?ids=" + shown.join(","); };
-window.addEventListener("load", () => math($("#list")));
 loadHome();

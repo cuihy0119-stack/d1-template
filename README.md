@@ -21,13 +21,20 @@ MCP 地址：`https://<你的 Worker 域名>/mcp`（例如 `https://d1-template.
 1. claude.ai → 设置 → 连接器 → **添加自定义连接器**
 2. 名称随意（如「错题练习站」），URL 填上面的 `/mcp` 地址，保存
 3. 点连接，会弹出授权页，输入网站的 `PASSCODE` 并点「允许」
-4. 对话里就能让 Claude 用这 6 个工具：`get_inbox`、`add_wrong_questions`、`add_questions`、`grade`、`get_records`、`post_summary`
+4. 对话里就能让 Claude 用这些工具：`get_inbox`、`add_wrong_questions`、`add_questions`、`grade`、`get_records`、`post_summary`，以及分类用的 `get_question_bank`、`organize_questions`
 
 OAuth 的令牌存在 KV（绑定名 `OAUTH_KV`）。`wrangler.json` 里没写 KV id，首次 `wrangler deploy` 会自动创建；若构建报 KV 权限错误，手动在控制台建一个 KV，把 id 填进 `kv_namespaces`。
 
 典型用法：
 - 拍照上传错题 → 对 Claude 说「处理收件箱」→ 它整理错题、出同类题推送到「今日练习」
 - 你做完交卷 → 对 Claude 说「批改并总结」→ 它批改简答、统计分析并写总结
+
+## 页面与分类
+
+- 首页：今日练习、拍照上传、Claude 总结、各科概览；底部导航 首页 / 题库 / 错题本
+- 题库、错题本：按 科目 → 分类（章节）→ 考点 分组，点题目看答案、解析和历史作答，可「练这组」「重做」
+- 简答/大题可用 📷 拍照或 🎨 画板（画图、演算、方格纸）作答；画板内容存成图片，Claude 在 `get_inbox` 里能直接读图批改
+- 分类由 Claude 维护：可对它说「按我 Notion 错题库的分类整理题库」，它用 `get_question_bank` + `organize_questions` 调整，也可以把错题同步到 Notion（网站本身不连 Notion）
 
 ## 本地开发
 
