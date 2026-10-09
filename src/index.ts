@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import { getSignedCookie, setSignedCookie } from "hono/cookie";
+import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
+import { mountAuthorize } from "./authorize";
+import { passcodeOk } from "./auth";
+import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { loginPage } from "./login";
 import { today, updateQueue } from "./review";
@@ -21,16 +25,6 @@ const app = new Hono<{ Bindings: Env }>();
 app.onError((e, c) => c.json({ error: e.message }, 500));
 
 // ---------- 登录 ----------
-async function sha(s: string) {
-	return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
-}
-async function passcodeOk(input: string, real: string) {
-	const [a, b] = await Promise.all([sha(input), sha(real)]);
-	let d = 0;
-	for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i];
-	return d === 0;
-}
-
 app.get("/login", (c) => c.html(loginPage()));
 app.post("/login", async (c) => {
 	if (!c.env.PASSCODE) return c.html(loginPage("服务器还没设置 PASSCODE"), 500);
@@ -48,7 +42,8 @@ app.post("/login", async (c) => {
 	return c.redirect("/");
 });
 
-// /mcp 将在阶段二挂在此处（走 OAuth，不走口令）
+// Claude 连接用的 OAuth 授权页（/mcp、/token、/register 由 OAuthProvider 处理）
+mountAuthorize(app);
 
 app.use("*", async (c, next) => {
 	if (new URL(c.req.url).pathname === "/style.css") return next(); // 登录页要用
@@ -202,7 +197,7 @@ app.post("/api/submit", async (c) => {
 				.prepare(
 					"INSERT INTO attempts (question_id, answer_text, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, '已判', ?)",
 				)
-				.bind(q.id, ans, ok ? 1 : 0, ok ? 1 : 0, secs)
+				.bind(q.id, ans, ok ? 1 : 0, ok ? 100 : 0, secs)
 				.run();
 			await updateQueue(db, q.id, ok);
 		}
@@ -262,4 +257,28 @@ app.get("/api/wrong", async (c) => {
 // 其余请求：已登录后交给静态页面
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+// OAuth 元数据里要写本站网址，所以按请求的 origin 建 provider（自定义域名也能用）
+const providers = new Map<string, OAuthProvider<Env>>();
+function providerFor(origin: string) {
+	let p = providers.get(origin);
+	if (!p) {
+		p = new OAuthProvider<Env>({
+			apiRoute: "/mcp",
+			apiHandler: mcpHandler,
+			defaultHandler: { fetch: app.fetch },
+			authorizeEndpoint: "/authorize",
+			tokenEndpoint: "/token",
+			clientRegistrationEndpoint: "/register",
+			scopesSupported: ["mcp"],
+			requiredScopes: ["mcp"],
+			resourceMetadata: { resource: `${origin}/mcp`, authorization_servers: [origin] },
+			clientIdMetadataDocumentEnabled: true,
+		});
+		providers.set(origin, p);
+	}
+	return p;
+}
+
+export default {
+	fetch: (req, env, ctx) => providerFor(new URL(req.url).origin).fetch(req, env, ctx),
+} satisfies ExportedHandler<Env>;
