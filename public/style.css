@@ -48,8 +48,9 @@ main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(6){animation-delay:.25s
 #app.enter>*{animation:rise .45s var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
 /* 换题：前进从右滑入，后退从左滑入 */
-#app.fwd>.card{animation:slidein .38s var(--ease) both}#app.back>.card{animation:slidein .38s var(--ease) both reverse}
+#app.fwd>.card{animation:slidein .38s var(--ease) both}#app.prev>.card{animation:slideback .38s var(--ease) both}
 @keyframes slidein{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes slideback{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
 /* 跨页面平滑过渡（支持的浏览器） */
 @view-transition{navigation:auto}
 ::view-transition-old(root),::view-transition-new(root){animation-duration:.22s}
@@ -206,7 +207,7 @@ button.mark.on{background:var(--warn);border-color:transparent;color:#fff;animat
 @supports not (aspect-ratio:1/1){.bwrap{height:0;padding-top:100%}.board.big .bwrap{padding-top:133%}}
 /* 低配设备：关模糊、关进场动画、阴影变轻、背景光斑只留底色 */
 .lite .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}.lite .card,.lite .subj,.lite #list,.lite .tabs{background:var(--solid)}
-.lite main>*,.lite #app>*,.lite #app.fwd>.card,.lite #app.back>.card,.lite .tabbar,.lite body::before,.lite .btn.primary::after,.lite .bar>i{animation:none}
+.lite main>*,.lite #app>*,.lite #app.fwd>.card,.lite #app.prev>.card,.lite .tabbar,.lite body::before,.lite .btn.primary::after,.lite .bar>i{animation:none}
 .lite body::after{display:none}
 .lite{--shadow:0 2px 8px -4px rgba(0,0,0,.25)}
 /* 触屏：取消双击放大（保留双指缩放）；画板、按钮、选项不会被长按选中或弹出菜单 */

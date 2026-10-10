@@ -93,7 +93,7 @@ async function go(i) {
 	const btns = [...document.querySelectorAll(".nav .btn")];
 	btns.forEach((b) => (b.disabled = true));
 	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = false)); }
-	tick(); const dir = i > cur ? "fwd" : "back"; cur = i; render(dir);
+	tick(); const dir = i > cur ? "fwd" : "prev"; cur = i; render(dir);
 }
 
 // 手写答案板：答案框下面一块横线小板，用了就把图发给 Claude 批改（数理化）
