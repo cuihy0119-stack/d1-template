@@ -6,6 +6,7 @@ import { passcodeOk } from "./auth";
 import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { pick } from "./tags";
+import { cause } from "./cause";
 import { loginPage } from "./login";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 
@@ -338,7 +339,7 @@ app.get("/api/question/:id", async (c) => {
 	if (!q) return c.notFound();
 	const { results } = await c.env.DB
 		.prepare(
-			`SELECT id, answer_text, photo_key, is_correct, score, comment, error_reason, status, created_at
+			`SELECT id, answer_text, photo_key, is_correct, score, comment, error_reason, status, created_at, time_spent_sec
 			 FROM attempts WHERE question_id = ? ORDER BY id DESC LIMIT 10`,
 		)
 		.bind(id)
@@ -347,7 +348,7 @@ app.get("/api/question/:id", async (c) => {
 		...clientQ(q),
 		answer: parse<string[]>(q.answer, []),
 		explanation: q.explanation,
-		attempts: results.map((r) => ({ ...r, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
+		attempts: results.map((r) => ({ ...r, error_reason: r.is_correct === 0 ? cause({ ...q, ...r, id: q.id }) : r.error_reason, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
 	});
 });
 

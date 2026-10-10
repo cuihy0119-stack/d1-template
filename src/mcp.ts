@@ -4,6 +4,7 @@ import { z } from "zod";
 import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
+import { wrongLine } from "./cause";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -71,24 +72,25 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 const DIGEST_DAYS = 7, DIGEST_MAX = 20;
 async function wrongDigest(db: D1Database): Promise<string> {
 	const last = (await db.prepare("SELECT v FROM meta WHERE k = 'digest_at'").first<{ v: string }>())?.v ?? "1970-01-01 00:00:00";
+	// 每道题取最近一次做错的作答：错答、错因、评语都带上
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject s, COALESCE(q.topic, q.category, '') t, substr(q.stem, 1, 40) stem, MAX(a.error_reason) why
-			 FROM attempts a JOIN questions q ON q.id = a.question_id
-			 WHERE a.is_correct = 0 AND a.created_at > ? AND q.status = 'active'
-			 GROUP BY q.id ORDER BY q.subject, t LIMIT 40`,
+			`SELECT q.id, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
+			        a.answer_text, a.error_reason, a.comment, a.time_spent_sec
+			 FROM questions q JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
+			 WHERE a.created_at > ? AND q.status = 'active' ORDER BY q.subject, topic LIMIT 40`,
 		)
 		.bind(last)
-		.all<Record<string, unknown>>();
+		.all<any>();
 	const due = Date.now() - Date.parse(last.replace(" ", "T") + "Z") >= DIGEST_DAYS * 864e5;
 	if (!results.length || (!due && results.length < DIGEST_MAX)) return "";
 	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('digest_at', datetime('now'))").run();
-	return `\n\n【错题本定期整理】上次之后新增错题 ${results.length} 道：\n${tsv(results)}\n→ 先回答完学生，再问一句：要不要把这些错题整理归档进 Notion？同意后用 Notion 连接器按 科目/章节/考点 归档（含错因），不用回网站写入。`;
+	return `\n\n【错题本定期整理】上次之后新增错题 ${results.length} 道（题干、选项、错答、正确答案、错因、解析都已整理好）：\n${results.map(wrongLine).join("\n")}\n→ 先回答完学生，再问一句：要不要把这些错题整理归档进 Notion？同意后用 Notion 连接器按 科目/章节/考点 归档，每题照抄上面的 题干、选项、错答、正确答案、错因、解析，不用回网站写入。`;
 }
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.7.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.8.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -217,12 +219,12 @@ export function buildServer(env: Env) {
 		},
 		async ({ kind, days, subject, all }) => {
 			if (kind === "tpl") return text(TEMPLATES);
-			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一段，紧凑文字
+			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一行，错题带错答和错因
 				const { results } = await db.prepare(
-					`SELECT q.id, q.subject, q.topic, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status
+					`SELECT q.id, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec
 					 FROM marks m JOIN questions q ON q.id = m.question_id LEFT JOIN attempts a ON a.id = m.attempt_id
 					 WHERE m.attempt_id IS NOT NULL AND m.created_at > datetime('now','-1 day') ORDER BY m.created_at`).all<any>();
-				return text(results.length ? results.map((r) => `#${r.id} ${r.subject}${r.topic ? "·" + r.topic : ""}｜${r.stem}${r.options ? "｜选项：" + r.options : ""}｜答：${String(r.answer_text ?? "").replace(/\n?\[(作图|电路)\][^\n]*/g, "") || "（空）"}｜${r.status === "待批改" ? "待批改" : r.is_correct ? "对" : "错"}｜答案：${r.answer}${r.explanation ? "｜解析：" + r.explanation : ""}`).join("\n") : "没有标记的题（或已过 24 小时）");
+				return text(results.length ? results.map((r) => (r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】") + wrongLine(r)).join("\n") : "没有标记的题（或已过 24 小时）");
 			}
 			const sql =
 				kind === "records"
