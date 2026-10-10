@@ -11,7 +11,7 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag=题型：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答，网站据此自动配题型和画板。
+出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag 必填，决定题型和画板：选择(给opts)/填空/计算·解答(计算板)/证明·作图(数学方格)/函数(坐标系)/电路·光路·受力(物理作图，别用「作图」)/简答。返回里有每题最终 tag，核对一下。
 作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
 // 题目（短字段名省输出）
@@ -23,7 +23,7 @@ const Q = z.object({
 	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
 	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
 	exp: z.string().optional().describe("解析"),
-	tag: z.string().optional().describe("选择/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答"),
+	tag: z.string().optional().describe("必填：选择/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答"),
 }).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
 type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
 
@@ -51,19 +51,23 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	if (!subject) throw new Error("缺 subject");
 	const { tag, board } = pick({ subject, stem: q.stem, tag: q.tag, board: q.board, type: q.type === "fill" || q.type === "short" ? q.type : null, opts: !!q.opts?.length });
 	const type = tag === "选择" ? (q.ans.length > 1 ? "multi" : "single") : tag === "填空" ? "fill" : "short";
-	const r = await db
-		.prepare(
-			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-		)
-		.bind(subject, q.category ?? def.category ?? null, q.topic ?? def.topic ?? null, type, q.stem, q.opts?.length ? JSON.stringify(q.opts) : null,
-			JSON.stringify(q.ans), q.exp ?? null, source, q.origin ?? null, board === "phys" ? "grid" : board, tag) // phys 不在表的 CHECK 里，读题时按 tag 还原
-		.run();
-	return r.meta.last_row_id;
+	const row: Record<string, unknown> = {
+		subject, category: q.category ?? def.category ?? null, topic: q.topic ?? def.topic ?? null, type, stem: q.stem,
+		options: q.opts?.length ? JSON.stringify(q.opts) : null, answer: JSON.stringify(q.ans), explanation: q.exp ?? null, source,
+		origin_id: q.origin ?? null, board: board === "coord" || board === "grid" ? board : null, tag, // 画板读题时由 tag 推出
+	};
+	const ins = () => db.prepare(`INSERT INTO questions (${Object.keys(row)}) VALUES (${Object.keys(row).map(() => "?")})`).bind(...Object.values(row)).run();
+	const r = await ins().catch((e) => { // 迁移 0006 还没跑：先不存 tag，读题时按题干判断
+		if (!/no such column: tag/.test(String(e))) throw e;
+		delete row.tag;
+		return ins();
+	});
+	return `${r.meta.last_row_id}${tag}`;
 }
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.3.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.4.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -131,7 +135,7 @@ export function buildServer(env: Env) {
 				out.push("批改 " + r.join(" "));
 			}
 			const add = async (list: QIn[], source: "原错题" | "同类题") => {
-				const ids: number[] = [];
+				const ids: string[] = [];
 				for (const q of list) {
 					try { ids.push(await insertQuestion(db, q, def, source)); } catch (e) { err.push(`「${q.stem.slice(0, 10)}」${(e as Error).message}`); }
 				}
@@ -140,7 +144,7 @@ export function buildServer(env: Env) {
 			if (wrong.length) {
 				const ids = await add(wrong, "原错题");
 				const next = addDays(today(), 1);
-				for (const id of ids) await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, next).run();
+				for (const id of ids) await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(parseInt(id), next).run();
 				out.push(`错题 ${ids.join(",")}`);
 			}
 			const done = new Set([...done_uploads, ...wrong.map((w) => w.upload).filter((u): u is number => !!u)]);
@@ -154,7 +158,7 @@ export function buildServer(env: Env) {
 					const t = q ? pick({ ...q, tag: it.tag, opts: !!q.options }) : null;
 					const r = await db
 						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
-						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board === "phys" ? "grid" : t?.board ?? null, it.id)
+						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board === "coord" || t?.board === "grid" ? t.board : null, it.id)
 						.run();
 					n += r.meta.changes;
 				}
