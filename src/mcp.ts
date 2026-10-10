@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod";
 import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
+import { TEMPLATES } from "./templates";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -11,7 +12,7 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag 必填，决定题型和画板：选择(给opts)/填空/计算·解答(计算板)/证明·作图(数学方格)/函数(坐标系)/电路·光路·受力(物理作图，别用「作图」)/简答。答案唯一的计算题可标 填空（自动判分，网站也配计算草稿板）。返回里有每题最终 tag，核对一下。
+出题前先 get_data({kind:"tpl"}) 取模板（每个对话取一次），照模板填 tag 和字段；复习旧题用 save({review:[id]})，不用重出。
 作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
 // 题目（短字段名省输出）
@@ -67,7 +68,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.4.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.5.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -113,10 +114,11 @@ export function buildServer(env: Env) {
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
 				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.string().optional() })).optional(),
+				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
 				summary: z.string().optional(),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], organize = [], summary }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], organize = [], review = [], summary }) => {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (grades.length) {
@@ -164,6 +166,13 @@ export function buildServer(env: Env) {
 				}
 				out.push(`分类 ${n}`);
 			}
+			if (review.length) { // 复习：旧题今天到期，状态改回复习中
+				for (const id of review) {
+					await db.prepare("UPDATE questions SET status = 'active', status_at = NULL WHERE id = ?").bind(id).run();
+					await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, today()).run();
+				}
+				out.push(`复习 ${review.join(",")}`);
+			}
 			if (summary) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
@@ -175,10 +184,11 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"get_data",
 		{
-			description: "查询（TSV）：kind=records 作答记录（days 默认 7）；kind=bank 题库清单（默认只列复习中的题，all=true 列全部）。",
-			inputSchema: { kind: z.enum(["records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
+			description: "kind=tpl 出题模板（出题前取）；kind=records 作答记录 TSV（days 默认 7）；kind=bank 题库清单 TSV（默认只列复习中的题，all=true 列全部）。",
+			inputSchema: { kind: z.enum(["tpl", "records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
 		},
 		async ({ kind, days, subject, all }) => {
+			if (kind === "tpl") return text(TEMPLATES);
 			const sql =
 				kind === "records"
 					? `SELECT substr(a.created_at, 6, 5) d, a.subject s, a.topic t, COALESCE(q.tag, q.type) ty,
