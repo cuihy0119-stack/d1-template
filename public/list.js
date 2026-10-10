@@ -50,10 +50,13 @@ function row(q) {
 	const item = el("div", { className: "item" },
 		el("div", { className: "body" },
 			el("span", { className: "tag", textContent: tag }),
+			el("span", { className: "mute", textContent: when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) })),
 		el("span", { className: "st " + cls, textContent: label }));
 	if (MODE === "bank") {
 		item.onclick = () => (location.href = quizHref([q.id]));
+		item.append(el("button", { type: "button", className: "del", textContent: "🗑", title: "删题",
+			onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } }));
 		return item;
 	}
 	// 错题本：点开看错答、答案、解析
@@ -72,15 +75,11 @@ function row(q) {
 		}
 		detail.append(el("div", { className: "ans", textContent: "正确答案：" + d.answer.join(" / ") }));
 		if (d.explanation) detail.append(el("div", { className: "ans", textContent: "解析：" + d.explanation }));
-		const act = (path, msg) => async () => {
-			if (msg && !confirm(msg)) return;
-			await api(`/api/question/${q.id}/${path}`, { method: "POST" });
-			load();
-		};
+		const act = (path) => async () => { await api(`/api/question/${q.id}/${path}`, { method: "POST" }); load(); };
 		detail.append(el("div", { className: "row", style: "margin-top:8px" },
 			tab === "active" ? el("a", { className: "btn", href: quizHref([q.id]), textContent: "重做", style: "text-decoration:none" }) : "",
 			tab === "active" ? el("button", { className: "btn", textContent: "标为已掌握", onclick: act("master") }) : "",
-			el("button", { className: "btn", textContent: "删除", style: "color:var(--bad)", onclick: act("delete", "删除这道题？（做题记录会保留）") })));
+			el("button", { className: "btn", textContent: "删除", style: "color:var(--bad)", onclick: async () => (await delQuestion(q.id)) && load() })));
 		math(item.parentElement);
 	};
 	return el("div", { className: "wrapitem" }, item, detail);

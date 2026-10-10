@@ -3,14 +3,15 @@ const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
 let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
 
-// 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路，其它 作图
+// 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
-	calc: ["🧮 计算解答板", "[计算]", () => new CalcBoard()],
-	geo: ["📐 几何函数板", "[作图]", (axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
+	calc: ["🧮 计算解答板", "[计算]", (q) => new CalcBoard(q.subject)],
+	geo: ["📐 几何函数板", "[作图]", (q, axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
 	circuit: ["🔌 电路图板", "[电路]", () => new CircuitBoard()],
+	phys: ["🔦 光学力学板", "[作图]", () => Object.assign(new Board({ phys: true }), { kind: "phys" })],
 };
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
-const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit"] : ["geo"]);
+const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : ["geo"]);
 
 async function start() {
 	const p = new URLSearchParams(location.search);
@@ -20,7 +21,7 @@ async function start() {
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
-	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q.board === "coord")] : []));
+	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q, q.board === "coord")] : []));
 	secs = qs.map(() => 0);
 	cur = 0;
 	render();
@@ -34,7 +35,14 @@ function render() {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		el("div", {}, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : ""),
+		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
+			el("span", { className: "mute", textContent: "推送 " + when(q.created_at) }),
+			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
+				if (!(await delQuestion(q.id))) return;
+				for (const a of [qs, ans, files, boards, secs]) a.splice(cur, 1);
+				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
+				cur = Math.min(cur, qs.length - 1); render();
+			} })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
@@ -85,7 +93,7 @@ function render() {
 			el("div", { className: "row", style: "margin-top:8px" },
 				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
 				...offer(q).filter((k) => !boards[cur].some((b) => b.kind === k)).map((k) => el("button", { type: "button", className: "btn small", textContent: BOARDS[k][0],
-					onclick: () => { boards[cur].push(BOARDS[k][2](false)); render(); } }))),
+					onclick: () => { boards[cur].push(BOARDS[k][2](q, false)); render(); } }))),
 			att);
 	}
 

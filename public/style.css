@@ -98,3 +98,12 @@ body.has-tabs main{padding-bottom:84px}
 .keysg button{padding:9px 0;font-size:17px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 .keysg .wide{grid-column:span 5;font-size:15px}
 .ans{white-space:pre-wrap}
+/* 推送时间、删题 */
+.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .mute{font-size:12px;flex:1}
+button.del{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--bad);font-size:13px}
+.item .body>.mute{font-size:12px;margin-left:2px}
+/* 电路图板：元件符号按钮、通电结果 */
+.btools .ico{display:flex;flex-direction:column;align-items:center;padding:3px 6px 2px;font-size:11px;line-height:1.2}
+.btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:4px}
+.cstat{min-height:22px;font-size:14px;padding:4px 2px;color:var(--fg)}
+.forms{margin:8px 0 0}.forms .chip{font-size:15px}

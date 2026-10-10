@@ -1,5 +1,6 @@
 // 作图板：方格常驻、格点吸附、几何/函数作图。图形坐标以「格」为单位，原点在画板中心附近的格点。
 // 计算板也用它（new Board({ calc: true })）：只留手写类工具 + 算式自动出得数，横线纸。
+// 物理光学/力学板（new Board({ phys: true })）：力、光线、法线、平面镜、透镜，自动算入射角/反射角。
 // 交卷时 describe() 生成文字描述 + 几何信息，配一张 600px 小图一起发给 Claude（准确且省用量）。
 
 const TOOLS = [
@@ -16,8 +17,17 @@ const TOOLS = [
 	["pen", "✏️画笔", "自由手绘"],
 	["calc", "＝算式", "点一下写算式，自动出得数；方程自动解，如 2x+1=5"],
 	["erase", "⌫橡皮", "点或划过删除"],
+	["force", "➚力", "从作用点拖向力的方向，松手起名（F、G、F浮…）"],
+	["light", "⇢光线", "沿光的传播方向拖动，中间自动画箭头"],
+	["normal", "┆法线", "拖动画法线（自动虚线）"],
+	["mirror", "▨平面镜", "拖动画镜面：从左往右拖斜线在下方，反着拖换一面"],
+	["lens", "⇕凸透镜", "拖动画凸透镜（一般竖着拖）"],
+	["lens2", "⇳凹透镜", "拖动画凹透镜"],
 ];
 const CALC_TOOLS = ["pen", "calc", "text", "erase"];
+const PHYS_TOOLS = ["force", "light", "normal", "mirror", "lens", "lens2", "seg", "perp", "point", "text", "pen", "erase"];
+const SEGS = ["seg", "force", "light", "normal", "mirror", "lens", "lens2"]; // 按线段参与命中、垂线、交点
+const PHYS_NAME = { force: "力", light: "光线", normal: "法线", mirror: "平面镜", lens: "凸透镜", lens2: "凹透镜" };
 const COLORS = ["#111111", "#d64545", "#2f6fed"];
 const CELL = 24; // 格距
 
@@ -109,12 +119,13 @@ function proj(p, a, b, kind) { // 点到线段/射线/直线上最近点
 }
 const num = (v) => String(Math.round(v * 10) / 10 || 0);
 const xy = (p) => `(${num(p[0])},${num(p[1])})`;
-const edges = (o) => (o.t === "poly" ? o.pts.map((q, i) => [q, o.pts[(i + 1) % o.pts.length], "seg"]) : ["seg", "line", "ray"].includes(o.t) ? [[o.a, o.b, o.t]] : []);
+const edges = (o) => (o.t === "poly" ? o.pts.map((q, i) => [q, o.pts[(i + 1) % o.pts.length], "seg"]) : ["line", "ray"].includes(o.t) ? [[o.a, o.b, o.t]] : SEGS.includes(o.t) ? [[o.a, o.b, "seg"]] : []);
 
 class Board {
-	constructor({ axes = false, calc = false } = {}) {
-		Object.assign(this, { axes, calc, objs: [], hist: [], fut: [], tool: calc ? "pen" : "seg", color: COLORS[0], width: 2, dash: false, snap: true, big: false, fns: new Map() });
-		this.tools = calc ? CALC_TOOLS.map((k) => TOOLS.find((t) => t[0] === k)) : TOOLS.filter(([k]) => k !== "calc");
+	constructor({ axes = false, calc = false, phys = false } = {}) {
+		Object.assign(this, { axes, calc, phys, objs: [], hist: [], fut: [], tool: calc ? "pen" : phys ? "force" : "seg", color: COLORS[0], width: 2, dash: false, snap: true, big: false, fns: new Map() });
+		const only = (ks) => ks.map((k) => TOOLS.find((t) => t[0] === k));
+		this.tools = calc ? only(CALC_TOOLS) : phys ? only(PHYS_TOOLS) : TOOLS.filter(([k]) => k !== "calc" && !PHYS_NAME[k]);
 		this.cv = el("canvas");
 		this.wrap = el("div", { className: "bwrap" }, this.cv);
 		this.bar1 = el("div", { className: "btools" });
@@ -161,7 +172,7 @@ class Board {
 			const [p, raw] = this.at(e), t = this.tool;
 			if (t === "erase") { this.rub = true; return this.rubAt(raw); }
 			if (t === "pen") this.drag = { t, pts: [raw] };
-			else if (["seg", "line", "ray", "circle"].includes(t)) this.drag = { t, a: p, b: p };
+			else if (["line", "ray", "circle", ...SEGS].includes(t)) this.drag = { t, a: p, b: p };
 			else this.tap = [p, raw];
 			this.draw();
 		});
@@ -176,7 +187,10 @@ class Board {
 		const up = () => {
 			const d = this.drag, tp = this.tap;
 			this.drag = this.tap = null; this.rub = false;
-			if (d && (d.t === "pen" ? d.pts.length > 1 : dist(d.a, d.b) > 0.01)) this.add(d);
+			if (d?.t === "force" && dist(d.a, d.b) > 0.01) { // 力：松手起名
+				const used = new Set(this.objs.map((o) => o.name));
+				this.ask(d.b, ["F", "G", "F1", "F2", "f", "F浮", "F支"].find((n) => !used.has(n)) || "F", (name) => this.add({ ...d, name }));
+			} else if (d && (d.t === "pen" ? d.pts.length > 1 : dist(d.a, d.b) > 0.01)) this.add(d);
 			else if (tp) this.act(...tp);
 			else this.draw();
 		};
@@ -316,15 +330,15 @@ class Board {
 	}
 	arrowLine(c, a, b, head0, head1) {
 		c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.stroke();
-		const head = (tip, from) => {
-			const k = Math.atan2(tip[1] - from[1], tip[0] - from[0]), s = 7 + c.lineWidth;
-			c.save(); c.setLineDash([]); c.beginPath(); c.moveTo(...tip);
-			c.lineTo(tip[0] - s * Math.cos(k - 0.4), tip[1] - s * Math.sin(k - 0.4));
-			c.lineTo(tip[0] - s * Math.cos(k + 0.4), tip[1] - s * Math.sin(k + 0.4));
-			c.closePath(); c.fill(); c.restore();
-		};
-		if (head0) head(a, b);
-		if (head1) head(b, a);
+		if (head0) this.head(c, a, b);
+		if (head1) this.head(c, b, a);
+	}
+	head(c, tip, from) { // 箭头：尖在 tip，从 from 方向来
+		const k = Math.atan2(tip[1] - from[1], tip[0] - from[0]), s = 7 + c.lineWidth;
+		c.save(); c.setLineDash([]); c.beginPath(); c.moveTo(...tip);
+		c.lineTo(tip[0] - s * Math.cos(k - 0.4), tip[1] - s * Math.sin(k - 0.4));
+		c.lineTo(tip[0] - s * Math.cos(k + 0.4), tip[1] - s * Math.sin(k + 0.4));
+		c.closePath(); c.fill(); c.restore();
 	}
 	clip(a, b, ray) { // 直线/射线裁到画板边缘（像素）
 		const d = [b[0] - a[0], b[1] - a[1]], m = 3;
@@ -350,6 +364,18 @@ class Board {
 		};
 		switch (o.t) {
 			case "seg": path([o.a, o.b]); break;
+			case "force": { const A = P(o.a), B = P(o.b); this.arrowLine(c, A, B, false, true); this.dot(c, A, 3.5); if (o.name) label(B, o.name); break; }
+			case "light": { const A = P(o.a), B = P(o.b); path([o.a, o.b]); this.head(c, lerp(A, B, 0.55), A); break; }
+			case "normal": c.setLineDash([6, 5]); path([o.a, o.b]); break;
+			case "mirror": { const A = P(o.a), B = P(o.b), L = dist(A, B), u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L], n = [-u[1], u[0]];
+				path([o.a, o.b]); c.lineWidth = 1.2; c.beginPath();
+				for (let k = 4; k < L; k += 8) { const q = lerp(A, B, k / L); c.moveTo(...q); c.lineTo(q[0] + (n[0] - u[0]) * 6, q[1] + (n[1] - u[1]) * 6); }
+				c.stroke(); break; }
+			case "lens": case "lens2": { const A = P(o.a), B = P(o.b), L = dist(A, B), u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L];
+				path([o.a, o.b]);
+				if (o.t === "lens") { this.head(c, A, B); this.head(c, B, A); } // 凸：两端箭头朝外
+				else { this.head(c, A, [A[0] - u[0] * 9, A[1] - u[1] * 9]); this.head(c, B, [B[0] + u[0] * 9, B[1] + u[1] * 9]); } // 凹：朝里
+				break; }
 			case "open": path(o.pts); break;
 			case "poly": path(o.pts, true); break;
 			case "line": case "ray": { const s = this.clip(P(o.a), P(o.b), o.t === "ray"); if (s) this.arrowLine(c, s[0], s[1], o.t === "line", true); break; }
@@ -389,14 +415,14 @@ class Board {
 	build() {
 		const B = (text, on, onclick, cls = "") => el("button", { type: "button", className: cls + (on ? " on" : ""), textContent: text, onclick });
 		const pick = (k) => () => { this.tool = k; this.pend = null; this.build(); this.draw(); };
-		this.bar1.replaceChildren(...this.tools.map(([k, name]) => B(name, this.tool === k, pick(k))), this.calc ? "" : B("𝑓函数", false, () => this.plot()));
+		this.bar1.replaceChildren(...this.tools.map(([k, name]) => B(name, this.tool === k, pick(k))), this.calc || this.phys ? "" : B("𝑓函数", false, () => this.plot()));
 		this.bar2.replaceChildren(
 			...COLORS.map((col) => Object.assign(B("", col === this.color, () => { this.color = col; this.build(); }, "dot"), { style: `background:${col}` })),
 			B(this.width > 2 ? "粗" : "细", false, () => { this.width = this.width > 2 ? 2 : 4; this.build(); }),
 			...(this.calc ? [] : [
 				B("虚线", this.dash, () => { this.dash = !this.dash; this.build(); }),
 				B("吸附格点", this.snap, () => { this.snap = !this.snap; this.build(); }),
-				B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); })]),
+				this.phys ? "" : B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); })]),
 			B("清空", false, () => this.objs.length && confirm("清空画板？") && this.change(() => (this.objs = []))),
 			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }),
 			...(this.extra?.() || []));
@@ -430,7 +456,17 @@ class Board {
 		items.forEach((o, i) => {
 			const id = `[${i + 1}]`, pre = (o.d ? "虚" : "") + (col[o.c] || "");
 			let d = "";
-			if (["seg", "line", "ray"].includes(o.t)) {
+			if (PHYS_NAME[o.t]) {
+				d = o.t === "force" ? `${pre}力${o.name || ""} 作用点${xy(o.a)} 指向${xy(o.b)} 长${n2(dist(o.a, o.b))}格` : `${pre}${PHYS_NAME[o.t]}${xy(o.a)}${o.t === "light" ? "→" : ""}${xy(o.b)}`;
+				if (o.t === "light") { // 光线一端落在镜面上：算与法线的夹角（入射角/反射角）
+					for (const m of items) if (m.t === "mirror") for (const [end, other, nm] of [[o.b, o.a, "入射角"], [o.a, o.b, "反射角"]]) {
+						if (dist(end, proj(end, m.a, m.b, "seg")) > 1e-6) continue;
+						const v = [other[0] - end[0], other[1] - end[1]], mv = [m.b[0] - m.a[0], m.b[1] - m.a[1]];
+						const cos = Math.abs(v[0] * mv[0] + v[1] * mv[1]) / Math.hypot(...v) / Math.hypot(...mv);
+						d += ` ${nm}≈${Math.round(90 - (Math.acos(Math.min(1, cos)) * 180) / Math.PI)}°`;
+					}
+				}
+			} else if (["seg", "line", "ray"].includes(o.t)) {
 				const L = { a: o.a, b: o.b, k: o.t, id };
 				lines.push(L);
 				const name = { seg: `线段${xy(o.a)}${xy(o.b)}`, line: `直线过${xy(o.a)}${xy(o.b)}`, ray: `射线${xy(o.a)}→${xy(o.b)}` }[o.t];

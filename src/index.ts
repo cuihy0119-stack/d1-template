@@ -16,6 +16,7 @@ type Q = {
 	category: string | null;
 	board: string | null;
 	tag: string | null;
+	created_at: string;
 	type: "single" | "multi" | "fill" | "short";
 	stem: string;
 	options: string | null;
@@ -80,6 +81,7 @@ const clientQ = (q: Q) => ({
 	stem: q.stem,
 	options: parse<string[]>(q.options, []),
 	...pick({ ...q, opts: !!q.options }), // tag、board：旧题按题干补判
+	created_at: q.created_at,
 });
 const inList = (ids: number[]) => ids.map(() => "?").join(",");
 const idsParam = (s: string | undefined) =>
@@ -282,7 +284,7 @@ const WRONG_SQL = {
 async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.stem, q.source, r.next_date, r.stage,
+			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.stem, q.source, q.created_at, r.next_date, r.stage,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending

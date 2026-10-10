@@ -34,13 +34,20 @@ function loadMathLive() {
 	return mathLiveReady;
 }
 
+const PHYS_FORMULAS = ["v = s/t", "ρ = m/V", "G = mg", "p = F/S", "p = ρgh", "F浮 = ρ液gV排", "F浮 = G − F示", "W = Fs", "P = W/t", "P = Fv",
+	"η = W有/W总", "F₁L₁ = F₂L₂", "Q = cmΔt", "Q = mq", "I = U/R", "P = UI", "W = UIt", "Q = I²Rt", "P = U²/R", "串：I = I₁ = I₂", "并：U = U₁ = U₂"];
+
 class CalcBoard {
-	constructor() {
+	constructor(subject) {
 		Object.assign(this, { kind: "calc", vals: [""] });
 		this.pad = new Board({ calc: true });
 		this.panel = this.buildCalc();
-		this.pad.extra = () => [el("button", { type: "button", className: this.panel.hidden ? "" : "on", textContent: "🧮计算器",
-			onclick: () => { this.panel.hidden = !this.panel.hidden; this.pad.build(); } })];
+		// 物理：常用公式一点就写到画板上（初中范围）
+		this.forms = el("div", { className: "chips forms", hidden: true }, ...(subject === "物理" ? PHYS_FORMULAS : []).map((f) =>
+			el("button", { type: "button", className: "chip", textContent: f, onclick: () => this.paste(f) })));
+		const tog = (box, name) => el("button", { type: "button", className: box.hidden ? "" : "on", textContent: name,
+			onclick: () => { box.hidden = !box.hidden; this.pad.build(); } });
+		this.pad.extra = () => [tog(this.panel, "🧮计算器"), subject === "物理" ? tog(this.forms, "📘公式") : ""];
 		this.pad.build();
 		this.lines = el("div", { className: "clines", hidden: true });
 		this.lines.addEventListener("keydown", (e) => { // 回车 = 下一步
@@ -51,7 +58,7 @@ class CalcBoard {
 			more.remove(); this.lines.hidden = false; this.lines.textContent = "公式键盘加载中…";
 			loadMathLive().then(() => this.renderLines(0), (e) => (this.lines.textContent = e.message));
 		} });
-		this.el = el("div", { className: "calc" }, this.pad.el, this.panel, el("div", { style: "margin-top:8px" }, more), this.lines);
+		this.el = el("div", { className: "calc" }, this.pad.el, this.forms, this.panel, el("div", { style: "margin-top:8px" }, more), this.lines);
 	}
 	isEmpty() { this.sync(); return this.pad.isEmpty() && !this.vals.some((v) => v.trim()); }
 	hasPen() { return this.pad.hasPen(); }
@@ -68,18 +75,19 @@ class CalcBoard {
 		const show = () => { const v = inp.value.trim(), r = v && calcText(v); out.textContent = !v ? "" : r === v ? "…" : r.slice(v.length); };
 		const put = (k) => { inp.value = k === "C" ? "" : k === "⌫" ? inp.value.slice(0, -1) : inp.value + ({ "√": "√(", "x²": "²" }[k] || k); show(); };
 		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "π", "^", "0", ".", "x", "+", "=", "⌫"];
-		const paste = () => {
-			const v = inp.value.trim(), b = this.pad;
-			if (!v) return;
-			let y = Math.floor(b.oy / CELL) - 1; // 从上往下找第一行空行
-			while (y > -b.H / CELL && b.objs.some((o) => o.p && Math.abs(o.p[1] - y) < 1)) y--;
-			b.add({ t: "text", p: [Math.ceil(-b.ox / CELL) + 1, y], s: calcText(v) });
-		};
+		const paste = () => inp.value.trim() && this.paste(calcText(inp.value.trim()));
 		return el("div", { className: "calcpad", hidden: true },
 			el("div", { className: "row" }, inp, el("div", { className: "res" }, out)),
 			el("div", { className: "keysg" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onclick: () => put(k) })),
 				el("button", { type: "button", textContent: "C", onclick: () => put("C") }),
 				el("button", { type: "button", className: "wide", textContent: "📌 贴到画板", onclick: paste })));
+	}
+
+	paste(s) { // 写到画板：从上往下第一行空行
+		const b = this.pad;
+		let y = Math.floor(b.oy / CELL) - 1;
+		while (y > -b.H / CELL && b.objs.some((o) => o.p && Math.abs(o.p[1] - y) < 1)) y--;
+		b.add({ t: "text", p: [Math.ceil(-b.ox / CELL) + 1, y], s });
 	}
 
 	// ---------- 打字步骤（MathLive） ----------
