@@ -80,3 +80,20 @@ body.has-tabs main{padding-bottom:84px}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
 .bhint .fab{width:44px;height:40px;padding:0;border-radius:12px;font-size:22px;line-height:1;background:var(--card);border:1px solid var(--line);color:var(--fg)}
 .bhint .fab:active{background:color-mix(in srgb,var(--pri) 15%,transparent)}
+/* 画板标题（可收起） */
+.bhead{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:14px}
+.bhead button{padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute);font-size:13px}
+/* 计算解答板 */
+.clines{display:grid;gap:6px}
+.cline{display:flex;align-items:center;gap:6px}
+.cline b{flex:none;width:20px;color:var(--mute);font-size:13px;text-align:right}
+.cline math-field{flex:1;min-width:0;font-size:20px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+.cline math-field::part(menu-toggle){display:none}
+.cline button{flex:none;width:28px;height:28px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute)}
+.ccheck{display:flex;align-items:center;gap:6px;margin:4px 0 8px}
+.ccheck input[type=text]{flex:1;padding:8px 10px;font-size:15px}
+.ccheck .mute{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpad{position:relative;height:260px;border:1px solid var(--line);border-radius:10px;overflow:hidden;-webkit-user-select:none;user-select:none}
+.board.calc.big .cpad{height:480px}
+.cpad canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.ans{white-space:pre-wrap}

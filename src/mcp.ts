@@ -10,8 +10,8 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；作图题 board=coord(坐标系)/grid(方格)。
-作答里的「[作图]」是作图板描述（坐标单位=格），含代码算好的方程、交轴点、交点、点在哪条线上，以它为准，配小图核对整体。`;
+出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；画板 board：数学计算/解答题=calc，几何/函数作图=coord(坐标系)/grid(方格)，物理电路图=circuit。
+作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
 // 题目（短字段名省输出）。type 可省：有 opts 按答案个数判单/多选；无 opts 有 board 为简答，否则填空
 const Q = z.object({
@@ -23,7 +23,7 @@ const Q = z.object({
 	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
 	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
 	exp: z.string().optional().describe("解析"),
-	board: z.enum(["coord", "grid"]).optional(),
+	board: z.enum(["calc", "coord", "grid", "circuit"]).optional(),
 });
 type QIn = z.infer<typeof Q> & { origin?: number };
 
