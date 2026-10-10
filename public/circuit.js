@@ -66,7 +66,8 @@ class CircuitBoard {
 
 	bind() {
 		const cv = this.cv;
-		guardCanvas(cv); // 先挂：防选中/放大、防手掌误触
+		guardCanvas(cv); // 先挂：防选中/放大、防多指和手掌误触
+		cv.addEventListener("abortstroke", () => { this.drag = null; this.draw(); }); // 误触：这一笔作废
 		cv.addEventListener("pointerdown", (e) => {
 			if (!e.isPrimary) return;
 			cv.setPointerCapture(e.pointerId);
