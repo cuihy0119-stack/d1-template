@@ -158,29 +158,60 @@ function render() {
 		el("div", { className: "bar" }, el("i", { style: `width:${((cur + 1) / qs.length) * 100}%` })),
 		box, nav);
 	math(box);
-	isle.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("span", { className: "istem", textContent: q.stem }));
-	math(isle);
-	isle.hidden = true;
-	islands();
+	isle.fill(q);
 }
 
-// ---------- 灵动岛：往下滑到画板时，题干缩成顶部的岛（点一下展开/收起），画板工具变成底部的岛 ----------
-const isle = el("div", { className: "isle", hidden: true, onclick: () => isle.classList.toggle("open") });
-document.body.append(isle);
-let raf = 0;
-function islands() {
-	raf = 0;
-	const card = app.querySelector(".card"), stem = card?.querySelector(".stem"), bs = boards[cur] || [];
-	const show = !!(stem && bs.length && stem.getBoundingClientRect().bottom < 0 && card.getBoundingClientRect().bottom > 160);
-	if (show === isle.hidden) { isle.hidden = !show; isle.classList.remove("open"); }
-	for (const b of bs) {
-		const p = b.pad || b, slot = p.slot, dock = slot.getBoundingClientRect().top < 4 && p.wrap.getBoundingClientRect().bottom > 220;
-		if (dock === slot.classList.contains("docked")) continue;
-		slot.style.height = dock ? slot.offsetHeight + "px" : ""; // 留住原高度，版面不跳
-		slot.classList.toggle("docked", dock);
+// ---------- 浮岛：往下滑到画板时，题干和工具收成屏幕两侧的小圆（点开才完整显示），不挡画板 ----------
+// 状态：隐藏 → 出现（小圆弹出）→ 展开（面板从小圆长出来）→ 收起（滚动、在画板上落笔、点空白处、选完工具）
+// iPad 横屏两侧有空白：面板直接展开贴在画板左右两侧，不需要小圆。动画只用 transform/opacity。
+const isle = (() => {
+	const wide = matchMedia("(min-width:1100px)");
+	const mk = (cls, txt) => { const b = el("button", { type: "button", className: "bub " + cls, textContent: txt }); document.body.append(b); return b; };
+	const panel = (cls) => { const p = el("div", { className: "pan " + cls }); document.body.append(p); return p; };
+	const qb = mk("bq", "题"), tb = mk("bt", "✎"), ub = mk("bu", "↶"), qp = panel("pq"), tp = panel("pt");
+	let slot = null, dock = null, y0 = 0, raf = 0;
+	const open = (p, b, on) => { p.classList.toggle("open", on); b.classList.toggle("away", on); if (on) y0 = scrollY; };
+	const close = () => { if (!wide.matches) { open(qp, qb, false); open(tp, tb, false); } };
+	qb.onclick = () => open(qp, qb, !qp.classList.contains("open"));
+	tb.onclick = () => open(tp, tb, !tp.classList.contains("open"));
+	ub.onclick = () => dock?.querySelector(".fab")?.click(); // 不用展开也能撤销
+	qp.onclick = close;
+	tp.addEventListener("click", (e) => { if (e.target.closest(".btools button") && !wide.matches) setTimeout(close, 180); }); // 选完工具自动收起
+	document.addEventListener("pointerdown", (e) => {
+		if (e.target.closest(".bub,.pan")) return;
+		if (e.target.tagName === "CANVAS") document.body.classList.add("drawing"); // 落笔时小圆变淡
+		close();
+	}, { passive: true });
+	for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => document.body.classList.remove("drawing"), { passive: true });
+	// 工具区搬进面板 / 搬回原位（slot 留住原高度，版面不跳）
+	const park = (s) => {
+		if (s === slot) return;
+		if (slot) { slot.append(dock); slot.style.height = ""; }
+		slot = s; dock = s?.firstChild || null;
+		if (s) { s.style.height = s.offsetHeight + "px"; tp.append(dock); }
+	};
+	function update() {
+		raf = 0;
+		const card = app.querySelector(".card"), stem = card?.querySelector(".stem"), p = (boards[cur] || []).map((b) => b.pad || b)[0];
+		const w = p?.wrap.getBoundingClientRect(), live = !!(p && w.top < innerHeight * 0.6 && w.bottom > 160);
+		const showQ = live && stem.getBoundingClientRect().bottom < 0;
+		const showT = live && (slot || p.slot).getBoundingClientRect().top < 4;
+		park(showT ? p.slot : null);
+		qb.classList.toggle("on", showQ && !wide.matches); tb.classList.toggle("on", showT && !wide.matches); ub.classList.toggle("on", showT && !wide.matches);
+		if (wide.matches) { open(qp, qb, showQ); open(tp, tb, showT); }
+		else {
+			if (!showQ) open(qp, qb, false);
+			if (!showT) open(tp, tb, false);
+			if (Math.abs(scrollY - y0) > 24) close(); // 一滑动就收起
+		}
 	}
-}
-addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(islands); }, { passive: true });
+	addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(update); }, { passive: true });
+	wide.addEventListener?.("change", update);
+	return {
+		fill(q) { park(null); close(); qp.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("div", { className: "istem", textContent: q.stem })); math(qp); update(); },
+		hide() { park(null); for (const x of [qb, tb, ub]) x.classList.remove("on"); open(qp, qb, false); open(tp, tb, false); },
+	};
+})();
 
 async function submit() {
 	const btn = $("#submit");
@@ -199,7 +230,7 @@ async function submit() {
 
 let poll = 0;
 async function showResult(ids) {
-	isle.hidden = true;
+	isle.hide();
 	clearInterval(poll);
 	const rows = await api("/api/attempts?ids=" + ids);
 	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语

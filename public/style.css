@@ -214,34 +214,31 @@ html{touch-action:manipulation}
 @media(min-width:700px){main{max-width:780px;padding:28px 28px 18px}.bwrap{aspect-ratio:4/3}.board.big .bwrap{aspect-ratio:1/1}.subjects{grid-template-columns:repeat(3,1fr)}}
 @media(min-width:700px){@supports not (aspect-ratio:1/1){.bwrap{padding-top:75%}}}
 .toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top));transform:translateX(-50%);z-index:20;padding:10px 18px;border-radius:var(--r-m);background:var(--fg);color:var(--bg);font:15px var(--serif);box-shadow:var(--shadow);animation:rise .3s var(--ease) both}
-/* ================= 灵动岛：题干岛（顶部）+ 工具岛（底部）；弹性展开，只动 transform/opacity ================= */
-.isle,.slot.docked>.dock{position:fixed;left:50%;z-index:30;background:color-mix(in srgb,var(--solid) 74%,transparent);
-  -webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%);border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),0 12px 30px -12px rgba(40,25,10,.4)}
-.isle{top:calc(10px + env(safe-area-inset-top));width:min(90vw,640px);display:flex;gap:8px;align-items:center;padding:8px 16px 8px 10px;border-radius:999px;cursor:pointer;
-  transform:translateX(-50%);transform-origin:top center;animation:isle .5s cubic-bezier(.34,1.56,.64,1) both}
-.isle .tag{flex:none;margin:0}
-.isle .istem{font:15px/1.5 var(--serif);overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;white-space:pre-wrap}
-.isle.open{border-radius:var(--r-xl);align-items:flex-start;padding:12px 16px;animation:pop .35s var(--ease)}
-.isle.open .istem{-webkit-line-clamp:12}
-@keyframes isle{from{opacity:0;transform:translateX(-50%) scale(.45,.35)}to{opacity:1;transform:translateX(-50%)}}
-.slot.docked>.dock{bottom:calc(10px + env(safe-area-inset-bottom));width:min(94vw,720px);padding:8px 8px 0;border-radius:var(--r-xl);
-  transform:translateX(-50%);transform-origin:bottom center;animation:dockin .5s cubic-bezier(.34,1.56,.64,1) both}
-/* 撤销/重做变成工具岛右上方的小岛；元件图标在岛里缩小一点 */
-.slot.docked .bhint{position:absolute;right:8px;bottom:100%;margin-bottom:8px;min-height:0;padding:0;gap:8px}.slot.docked .bhint span{display:none}
-.slot.docked .bhint .fab{background:color-mix(in srgb,var(--solid) 80%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:999px;box-shadow:var(--shadow)}
-.slot.docked .ico canvas{width:46px;height:23px}.slot.docked .ico{font-size:11px;padding:3px 6px 2px}
-@keyframes dockin{from{opacity:0;transform:translateX(-50%) translateY(24px) scale(.7)}to{opacity:1;transform:translateX(-50%)}}
-/* iPad 横屏等宽屏：题干岛贴在画板左侧（直接显示全文），工具岛竖排在右侧 */
-@media(min-width:1000px){
-  .isle,.slot.docked>.dock{top:calc(80px + env(safe-area-inset-top));width:calc((100vw - 780px) / 2 - 28px);max-height:calc(100vh - 120px);overflow:auto;border-radius:var(--r-xl);transform:none}
-  .isle{left:14px;flex-direction:column;align-items:flex-start;padding:14px;cursor:default;animation:isleL .5s cubic-bezier(.34,1.56,.64,1) both}
-  .isle .istem{-webkit-line-clamp:unset;font-size:16px;line-height:1.75}
-  .slot.docked>.dock{left:auto;right:14px;bottom:auto;padding:10px;animation:dockR .5s cubic-bezier(.34,1.56,.64,1) both}
-  .slot.docked .btools{flex-wrap:wrap;overflow:visible;-webkit-mask:none;mask:none}
-  .slot.docked .bhint{position:static;margin:4px 0 0}
-  @keyframes isleL{from{opacity:0;transform:translateX(-30px) scale(.85)}to{opacity:1;transform:none}}
-  @keyframes dockR{from{opacity:0;transform:translateX(30px) scale(.85)}to{opacity:1;transform:none}}
+/* ================= 浮岛：两侧小圆 ⇄ 展开面板（弹性动画，只动 transform/opacity） ================= */
+.bub,.pan{position:fixed;z-index:31;background:color-mix(in srgb,var(--solid) 80%,transparent);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);
+  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),0 10px 26px -10px rgba(40,25,10,.45)}
+.bub{width:46px;height:46px;border-radius:50%;padding:0;display:grid;place-items:center;color:var(--pri);font:600 18px/1 var(--serif);
+  opacity:0;transform:scale(0);pointer-events:none;transition:transform .5s cubic-bezier(.34,1.56,.64,1),opacity .25s}
+.bub.on{opacity:1;transform:none;pointer-events:auto}
+.bub.on:active{transform:scale(.88)}
+.bub.on.away{opacity:0;transform:scale(.6);pointer-events:none}
+body.drawing .bub.on{opacity:.35}
+.bq{left:8px;top:calc(42% - 23px)}.bt{right:8px;top:calc(42% - 23px)}.bu{right:12px;top:calc(42% + 32px);width:38px;height:38px;font-size:18px;color:var(--fg)}
+.pan{top:calc(42% - 23px);max-height:62vh;overflow:auto;padding:12px;border-radius:var(--r-xl);-webkit-overflow-scrolling:touch;
+  opacity:0;transform:scale(.25);pointer-events:none;transition:transform .45s cubic-bezier(.34,1.4,.64,1),opacity .2s}
+.pan.open{opacity:1;transform:none;pointer-events:auto}
+.pq{left:8px;width:min(80vw,420px);transform-origin:23px 23px}
+.pt{right:8px;width:min(88vw,400px);transform-origin:calc(100% - 23px) 23px}
+.pq .istem{font:16px/1.75 var(--serif);white-space:pre-wrap;margin-top:6px}
+.pt .btools{flex-wrap:wrap;overflow:visible;-webkit-mask:none;mask:none}
+.pt .bhint{min-height:0;padding:4px 0 0}
+.pt .btools .ico{padding:3px 5px 2px;font-size:11px}.pt .btools .ico canvas{width:44px;height:22px}.pt .btools button{min-height:34px;padding:5px 10px;font-size:14px}
+/* iPad 横屏：面板常驻画板左右两侧的空白里 */
+@media(min-width:1100px){
+  .pan{top:calc(80px + env(safe-area-inset-top));max-height:calc(100vh - 120px);width:calc((100vw - 780px) / 2 - 28px)}
+  .pq{left:14px;transform-origin:left center}.pt{right:14px;transform-origin:right center}
+  .pan:not(.open){transform:translateX(0) scale(.9)}
 }
-.lite .isle,.lite .slot.docked>.dock{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+.lite .bub,.lite .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
