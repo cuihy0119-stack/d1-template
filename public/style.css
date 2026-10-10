@@ -99,9 +99,12 @@ body.has-tabs main{padding-bottom:84px}
 .keysg .wide{grid-column:span 5;font-size:15px}
 .ans{white-space:pre-wrap}
 /* 推送时间、删题 */
-.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .mute{font-size:12px;flex:1}
+.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .time{flex:1}
 button.del{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--bad);font-size:13px}
-.item .body>.mute{font-size:12px;margin-left:2px}
+.time{font-size:13px;color:var(--mute);margin-left:4px;white-space:nowrap}
+.item .side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.recent{display:flex;gap:10px;align-items:center;padding:8px 0}.recent+.recent{border-top:1px solid var(--line)}
+.recent a{flex:1;min-width:0;color:var(--fg);text-decoration:none}.recent .stem{font-size:15px;margin-top:2px}
 /* 电路图板：元件符号按钮、通电结果 */
 .btools .ico{display:flex;flex-direction:column;align-items:center;padding:3px 6px 2px;font-size:11px;line-height:1.2}
 .btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:4px}

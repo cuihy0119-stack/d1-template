@@ -46,17 +46,16 @@ function render() {
 
 function row(q) {
 	const [label, cls] = state(q);
+	const del = el("button", { type: "button", className: "del", textContent: "🗑 删除", onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } });
 	const tag = subject ? q.category || q.subject : q.subject;
 	const item = el("div", { className: "item" },
 		el("div", { className: "body" },
 			el("span", { className: "tag", textContent: tag }),
-			el("span", { className: "mute", textContent: when(q.created_at) }),
+			el("span", { className: "time", textContent: "🕒 " + when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) })),
-		el("span", { className: "st " + cls, textContent: label }));
+		el("div", { className: "side" }, el("span", { className: "st " + cls, textContent: label }), del));
 	if (MODE === "bank") {
 		item.onclick = () => (location.href = quizHref([q.id]));
-		item.append(el("button", { type: "button", className: "del", textContent: "🗑", title: "删题",
-			onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } }));
 		return item;
 	}
 	// 错题本：点开看错答、答案、解析

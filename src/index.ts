@@ -144,7 +144,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
-	const [qs, summary, pending, wrong, subjects, ungraded] = await Promise.all([
+	const [qs, summary, pending, wrong, subjects, ungraded, recent] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
@@ -160,6 +160,7 @@ app.get("/api/home", async (c) => {
 			.bind(today())
 			.all(),
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
+		db.prepare("SELECT id, subject, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
 	]);
 	return c.json({
 		today_count: qs.length,
@@ -168,6 +169,7 @@ app.get("/api/home", async (c) => {
 		pending_grades: ungraded?.n ?? 0,
 		queue_count: wrong?.n ?? 0,
 		subjects: subjects.results,
+		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: q.stem.slice(0, 60), created_at: q.created_at })),
 	});
 });
 
@@ -322,7 +324,11 @@ app.get("/api/question/:id", async (c) => {
 });
 
 // 其余请求：已登录后交给静态页面
-app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
+app.all("*", async (c) => {
+	const res = await c.env.ASSETS.fetch(c.req.raw), r = new Response(res.body, res);
+	r.headers.set("Cache-Control", "no-cache"); // 每次都向服务器确认，改版后手机马上用上新页面
+	return r;
+});
 
 // OAuth 元数据里要写本站网址，所以按请求的 origin 建 provider（自定义域名也能用）
 const providers = new Map<string, OAuthProvider<Env>>();
