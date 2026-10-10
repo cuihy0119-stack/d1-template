@@ -11,7 +11,7 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag=题型：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/简答，网站据此自动定题型和画板（计算板/几何板/电路图板）。
+出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag=题型：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答，网站据此自动配题型和画板。
 作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
 // 题目（短字段名省输出）
@@ -23,7 +23,7 @@ const Q = z.object({
 	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
 	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
 	exp: z.string().optional().describe("解析"),
-	tag: z.string().optional().describe("选择/填空/计算/解答/证明/作图/函数/电路/简答"),
+	tag: z.string().optional().describe("选择/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答"),
 }).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
 type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
 
@@ -56,7 +56,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
 		)
 		.bind(subject, q.category ?? def.category ?? null, q.topic ?? def.topic ?? null, type, q.stem, q.opts?.length ? JSON.stringify(q.opts) : null,
-			JSON.stringify(q.ans), q.exp ?? null, source, q.origin ?? null, board, tag)
+			JSON.stringify(q.ans), q.exp ?? null, source, q.origin ?? null, board === "phys" ? "grid" : board, tag) // phys 不在表的 CHECK 里，读题时按 tag 还原
 		.run();
 	return r.meta.last_row_id;
 }
@@ -154,7 +154,7 @@ export function buildServer(env: Env) {
 					const t = q ? pick({ ...q, tag: it.tag, opts: !!q.options }) : null;
 					const r = await db
 						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
-						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board ?? null, it.id)
+						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board === "phys" ? "grid" : t?.board ?? null, it.id)
 						.run();
 					n += r.meta.changes;
 				}

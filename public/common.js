@@ -70,3 +70,8 @@ function plain(t) {
 	t = (t || "").replace(/\n?\[(作图|电路)\][^\n]*/g, () => ((hid = true), ""));
 	return (t + (hid ? " （见画板图）" : "")).trim();
 }
+
+// 推送时间：库里是 UTC，显示北京时间「10-10 10:35」
+const when = (t) => (t ? new Date(t.replace(" ", "T") + "Z").toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(/\//g, "-") : "");
+// 删题（做题记录保留）
+const delQuestion = async (id) => confirm("删除这道题？（做题记录会保留）") && (await api(`/api/question/${id}/delete`, { method: "POST" }), true);
