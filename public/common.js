@@ -88,16 +88,36 @@ function toast(msg) {
 	setTimeout(() => t.remove(), 2600);
 }
 
-// 画布手势封装：不触发浏览器的选中、双击放大、长按菜单、放大镜；用 Apple Pencil 时忽略手掌碰到的触摸
+// 画布手势封装（几种画板共用），减少误触：
+// 1. 不触发浏览器的选中、双击放大、长按菜单、放大镜
+// 2. 拒绝多点触控：一笔没画完，第二个触点一律不算；两指几乎同时落下（多半是手掌/误碰），前一笔也作废
+// 3. 接触面积很大的触摸（手掌、手侧）直接忽略
+// 4. 用过 Apple Pencil 后进入「笔写模式」：画板只认笔，手指在画板上滑动就是滚动页面
 function guardCanvas(cv) {
-	const stop = (e) => e.cancelable && e.preventDefault();
-	for (const ev of ["touchstart", "touchmove", "touchend", "dblclick", "contextmenu", "selectstart", "gesturestart"]) cv.addEventListener(ev, stop, { passive: false });
-	let pen = 0;
-	const palm = (e) => {
-		if (e.pointerType === "pen") pen = Date.now();
-		else if (e.pointerType === "touch" && Date.now() - pen < 2000) e.stopImmediatePropagation(); // 刚用过笔：手指/手掌的触摸不算
+	let pencil = false, cur = null, t0 = 0;
+	const prevent = (e) => e.cancelable && e.preventDefault();
+	// 笔写模式下手指要能滚动页面，只拦笔的触摸；否则全部拦下
+	const touch = (e) => { if (!pencil || [...e.touches, ...e.changedTouches].some((t) => t.touchType === "stylus")) prevent(e); };
+	for (const ev of ["touchstart", "touchmove", "touchend"]) cv.addEventListener(ev, touch, { passive: false });
+	for (const ev of ["dblclick", "contextmenu", "selectstart", "gesturestart"]) cv.addEventListener(ev, prevent, { passive: false });
+	const filter = (e) => {
+		if (e.pointerType === "pen" && !pencil) { pencil = true; cv.style.touchAction = "pan-y"; }
+		const bad = e.pointerType === "touch" && (pencil || Math.max(e.width || 0, e.height || 0) > 44);
+		if (e.type === "pointerdown") {
+			if (bad) return e.stopImmediatePropagation();
+			if (cur !== null) { // 已经有一笔在画
+				e.stopImmediatePropagation();
+				if (e.pointerType === "touch" && Date.now() - t0 < 150) cv.dispatchEvent(new Event("abortstroke"));
+				return;
+			}
+			cur = e.pointerId; t0 = Date.now();
+			return;
+		}
+		if (cur === null) { if (e.pointerType !== "mouse") e.stopImmediatePropagation(); return; } // 鼠标悬停照常显示十字
+		if (e.pointerId !== cur) return e.stopImmediatePropagation();
+		if (e.type !== "pointermove") cur = null;
 	};
-	for (const ev of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) cv.addEventListener(ev, palm);
+	for (const ev of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) cv.addEventListener(ev, filter);
 }
 
 // 作答里的「[作图] …」「[电路] …」是给 Claude 的描述，自己看时换成提示；[计算] 步骤是公式，照常显示
