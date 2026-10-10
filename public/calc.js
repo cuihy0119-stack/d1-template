@@ -73,7 +73,14 @@ class CalcBoard {
 	buildCalc() {
 		let raf = 0;
 		const out = el("b"), inp = el("input", { type: "text", placeholder: "x²-5x+6=0、2x+y=5，x-y=1、2x-1>3", oninput: () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; show(); }); } }); // 每帧最多算一次
-		const show = () => { const v = inp.value.trim(), r = v && calcText(v); out.textContent = !v ? "" : r === v ? "…" : r.slice(v.length); };
+		// 结果用 KaTeX 排成真正的分数、根号（如 3/4 → ¾ 的竖式分数），没有 KaTeX 就显示文字
+		const tex = (s) => s.replace(/（≈([^）]+)）/g, "\\;(\\approx $1)").replace(/(-?\d*)√(\d+)\/(\d+)/g, "\\frac{$1\\sqrt{$2}}{$3}").replace(/√(\d+)/g, "\\sqrt{$1}")
+			.replace(/(-?\d+)\/(\d+)/g, (m, n, d) => (n < 0 ? "-" : "") + `\\frac{${Math.abs(n)}}{${d}}`).replace(/→/g, "\\Rightarrow").replace(/，/g, ",\\;").replace(/([\u4e00-\u9fa5]+)/g, "\\text{$1}");
+		const show = () => {
+			const v = inp.value.trim(), r = v && calcText(v), res = !v ? "" : r === v ? "…" : r.slice(v.length);
+			if (window.katex && res && res !== "…") { try { return katex.render("\\displaystyle " + tex(res), out, { throwOnError: true }); } catch {} }
+			out.textContent = res;
+		};
 		const put = (k) => { inp.value = k === "C" ? "" : k === "⌫" ? inp.value.slice(0, -1) : inp.value + ({ "√": "√(", "x²": "²" }[k] || k); show(); };
 		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "^", "π", "0", ".", "x", "+", "=", "⌫", "y", "，", "<", ">", "≥", "≤"];
 		const paste = () => inp.value.trim() && this.paste(calcText(inp.value.trim()));
