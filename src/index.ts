@@ -304,7 +304,7 @@ app.get("/api/attempts", async (c) => {
 // ---------- 题库 / 错题本 ----------
 const WRONG_SQL = {
 	active: "q.status = 'active' AND EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)",
-	mastered: "q.status = 'mastered'",
+	mastered: "q.status = 'mastered' AND q.sent_at IS NULL", // 错题文件夹
 };
 
 async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
