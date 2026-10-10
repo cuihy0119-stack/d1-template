@@ -12,6 +12,13 @@ async function loadHome() {
 	ask.replaceChildren();
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
 	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
+	const rec = $("#recent");
+	if (h.recent.length) rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
+		el("a", { href: "/quiz?ids=" + q.id },
+			el("div", {}, el("span", { className: "tag", textContent: q.subject }), el("span", { className: "tag", textContent: q.tag }), el("span", { className: "time", textContent: "🕒 " + when(q.created_at) })),
+			el("div", { className: "stem", textContent: q.stem })),
+		el("button", { type: "button", className: "del", textContent: "🗑 删除", onclick: async () => (await delQuestion(q.id)) && loadHome() }))));
+	math(rec);
 	const box = $("#subjects");
 	box.replaceChildren();
 	if (!h.subjects.length) box.append(el("p", { className: "mute", textContent: "还没有题，拍照上传错题或让 Claude 出题" }));

@@ -36,7 +36,7 @@ function render() {
 	const box = el("div", { className: "card" });
 	box.append(
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
-			el("span", { className: "mute", textContent: "推送 " + when(q.created_at) }),
+			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
 			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
 				for (const a of [qs, ans, files, boards, secs]) a.splice(cur, 1);
