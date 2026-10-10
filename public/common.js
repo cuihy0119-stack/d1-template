@@ -47,3 +47,11 @@ function tabbar(active) {
 	}
 	document.body.append(nav);
 }
+
+// 自动刷新：切回页面、按返回键回来（浏览器缓存的旧页面）时刷新；every>0 时页面可见期间定时刷新
+function autoRefresh(fn, every = 0) {
+	const run = () => document.visibilityState === "visible" && fn();
+	document.addEventListener("visibilitychange", run);
+	window.addEventListener("pageshow", (e) => e.persisted && fn());
+	if (every) setInterval(run, every);
+}
