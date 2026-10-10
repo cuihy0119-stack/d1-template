@@ -191,8 +191,7 @@ class Board {
 	// ---------- 交互：拖动类按住拖；点选类抬手时才落点（可边按边调整位置） ----------
 	bind() {
 		const cv = this.cv;
-		guardCanvas(cv); // 先挂：防选中/放大、防多指和手掌误触
-		cv.addEventListener("abortstroke", () => { this.drag = this.tap = null; this.rub = false; this.draw(); }); // 误触：这一笔作废
+		guardCanvas(cv); // 先挂：防选中/放大、防手掌误触
 		cv.addEventListener("pointerdown", (e) => {
 			if (!e.isPrimary) return;
 			cv.setPointerCapture(e.pointerId);
@@ -206,10 +205,7 @@ class Board {
 		cv.addEventListener("pointermove", (e) => {
 			const [p, raw] = this.at(e);
 			if (this.rub) return this.rubAt(raw);
-			if (this.drag?.t === "pen") { // 手写：取齐浏览器合并掉的中间点（快写也顺），太近的点不要（去抖）
-				const pts = this.drag.pts;
-				for (const ev of e.getCoalescedEvents?.() || [e]) { const r = this.at(ev)[1]; if (dist(r, pts[pts.length - 1]) > 0.04) pts.push(r); }
-			} else if (this.drag) this.drag.b = p;
+			if (this.drag) this.drag.t === "pen" ? this.drag.pts.push(raw) : (this.drag.b = p);
 			else if (this.tap) this.tap = [p, raw];
 			else this.hover = e.pointerType === "mouse" ? p : null;
 			this.draw();

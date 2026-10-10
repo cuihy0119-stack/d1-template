@@ -1,5 +1,4 @@
 const app = $("#app");
-const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
 let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
@@ -27,8 +26,10 @@ async function start() {
 	done = qs.map(() => null);
 	sig = qs.map(() => "");
 	cur = 0;
-	render();
+	render("enter");
 }
+// 从「返回」缓存回到做题页：状态可能已过期（离开时已用 sendBeacon 提交），直接重新加载
+addEventListener("pageshow", (e) => e.persisted && !location.hash && location.reload());
 
 function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownAt = Date.now(); }
 
@@ -74,11 +75,13 @@ async function go(i) {
 	const btns = [...document.querySelectorAll(".nav .btn")];
 	btns.forEach((b) => (b.disabled = true));
 	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = false)); }
-	tick(); app.className = i > cur ? "fwd" : "back"; cur = i; render();
+	tick(); const dir = i > cur ? "fwd" : "back"; cur = i; render(dir);
 }
 
-function render() {
+// anim：只在换题时播放进场动画；点选项、加图片等局部更新不重播，避免闪烁
+function render(anim) {
 	shownAt = Date.now();
+	app.className = anim || "";
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
@@ -104,13 +107,13 @@ function render() {
 			const letter = o.trim()[0].toUpperCase();
 			const on = q.type === "multi" ? ans[cur].includes(letter) : ans[cur] === letter;
 			box.append(el("button", {
-				className: "opt" + (on ? " on" : ""),
-				onclick: () => {
+				className: "opt" + (on ? " on" : ""), value: letter,
+				onclick: () => { // 只改选中状态，不重绘整题
 					if (q.type === "multi") {
 						const a = ans[cur];
 						ans[cur] = a.includes(letter) ? a.filter((x) => x !== letter) : [...a, letter];
 					} else ans[cur] = letter;
-					render();
+					for (const b of box.querySelectorAll(".opt")) b.classList.toggle("on", q.type === "multi" ? ans[cur].includes(b.value) : ans[cur] === b.value);
 				},
 			}, el("span", { className: "ol", textContent: letter }), el("span", { textContent: o.replace(/^\s*[A-Za-z][.．、:：]?\s*/, "") })));
 		});
@@ -136,8 +139,8 @@ function render() {
 			onchange: () => { files[cur].push(...pick.files); render(); } });
 		const att = el("div", { className: "att" });
 		files[cur].forEach((f, i) => att.append(el("div", {},
-			el("img", { src: URL.createObjectURL(f) }),
-			el("button", { type: "button", textContent: "×", onclick: () => { files[cur].splice(i, 1); render(); } }))));
+			el("img", { src: (f.url ||= URL.createObjectURL(f)) }), // 同一张图只建一次预览地址
+			el("button", { type: "button", textContent: "×", onclick: () => { URL.revokeObjectURL(f.url); files[cur].splice(i, 1); render(); } }))));
 		box.append(ta,
 			el("div", { className: "row", style: "margin-top:8px" },
 				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
