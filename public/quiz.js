@@ -34,9 +34,13 @@ addEventListener("pageshow", (e) => e.persisted && !location.hash && location.re
 function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownAt = Date.now(); }
 
 // ---------- 一题一交：离开这题（上/下一题、交卷、退出页面）就提交做过的题；回来改了再离开，会更新那次提交 ----------
-const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || files[i].length || boards[i].some((b) => !b.isEmpty());
+// 算不算做了：以答案框为准（选项、填空框、作答框/照片）；作图类画板（几何/电路/光学力学）本身就是答案也算。
+// 计算板是草纸：不算作答、不发给 Claude；只有题目要求写过程时，草纸才作为过程一起交。
+const needProcess = (q) => q.tag === "解答" || /过程|步骤|写出.{0,4}(解|推理|推导)|说明理由/.test(q.stem);
+const sends = (i, b) => !b.isEmpty() && (b.kind !== "calc" || (qs[i].type === "short" && needProcess(qs[i])));
+const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || (qs[i].type === "short" && (files[i].length || boards[i].some((b) => sends(i, b))));
 // 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
-const work = (i) => boards[i].filter((b) => !b.isEmpty()).map((b) => BOARDS[b.kind][1] + " " + b.describe()).join("\n");
+const work = (i) => boards[i].filter((b) => sends(i, b)).map((b) => BOARDS[b.kind][1] + " " + b.describe()).join("\n");
 const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined });
 const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].length]);
 const pending = (i) => answered(i) && done[i] !== "…" && (!done[i] || sigOf(i) !== sig[i]); // 没交过，或交过又改了
@@ -58,7 +62,7 @@ async function save(i) {
 		for (const b of boards[i]) {
 			if (b.isEmpty()) continue;
 			if (b.kind !== "calc" || !b.pad.isEmpty()) await up(await b.toFile(true), "view"); // 高清整图：自己看结果
-			if (b.kind === "calc" ? !b.pad.isEmpty() : b.hasPen?.()) await up(await b.toFile(), "board"); // 裁剪压缩小图：只发给 Claude
+			if (sends(i, b) && (b.kind === "calc" ? !b.pad.isEmpty() : b.hasPen?.())) await up(await b.toFile(), "board"); // 裁剪压缩小图：只发给 Claude
 		}
 		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ ...it, photo_keys }] }) })).attempt_ids[0];
 		sig[i] = s;

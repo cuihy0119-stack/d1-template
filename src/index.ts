@@ -235,35 +235,24 @@ app.post("/api/submit", async (c) => {
 		const old = it.attempt_id
 			? await db.prepare("SELECT id, is_correct FROM attempts WHERE id = ? AND question_id = ?").bind(it.attempt_id, q.id).first<{ id: number; is_correct: number | null }>()
 			: null;
+		// 判分：选择题机器判；填空题对上标准答案直接算对，对不上交给 Claude 批改（可能是等价写法）；简答都给 Claude
+		const hit = q.type === "short" ? false : judge(q.type, parse<string[]>(q.answer, []), it.answer);
+		const ok = q.type === "short" || (q.type === "fill" && !hit) ? null : hit ? 1 : 0;
+		const status = ok == null ? "待批改" : "已判";
+		let id = old?.id;
 		if (old) {
-			const ok = q.type === "short" ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
 			await db
 				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ? WHERE id = ?")
-				.bind(text, photo, ok, ok == null ? null : ok * 100, ok == null ? "待批改" : "已判", secs, old.id)
-				.run();
-			if (ok != null && ok !== old.is_correct) await updateQueue(db, q.id, !!ok);
-			attemptIds.push(old.id);
-			continue;
-		}
-		let res;
-		if (q.type === "short") {
-			res = await db
-				.prepare(
-					"INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, '待批改', ?)",
-				)
-				.bind(q.id, q.subject, q.topic, text, photo, secs)
+				.bind(text, photo, ok, ok == null ? null : ok * 100, status, secs, old.id)
 				.run();
 		} else {
-			const ok = judge(q.type, parse<string[]>(q.answer, []), it.answer);
-			res = await db
-				.prepare(
-					"INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, ?, '已判', ?)",
-				)
-				.bind(q.id, q.subject, q.topic, text, photo, ok ? 1 : 0, ok ? 100 : 0, secs)
-				.run();
-			await updateQueue(db, q.id, ok);
+			id = (await db
+				.prepare("INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+				.bind(q.id, q.subject, q.topic, text, photo, ok, ok == null ? null : ok * 100, status, secs)
+				.run()).meta.last_row_id;
 		}
-		attemptIds.push(res.meta.last_row_id);
+		if (ok != null && ok !== old?.is_correct) await updateQueue(db, q.id, !!ok);
+		attemptIds.push(id!);
 	}
 	return c.json({ attempt_ids: attemptIds });
 });
