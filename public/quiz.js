@@ -1,7 +1,7 @@
 const app = $("#app");
 const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
+let qs = [], ans = [], files = [], boards = [], secs = [], done = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
@@ -23,27 +23,63 @@ async function start() {
 	files = qs.map(() => []);
 	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q, q.board === "coord")] : []));
 	secs = qs.map(() => 0);
+	done = qs.map(() => null);
 	cur = 0;
 	render();
 }
 
 function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownAt = Date.now(); }
-function go(i) { tick(); cur = i; render(); }
+
+// ---------- 一题一交：离开这题（上/下一题、交卷、退出页面）就提交做过的题，交过的锁定 ----------
+const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || files[i].length || boards[i].some((b) => !b.isEmpty());
+// 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
+const work = (i) => boards[i].filter((b) => !b.isEmpty()).map((b) => BOARDS[b.kind][1] + " " + b.describe()).join("\n");
+const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i] });
+async function save(i) {
+	if (done[i] || !answered(i)) return;
+	if (i === cur) tick();
+	done[i] = "…";
+	try {
+		const photo_keys = [];
+		const up = async (f, kind) => {
+			const fd = new FormData();
+			fd.append("file", kind ? f : await compress(f));
+			if (kind) fd.append("kind", kind);
+			photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
+		};
+		for (const f of files[i]) await up(f);
+		for (const b of boards[i]) if (!b.isEmpty() && (b.kind !== "calc" || b.hasPen())) await up(await b.toFile(), "board"); // 计算板只有手写才附图
+		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [item(i, photo_keys)] }) })).attempt_ids[0];
+	} catch (e) { done[i] = null; throw e; }
+}
+// 中途退出：用 sendBeacon 把当前题发出去（来不及传图，文字和画板描述都在）
+addEventListener("pagehide", () => {
+	if (!qs.length || done[cur] || !answered(cur)) return;
+	tick(); done[cur] = "…";
+	navigator.sendBeacon("/api/submit", new Blob([JSON.stringify({ items: [item(cur)] })], { type: "application/json" }));
+});
+async function go(i) {
+	const btns = [...document.querySelectorAll(".nav .btn")];
+	btns.forEach((b) => (b.disabled = true));
+	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = false)); }
+	tick(); cur = i; render();
+}
 
 function render() {
 	shownAt = Date.now();
 	const q = qs[cur];
-	const box = el("div", { className: "card" });
+	const box = el("div", { className: "card" + (done[cur] ? " locked" : "") });
 	box.append(
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
 			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
 			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
-				for (const a of [qs, ans, files, boards, secs]) a.splice(cur, 1);
+				for (const a of [qs, ans, files, boards, secs, done]) a.splice(cur, 1);
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
+	if (done[cur]) box.append(el("div", { className: "ans", textContent: "✓ 这题已提交" }));
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
 		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);
@@ -112,31 +148,13 @@ function render() {
 }
 
 async function submit() {
-	tick();
 	const btn = $("#submit");
 	btn.disabled = true; btn.textContent = "提交中…";
 	try {
-		const items = [];
-		for (let i = 0; i < qs.length; i++) {
-			const photo_keys = [];
-			const up = async (f, kind) => {
-				const fd = new FormData();
-				fd.append("file", kind ? f : await compress(f));
-				if (kind) fd.append("kind", kind);
-				photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
-			};
-			for (const f of files[i]) await up(f);
-			let answer = ans[i];
-			for (const b of boards[i]) {
-				if (b.isEmpty()) continue;
-				// 画板转成文字发给 Claude（省用量）；作图/电路图存一份小图，计算板只有手写草稿才存
-				if (typeof answer === "string") answer = (answer ? answer + "\n" : "") + BOARDS[b.kind][1] + " " + b.describe();
-				if (b.kind !== "calc" || b.hasPen()) await up(await b.toFile(), "board");
-			}
-			items.push({ question_id: qs[i].id, answer, photo_keys, time_spent_sec: secs[i] });
-		}
-		const r = await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
-		location.hash = "r=" + r.attempt_ids.join(",");
+		for (let i = 0; i < qs.length; i++) await save(i); // 前面的题离开时已交，这里补交当前题；没做的题不算
+		const ids = done.filter((d) => typeof d === "number");
+		if (!ids.length) { btn.disabled = false; btn.textContent = "交卷"; return alert("还没有做任何题"); }
+		location.hash = "r=" + ids.join(",");
 		location.reload();
 	} catch (e) {
 		btn.disabled = false; btn.textContent = "交卷";

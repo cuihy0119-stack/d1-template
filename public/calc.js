@@ -71,10 +71,10 @@ class CalcBoard {
 
 	// ---------- 计算器：同一套算式规则；可把结果贴到画板 ----------
 	buildCalc() {
-		const out = el("b"), inp = el("input", { type: "text", placeholder: "如 (3/4-1/6)×12、√48、x²-5x+6=0", oninput: () => show() });
+		const out = el("b"), inp = el("input", { type: "text", placeholder: "x²-5x+6=0、2x+y=5，x-y=1、2x-1>3", oninput: () => show() });
 		const show = () => { const v = inp.value.trim(), r = v && calcText(v); out.textContent = !v ? "" : r === v ? "…" : r.slice(v.length); };
 		const put = (k) => { inp.value = k === "C" ? "" : k === "⌫" ? inp.value.slice(0, -1) : inp.value + ({ "√": "√(", "x²": "²" }[k] || k); show(); };
-		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "π", "^", "0", ".", "x", "+", "=", "⌫"];
+		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "^", "π", "0", ".", "x", "+", "=", "⌫", "y", "，", "<", ">", "≥", "≤"];
 		const paste = () => inp.value.trim() && this.paste(calcText(inp.value.trim()));
 		return el("div", { className: "calcpad", hidden: true },
 			el("div", { className: "row" }, inp, el("div", { className: "res" }, out)),
