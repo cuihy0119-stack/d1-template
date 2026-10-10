@@ -17,6 +17,7 @@
 	},
 	"devDependencies": {
 		"katex": "^0.16.11",
+		"mathlive": "0.109.0",
 		"typescript": "5.9.3",
 		"wrangler": "4.88.0"
 	},
@@ -30,7 +31,7 @@
 		"seedLocalD1": "wrangler d1 migrations apply DB --local",
 		"seed:local": "node scripts/seed.mjs",
 		"seed:remote": "node scripts/seed.mjs --remote",
-		"vendor:katex": "node scripts/vendor-katex.mjs"
+		"vendor": "node scripts/vendor-katex.mjs"
 	},
 	"dependencies": {
 		"@cloudflare/workers-oauth-provider": "^1.2.3",

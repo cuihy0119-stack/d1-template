@@ -63,3 +63,10 @@ const CLAUDE_ASK = {
 };
 const askClaude = (text, label) =>
 	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), target: "_blank", rel: "noopener", textContent: label, style: "text-decoration:none;margin-top:10px" });
+
+// 作答里的「[作图] …」「[电路] …」是给 Claude 的描述，自己看时换成提示；[计算] 步骤是公式，照常显示
+function plain(t) {
+	let hid = false;
+	t = (t || "").replace(/\n?\[(作图|电路)\][^\n]*/g, () => ((hid = true), ""));
+	return (t + (hid ? " （见画板图）" : "")).trim();
+}

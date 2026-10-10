@@ -3,6 +3,15 @@ const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
 let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
 
+// 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路，其它 作图
+const BOARDS = {
+	calc: ["🧮 计算解答板", "[计算]", () => new CalcBoard()],
+	geo: ["📐 几何函数板", "[作图]", (axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
+	circuit: ["🔌 电路图板", "[电路]", () => new CircuitBoard()],
+};
+const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
+const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit"] : ["geo"]);
+
 async function start() {
 	const p = new URLSearchParams(location.search);
 	const m = location.hash.match(/^#r=([\d,]+)/);
@@ -11,7 +20,7 @@ async function start() {
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
-	boards = qs.map((q) => (q.board ? new Board({ axes: q.board === "coord" }) : null));
+	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q.board === "coord")] : []));
 	secs = qs.map(() => 0);
 	cur = 0;
 	render();
@@ -25,9 +34,13 @@ function render() {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		el("div", {}, el("span", { className: "tag", textContent: q.subject })),
+		el("div", {}, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : ""),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
-	if (boards[cur]) box.append(boards[cur].el);
+	for (const b of boards[cur]) {
+		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
+		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);
+		b.mount?.();
+	}
 
 	if (q.type === "single" || q.type === "multi") {
 		q.options.forEach((o) => {
@@ -71,8 +84,8 @@ function render() {
 		box.append(ta,
 			el("div", { className: "row", style: "margin-top:8px" },
 				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
-				boards[cur] ? "" : el("button", { type: "button", className: "btn small", textContent: "📐 打开作图板",
-					onclick: () => { boards[cur] = new Board(); render(); } })),
+				...offer(q).filter((k) => !boards[cur].some((b) => b.kind === k)).map((k) => el("button", { type: "button", className: "btn small", textContent: BOARDS[k][0],
+					onclick: () => { boards[cur].push(BOARDS[k][2](false)); render(); } }))),
 			att);
 	}
 
@@ -106,11 +119,11 @@ async function submit() {
 			};
 			for (const f of files[i]) await up(f);
 			let answer = ans[i];
-			const b = boards[i];
-			if (b && !b.isEmpty()) {
-				// 作图转成文字发给 Claude（省用量）；图也存一份，自己看结果时用
-				if (typeof answer === "string") answer = (answer ? answer + "\n" : "") + "[作图] " + b.describe();
-				await up(await b.toFile(), "board");
+			for (const b of boards[i]) {
+				if (b.isEmpty()) continue;
+				// 画板转成文字发给 Claude（省用量）；作图/电路图存一份小图，计算板只有手写草稿才存
+				if (typeof answer === "string") answer = (answer ? answer + "\n" : "") + BOARDS[b.kind][1] + " " + b.describe();
+				if (b.kind !== "calc" || b.hasPen()) await up(await b.toFile(), "board");
 			}
 			items.push({ question_id: qs[i].id, answer, photo_keys, time_spent_sec: secs[i] });
 		}
@@ -168,6 +181,3 @@ async function showResult(ids) {
 }
 
 window.addEventListener("load", start);
-
-// 作答里的「[作图] …」是给 Claude 的描述，自己看时换成提示
-function plain(t) { return (t || "").replace(/\n?\[作图\][\s\S]*$/, " （见作图）").trim(); }

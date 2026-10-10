@@ -10,20 +10,26 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；作图题 board=coord(坐标系)/grid(方格)。
-作答里的「[作图]」是作图板描述（坐标单位=格），含代码算好的方程、交轴点、交点、点在哪条线上，以它为准，配小图核对整体。`;
+出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；每题给 tag（题型标签），网站据此自动定题型和画板：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/简答。
+作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
-// 题目（短字段名省输出）。type 可省：有 opts 按答案个数判单/多选；无 opts 有 board 为简答，否则填空
+// 题型标签 → [题型, 画板]。有 opts 一律是选择（按答案个数判单/多选）
+const TAGS = {
+	选择: ["single", null], 填空: ["fill", null], 计算: ["short", "calc"], 解答: ["short", "calc"], 证明: ["short", "grid"],
+	作图: ["short", "grid"], 函数: ["short", "coord"], 电路: ["short", "circuit"], 简答: ["short", null],
+} as const;
+type Tag = keyof typeof TAGS;
+const TAG_NAMES = Object.keys(TAGS) as [Tag, ...Tag[]];
+// 题目（短字段名省输出）
 const Q = z.object({
 	subject: z.string().optional(),
 	category: z.string().optional(),
 	topic: z.string().optional(),
-	type: z.enum(["single", "multi", "fill", "short"]).optional(),
 	stem: z.string(),
 	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
 	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
 	exp: z.string().optional().describe("解析"),
-	board: z.enum(["coord", "grid"]).optional(),
+	tag: z.enum(TAG_NAMES).optional().describe("题型标签，省略按有无 opts 定为选择/填空"),
 });
 type QIn = z.infer<typeof Q> & { origin?: number };
 
@@ -49,13 +55,15 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	const subject = q.subject ?? def.subject;
 	if (q.subject && q.subject !== def.subject) def = {}; // 换了科目就不沿用本批的章节/考点
 	if (!subject) throw new Error("缺 subject");
-	const type = q.type ?? (q.opts?.length ? (q.ans.length > 1 ? "multi" : "single") : q.board ? "short" : "fill");
+	const tag: Tag = q.opts?.length ? "选择" : q.tag && q.tag !== "选择" ? q.tag : "填空";
+	const [t0, board] = TAGS[tag];
+	const type = tag === "选择" && q.ans.length > 1 ? "multi" : t0;
 	const r = await db
 		.prepare(
-			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
 		)
 		.bind(subject, q.category ?? def.category ?? null, q.topic ?? def.topic ?? null, type, q.stem, q.opts?.length ? JSON.stringify(q.opts) : null,
-			JSON.stringify(q.ans), q.exp ?? null, source, q.origin ?? null, q.board ?? null)
+			JSON.stringify(q.ans), q.exp ?? null, source, q.origin ?? null, board, tag)
 		.run();
 	return r.meta.last_row_id;
 }
@@ -98,7 +106,7 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"save",
 		{
-			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类；summary 首页总结。",
+			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结。",
 			inputSchema: {
 				def: z.object({ subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() }).optional().describe("本批题共用的科目/章节/考点"),
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
@@ -107,7 +115,7 @@ export function buildServer(env: Env) {
 				grades: z
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
-				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() })).optional(),
+				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.enum(TAG_NAMES).optional() })).optional(),
 				summary: z.string().optional(),
 			},
 		},
@@ -150,8 +158,8 @@ export function buildServer(env: Env) {
 				let n = 0;
 				for (const it of organize) {
 					const r = await db
-						.prepare("UPDATE questions SET subject = COALESCE(?, subject), category = COALESCE(?, category), topic = COALESCE(?, topic) WHERE id = ?")
-						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, it.id)
+						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
+						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, it.tag ?? null, it.tag ? TAGS[it.tag][1] : null, it.id)
 						.run();
 					n += r.meta.changes;
 				}
@@ -174,11 +182,11 @@ export function buildServer(env: Env) {
 		async ({ kind, days, subject, all }) => {
 			const sql =
 				kind === "records"
-					? `SELECT substr(a.created_at, 6, 5) d, a.subject s, a.topic t, q.type ty,
+					? `SELECT substr(a.created_at, 6, 5) d, a.subject s, a.topic t, COALESCE(q.tag, q.type) ty,
 					        CASE a.status WHEN '待批改' THEN '?' ELSE a.is_correct END ok, a.score sc, a.error_reason why, a.time_spent_sec sec
 					   FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 					   WHERE a.created_at >= datetime('now', ?1) AND (?2 IS NULL OR a.subject = ?2) AND ?3 IS NOT NULL ORDER BY a.id LIMIT 1000`
-					: `SELECT q.id, q.subject s, q.category c, q.topic t, substr(q.stem, 1, 30) stem,
+					: `SELECT q.id, q.subject s, q.category c, q.topic t, q.tag g, substr(q.stem, 1, 30) stem,
 					        CASE WHEN r.question_id IS NOT NULL THEN '复习' WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN '已做' ELSE '未做' END st
 					   FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
 					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR q.status = 'active') ORDER BY q.id LIMIT 2000`;
@@ -192,7 +200,7 @@ export function buildServer(env: Env) {
 
 // ---------- 旧工具名兼容 ----------
 // claude.ai 会缓存工具列表；工具合并后，旧名字的调用在这里转成 save / get_data，不用重连也能用，且不增加工具列表长度。
-const oldQ = (q: any) => ({ ...q, opts: q.opts ?? q.options, ans: q.ans ?? q.answer, exp: q.exp ?? q.explanation, origin: q.origin ?? q.origin_id, upload: q.upload ?? q.upload_id });
+const oldQ = (q: any) => ({ ...q, tag: q.tag ?? ({ coord: "函数", grid: "作图", short: "简答", fill: "填空" } as Record<string, string>)[q.board ?? q.type], opts: q.opts ?? q.options, ans: q.ans ?? q.answer, exp: q.exp ?? q.explanation, origin: q.origin ?? q.origin_id, upload: q.upload ?? q.upload_id });
 const LEGACY: Record<string, (a: any) => [string, any]> = {
 	add_questions: (a) => ["save", { questions: (a.questions ?? []).map(oldQ) }],
 	add_wrong_questions: (a) => ["save", { wrong: (a.items ?? []).map(oldQ), done_uploads: a.done_upload_ids }],

@@ -80,3 +80,21 @@ body.has-tabs main{padding-bottom:84px}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
 .bhint .fab{width:44px;height:40px;padding:0;border-radius:12px;font-size:22px;line-height:1;background:var(--card);border:1px solid var(--line);color:var(--fg)}
 .bhint .fab:active{background:color-mix(in srgb,var(--pri) 15%,transparent)}
+/* 画板标题（可收起） */
+.bhead{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:14px}
+.bhead button{padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute);font-size:13px}
+/* 计算解答板 */
+.clines{display:grid;gap:6px}
+.cline{display:flex;align-items:center;gap:6px}
+.cline b{flex:none;width:20px;color:var(--mute);font-size:13px;text-align:right}
+.cline math-field{flex:1;min-width:0;font-size:20px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+.cline math-field::part(menu-toggle){display:none}
+.cline button{flex:none;width:28px;height:28px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute)}
+[hidden]{display:none!important}
+.calcpad{margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px}
+.calcpad .row{align-items:center}.calcpad input[type=text]{flex:3;padding:8px 10px;font-size:16px}
+.calcpad .res{flex:2;min-width:0;overflow-wrap:anywhere;color:var(--pri)}
+.keysg{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
+.keysg button{padding:9px 0;font-size:17px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
+.keysg .wide{grid-column:span 5;font-size:15px}
+.ans{white-space:pre-wrap}

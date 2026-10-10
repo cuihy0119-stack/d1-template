@@ -1,4 +1,5 @@
 // 作图板：方格常驻、格点吸附、几何/函数作图。图形坐标以「格」为单位，原点在画板中心附近的格点。
+// 计算板也用它（new Board({ calc: true })）：只留手写类工具 + 算式自动出得数，横线纸。
 // 交卷时 describe() 生成文字描述 + 几何信息，配一张 600px 小图一起发给 Claude（准确且省用量）。
 
 const TOOLS = [
@@ -13,15 +14,17 @@ const TOOLS = [
 	["perp", "⊥垂线", "先点一个点，再点一条线"],
 	["para", "∥平行线", "先点一条线，再点一个点"],
 	["pen", "✏️画笔", "自由手绘"],
-	["erase", "⌫橡皮", "点一下删除一个图形"],
+	["calc", "＝算式", "点一下写算式，自动出得数；方程自动解，如 2x+1=5"],
+	["erase", "⌫橡皮", "点或划过删除"],
 ];
+const CALC_TOOLS = ["pen", "calc", "text", "erase"];
 const COLORS = ["#111111", "#d64545", "#2f6fed"];
 const CELL = 24; // 格距
 
 // ---------- 函数解析：+ - * / ^ ( ) | |、隐式乘法、sqrt sin cos tan abs ln log、pi e ----------
 function compileFn(src) {
 	const s = src.replace(/\s+/g, "").replace(/^y=/i, "").replace(/（/g, "(").replace(/）/g, ")").replace(/×/g, "*")
-		.replace(/÷/g, "/").replace(/[−–]/g, "-").replace(/²/g, "^2").replace(/³/g, "^3").replace(/√/g, "sqrt").replace(/π/g, "pi");
+		.replace(/÷/g, "/").replace(/[−–]/g, "-").replace(/²/g, "^2").replace(/³/g, "^3").replace(/√(\d+\.?\d*|[a-z]|π)/gi, "√($1)").replace(/√/g, "sqrt").replace(/π/g, "pi");
 	const t = s.match(/\d+\.?\d*|\.\d+|[a-z]+|[-+*/^()|]/gi);
 	if (!t || t.join("") !== s) throw new Error("看不懂这个式子");
 	const FN = { sqrt: Math.sqrt, sin: Math.sin, cos: Math.cos, tan: Math.tan, abs: Math.abs, ln: Math.log, log: Math.log10 };
@@ -55,6 +58,45 @@ function compileFn(src) {
 	return f;
 }
 
+// ---------- 算式出得数：分数、根式化简（初中范围），方程在 [-100,100] 内找根 ----------
+function nice(v) {
+	if (!Number.isFinite(v)) return "无意义";
+	const r = (n, d) => Math.abs(v * d - n) < 1e-9 * Math.max(1, Math.abs(v * d));
+	const n0 = Math.round(v);
+	if (r(n0, 1)) return String(n0);
+	for (let d = 2; d <= 1000; d++) { const n = Math.round(v * d); if (r(n, d)) return `${n}/${d}`; }
+	for (const b of [2, 3, 5, 6, 7, 10, 11, 13, 14, 15]) for (let d = 1; d <= 12; d++) { // a√b/d
+		const a = Math.round((v * d) / Math.sqrt(b));
+		if (a && Math.abs((a * Math.sqrt(b)) / d - v) < 1e-9) return `${a === 1 ? "" : a === -1 ? "-" : a}√${b}${d > 1 ? "/" + d : ""}`;
+	}
+	return String(+v.toPrecision(6));
+}
+function calcText(s) {
+	s = s.trim();
+	try {
+		const [L, R, extra] = s.split("=");
+		if (extra !== undefined) return s;
+		if (R === undefined || !R.trim()) return `${L.replace(/=$/, "")} = ${nice(compileFn(L)(0))}`;
+		if (!/x/i.test(s)) return s;
+		const f0 = compileFn(L), f1 = compileFn(R), f = (x) => f0(x) - f1(x), roots = [];
+		for (let x = -100, p = NaN, a = f(x); x < 100; x += 0.01) { // 扫描变号再二分；不变号的重根看 |f| 的极小值
+			const b = f(x + 0.01);
+			if (Math.abs(a) <= Math.abs(p) && Math.abs(a) <= Math.abs(b) && a * b >= 0) {
+				let lo = x - 0.01, hi = x + 0.01;
+				for (let i = 0; i < 60; i++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; Math.abs(f(m1)) < Math.abs(f(m2)) ? (hi = m2) : (lo = m1); }
+				if (Math.abs(f(lo)) < 1e-8) roots.push(lo);
+			} else if (a * b < 0 && Number.isFinite(a) && Number.isFinite(b)) {
+				let lo = x, hi = x + 0.01;
+				for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; f(lo) * f(m) <= 0 ? (hi = m) : (lo = m); }
+				if (Math.abs(f(lo)) < 1e-6) roots.push(lo);
+			}
+			p = a; a = b;
+		}
+		const out = [...new Set(roots.map(nice))];
+		return `${s} → ${out.length ? out.map((v) => "x=" + v).join("，") : "无解"}`;
+	} catch { return s; }
+}
+
 // ---------- 几何（单位：格） ----------
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const lerp = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
@@ -70,8 +112,9 @@ const xy = (p) => `(${num(p[0])},${num(p[1])})`;
 const edges = (o) => (o.t === "poly" ? o.pts.map((q, i) => [q, o.pts[(i + 1) % o.pts.length], "seg"]) : ["seg", "line", "ray"].includes(o.t) ? [[o.a, o.b, o.t]] : []);
 
 class Board {
-	constructor({ axes = false } = {}) {
-		Object.assign(this, { axes, objs: [], hist: [], fut: [], tool: "seg", color: COLORS[0], width: 2, dash: false, snap: true, big: false, fns: new Map() });
+	constructor({ axes = false, calc = false } = {}) {
+		Object.assign(this, { axes, calc, objs: [], hist: [], fut: [], tool: calc ? "pen" : "seg", color: COLORS[0], width: 2, dash: false, snap: true, big: false, fns: new Map() });
+		this.tools = calc ? CALC_TOOLS.map((k) => TOOLS.find((t) => t[0] === k)) : TOOLS.filter(([k]) => k !== "calc");
 		this.cv = el("canvas");
 		this.wrap = el("div", { className: "bwrap" }, this.cv);
 		this.bar1 = el("div", { className: "btools" });
@@ -116,7 +159,7 @@ class Board {
 			if (!e.isPrimary) return;
 			cv.setPointerCapture(e.pointerId);
 			const [p, raw] = this.at(e), t = this.tool;
-			if (t === "erase") { const i = this.hit(raw); if (i >= 0) this.change(() => this.objs.splice(i, 1)); return; }
+			if (t === "erase") { this.rub = true; return this.rubAt(raw); }
 			if (t === "pen") this.drag = { t, pts: [raw] };
 			else if (["seg", "line", "ray", "circle"].includes(t)) this.drag = { t, a: p, b: p };
 			else this.tap = [p, raw];
@@ -124,6 +167,7 @@ class Board {
 		});
 		cv.addEventListener("pointermove", (e) => {
 			const [p, raw] = this.at(e);
+			if (this.rub) return this.rubAt(raw);
 			if (this.drag) this.drag.t === "pen" ? this.drag.pts.push(raw) : (this.drag.b = p);
 			else if (this.tap) this.tap = [p, raw];
 			else this.hover = e.pointerType === "mouse" ? p : null;
@@ -131,7 +175,7 @@ class Board {
 		});
 		const up = () => {
 			const d = this.drag, tp = this.tap;
-			this.drag = this.tap = null;
+			this.drag = this.tap = null; this.rub = false;
 			if (d && (d.t === "pen" ? d.pts.length > 1 : dist(d.a, d.b) > 0.01)) this.add(d);
 			else if (tp) this.act(...tp);
 			else this.draw();
@@ -141,6 +185,7 @@ class Board {
 		cv.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
 	}
 
+	rubAt(raw) { const i = this.hit(raw); if (i >= 0) this.change(() => this.objs.splice(i, 1)); }
 	act(p, raw) {
 		const t = this.tool, pd = this.pend;
 		if (t === "poly" || t === "curve") {
@@ -153,6 +198,7 @@ class Board {
 			const def = i >= 0 ? this.objs[i].name : [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].find((c) => !used.has(c)) || "";
 			this.ask(p, def, (name) => (i >= 0 ? this.change(() => (this.objs[i].name = name)) : this.add({ t: "pt", p, name })));
 		} else if (t === "text") this.ask(p, "", (s) => s && this.add({ t: "text", p, s }));
+		else if (t === "calc") this.ask(p, "", (s) => s && this.add({ t: "text", p, s: calcText(s) }));
 		else if (t === "perp") {
 			if (!pd) { this.pend = { p }; this.build(); return this.draw(); }
 			const L = this.lineAt(raw);
@@ -224,7 +270,7 @@ class Board {
 		c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
 		c.lineWidth = 1; c.strokeStyle = "#e3e6ec"; c.setLineDash([]);
 		c.beginPath();
-		for (let x = ox % CELL; x <= W; x += CELL) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); }
+		if (!this.calc) for (let x = ox % CELL; x <= W; x += CELL) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); } // 计算板只画横线
 		for (let y = oy % CELL; y <= H; y += CELL) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
 		c.stroke();
 		if (this.axes) this.paintAxes(c);
@@ -343,15 +389,17 @@ class Board {
 	build() {
 		const B = (text, on, onclick, cls = "") => el("button", { type: "button", className: cls + (on ? " on" : ""), textContent: text, onclick });
 		const pick = (k) => () => { this.tool = k; this.pend = null; this.build(); this.draw(); };
-		this.bar1.replaceChildren(...TOOLS.map(([k, name]) => B(name, this.tool === k, pick(k))), B("𝑓函数", false, () => this.plot()));
+		this.bar1.replaceChildren(...this.tools.map(([k, name]) => B(name, this.tool === k, pick(k))), this.calc ? "" : B("𝑓函数", false, () => this.plot()));
 		this.bar2.replaceChildren(
 			...COLORS.map((col) => Object.assign(B("", col === this.color, () => { this.color = col; this.build(); }, "dot"), { style: `background:${col}` })),
 			B(this.width > 2 ? "粗" : "细", false, () => { this.width = this.width > 2 ? 2 : 4; this.build(); }),
-			B("虚线", this.dash, () => { this.dash = !this.dash; this.build(); }),
-			B("吸附格点", this.snap, () => { this.snap = !this.snap; this.build(); }),
-			B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); }),
+			...(this.calc ? [] : [
+				B("虚线", this.dash, () => { this.dash = !this.dash; this.build(); }),
+				B("吸附格点", this.snap, () => { this.snap = !this.snap; this.build(); }),
+				B("坐标轴", this.axes, () => { this.axes = !this.axes; this.build(); this.draw(); })]),
 			B("清空", false, () => this.objs.length && confirm("清空画板？") && this.change(() => (this.objs = []))),
-			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }));
+			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }),
+			...(this.extra?.() || []));
 		const tip = this.pend?.p ? "已选点，再点一条线" : this.pend?.dir ? "已选线，再点一个点" : TOOLS.find(([k]) => k === this.tool)[2];
 		this.hint.replaceChildren(el("span", { textContent: tip }));
 		if (this.pend?.pts) this.hint.append(B("完成", true, () => this.finish()), B("取消", false, () => this.reset()));
@@ -393,7 +441,7 @@ class Board {
 			else if (o.t === "curve") d = `${pre}曲线过${o.pts.map(xy).join("")}`;
 			else if (o.t === "fn") d = `函数 ${o.expr}`;
 			else if (o.t === "ra") d = `直角@${xy(o.at)}`;
-			else if (o.t === "text") d = `文字「${o.s}」@${xy(o.p)}`;
+			else if (o.t === "text") d = `文字「${o.s}」` + (this.calc ? "" : `@${xy(o.p)}`);
 			else {
 				const hosts = items.filter((h) => h !== o && !["pt", "text", "ra"].includes(h.t) && this.distTo(h, o.p) < 0.05).map((h) => `[${items.indexOf(h) + 1}]`);
 				d = `点${o.name || ""}${xy(o.p)}${hosts.length ? "在" + hosts.join("") + "上" : ""}`;
