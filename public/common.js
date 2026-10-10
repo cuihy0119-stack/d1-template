@@ -6,15 +6,21 @@ async function api(url, opts) {
 	return r.json();
 }
 const $ = (s) => document.querySelector(s);
-// 第一次打开时测一下帧率：明显掉帧就记住用精简模式（关模糊和进场动画），以后打开直接流畅
+// 第一次打开时测一下帧率（页面加载完再测，取中位数，避免把加载时的忙碌误判成卡）：明显掉帧就记住用精简模式
 try {
-	if (!localStorage.perf) {
-		let n = 0, t0 = 0;
-		const f = (t) => { if (!t0) t0 = t; if (++n < 40) return requestAnimationFrame(f);
-			localStorage.perf = (t - t0) / 39 > 22 ? "lite" : "full";
-			if (localStorage.perf === "lite") document.documentElement.classList.add("lite"); };
+	if (!localStorage.perf2) addEventListener("load", () => setTimeout(() => {
+		const d = [];
+		let last = 0;
+		const f = (t) => {
+			if (last) d.push(t - last);
+			last = t;
+			if (d.length < 30) return requestAnimationFrame(f);
+			d.sort((a, b) => a - b);
+			localStorage.perf2 = d[15] > 25 ? "lite" : "full";
+			if (localStorage.perf2 === "lite") document.documentElement.classList.add("lite");
+		};
 		requestAnimationFrame(f);
-	}
+	}, 800));
 } catch {}
 // 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);

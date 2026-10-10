@@ -6,11 +6,13 @@ const LINES = ["学而不思则罔，思而不学则殆", "不积跬步，无以
 const now = new Date();
 $("#date").textContent = now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }) + " · " + LINES[Math.floor(now / 864e5) % LINES.length];
 
-let uploading = false;
+let uploading = false, lastHome = "";
 
 async function loadHome() {
 	if (uploading) return;
-	const h = await api("/api/home");
+	const h = await api("/api/home"), sig = JSON.stringify(h);
+	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
+	lastHome = sig;
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	if (h.summary) $("#summary").textContent = h.summary.text;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
@@ -19,7 +21,8 @@ async function loadHome() {
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
 	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
 	const rec = $("#recent");
-	if (h.recent.length) rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
+	if (!h.recent.length) rec.replaceChildren("还没有题");
+	else rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
 		el("a", { href: "/quiz?ids=" + q.id },
 			el("div", {}, el("span", { className: "tag", textContent: q.subject }), el("span", { className: "tag", textContent: q.tag }), el("span", { className: "time", textContent: "🕒 " + when(q.created_at) })),
 			el("div", { className: "stem", textContent: q.stem })),
