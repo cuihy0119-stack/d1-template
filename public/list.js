@@ -11,7 +11,7 @@ const short = (s) => (s.length > 70 ? s.slice(0, 70) + "…" : s);
 function state(q) {
 	if (q.pending) return ["待批改", "wait"];
 	if (MODE === "wrong") return tab === "mastered" ? ["已掌握", "ok"] : ["待重做", "due"];
-	return q.tries ? ["已做", "ok"] : ["未做", "new"];
+	return !q.tries ? ["未做", "new"] : q.last === 1 ? ["✓ 做对", "ok"] : ["✗ 做错", "due"]; // 显示最近一次的结果，不再笼统写「已做」
 }
 
 function render() {
