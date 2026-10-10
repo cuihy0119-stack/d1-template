@@ -165,7 +165,7 @@ class Board {
 
 	// ---------- 坐标 ----------
 	resize() {
-		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = DPR();
 		if (!W || !H) return;
 		Object.assign(this, { W, H, ox: Math.round(W / 2 / CELL) * CELL, oy: Math.round(H / 2 / CELL) * CELL });
 		this.cv.width = W * dpr; this.cv.height = H * dpr;
@@ -333,7 +333,7 @@ class Board {
 		const s = xy(q);
 		c.font = "bold 14px sans-serif";
 		const w = c.measureText(s).width + 14, bx = Math.min(Math.max(x - w / 2, 2), W - w - 2), by = y - 64 < 2 ? y + 30 : y - 64;
-		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect(bx, by, w, 24, 12); c.fill();
+		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect ? c.roundRect(bx, by, w, 24, 12) : c.rect(bx, by, w, 24); c.fill(); // 老浏览器没有 roundRect
 		c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(s, bx + w / 2, by + 12);
 		c.restore();
 	}

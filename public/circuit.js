@@ -36,7 +36,7 @@ class CircuitBoard {
 	isEmpty() { return !this.objs.length; }
 
 	resize() {
-		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = DPR();
 		if (!W || !H) return;
 		Object.assign(this, { W, H });
 		this.cv.width = W * dpr; this.cv.height = H * dpr;
@@ -131,7 +131,7 @@ class CircuitBoard {
 		const add = (k) => par.has(k) || par.set(k, k);
 		const join = (a, b) => { add(a); add(b); par.set(find(a), find(b)); };
 		const wires = this.objs.filter((o) => o.t === "wire"), parts = this.objs.filter((o) => PARTS[o.t]);
-		const ends = [...wires.flatMap((w) => [w.pts[0], w.pts.at(-1)]), ...parts.flatMap((o) => [o.a, o.b])];
+		const ends = [...wires.flatMap((w) => [w.pts[0], w.pts[w.pts.length - 1]]), ...parts.flatMap((o) => [o.a, o.b])];
 		ends.forEach((q) => add(key(q)));
 		for (const w of wires) for (const [a, b] of this.segs(w)) {
 			join(key(a), key(b));
