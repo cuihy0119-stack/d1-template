@@ -6,6 +6,21 @@ const LINES = ["学而不思则罔，思而不学则殆", "不积跬步，无以
 const now = new Date();
 $("#date").textContent = now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }) + " · " + LINES[Math.floor(now / 864e5) % LINES.length];
 
+// 坚持打卡 + 考试倒计时
+function renderHero(h) {
+	const chip = (n, label) => el("div", { className: "stat" }, el("b", { textContent: n }), el("span", { textContent: label }));
+	$("#stats").replaceChildren(chip(h.streak, h.done_today ? "连续练习天数" : "连续天数 · 今天还没练"), chip(h.today_count, "今日待练"), chip(h.right7, "近 7 天做对"));
+	const box = $("#exams");
+	if (!h.exams.length) return box.replaceChildren(askClaude(CLAUDE_ASK.exams, "📅 让 Claude 写上临近的考试，首页倒计时"));
+	box.replaceChildren(...h.exams.slice(0, 3).map((e, i) => {
+		const d = Math.round((Date.parse(e.date) - Date.parse(h.today)) / 864e5);
+		return el("div", { className: "exam" + (i ? "" : " first") },
+			el("div", { className: "en", textContent: "距离 " + e.name }),
+			el("div", { className: "ed" }, d ? el("b", { textContent: d }) : el("b", { textContent: "今天" }), d ? " 天" : ""),
+			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }));
+	}));
+}
+
 let uploading = false, lastHome = "";
 
 async function loadHome() {
@@ -13,6 +28,7 @@ async function loadHome() {
 	const h = await api("/api/home"), sig = JSON.stringify(h);
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
+	renderHero(h);
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	if (h.summary) $("#summary").textContent = h.summary.text;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
