@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { addDays, today, updateQueue } from "./review";
+import { pick } from "./tags";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -10,16 +11,9 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
 流程：get_inbox → save({grades, wrong, questions, summary})。
-出题：save({def:{subject,category}, questions:[{stem, opts?, ans, exp?, type?, board?}]})；公式 $..$，化学式 $\\ce{..}$；每题给 tag（题型标签），网站据此自动定题型和画板：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/简答。
+出题：save({def:{subject,category}, questions:[{stem, tag, opts?, ans, exp?}]})；公式 $..$，化学式 $\\ce{..}$；tag=题型：选择(给opts)/填空/计算/解答/证明/作图/函数/电路/简答，网站据此自动定题型和画板（计算板/几何板/电路图板）。
 作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
 
-// 题型标签 → [题型, 画板]。有 opts 一律是选择（按答案个数判单/多选）
-const TAGS = {
-	选择: ["single", null], 填空: ["fill", null], 计算: ["short", "calc"], 解答: ["short", "calc"], 证明: ["short", "grid"],
-	作图: ["short", "grid"], 函数: ["short", "coord"], 电路: ["short", "circuit"], 简答: ["short", null],
-} as const;
-type Tag = keyof typeof TAGS;
-const TAG_NAMES = Object.keys(TAGS) as [Tag, ...Tag[]];
 // 题目（短字段名省输出）
 const Q = z.object({
 	subject: z.string().optional(),
@@ -29,9 +23,9 @@ const Q = z.object({
 	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
 	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
 	exp: z.string().optional().describe("解析"),
-	tag: z.enum(TAG_NAMES).optional().describe("题型标签，省略按有无 opts 定为选择/填空"),
-});
-type QIn = z.infer<typeof Q> & { origin?: number };
+	tag: z.string().optional().describe("选择/填空/计算/解答/证明/作图/函数/电路/简答"),
+}).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
+type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
 
 type Img = { type: "image"; data: string; mimeType: string };
 type Content = { type: "text"; text: string } | Img;
@@ -55,9 +49,8 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	const subject = q.subject ?? def.subject;
 	if (q.subject && q.subject !== def.subject) def = {}; // 换了科目就不沿用本批的章节/考点
 	if (!subject) throw new Error("缺 subject");
-	const tag: Tag = q.opts?.length ? "选择" : q.tag && q.tag !== "选择" ? q.tag : "填空";
-	const [t0, board] = TAGS[tag];
-	const type = tag === "选择" && q.ans.length > 1 ? "multi" : t0;
+	const { tag, board } = pick({ subject, stem: q.stem, tag: q.tag, board: q.board, type: q.type === "fill" || q.type === "short" ? q.type : null, opts: !!q.opts?.length });
+	const type = tag === "选择" ? (q.ans.length > 1 ? "multi" : "single") : tag === "填空" ? "fill" : "short";
 	const r = await db
 		.prepare(
 			"INSERT INTO questions (subject, category, topic, type, stem, options, answer, explanation, source, origin_id, board, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -70,7 +63,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.2.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.3.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -115,7 +108,7 @@ export function buildServer(env: Env) {
 				grades: z
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
-				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.enum(TAG_NAMES).optional() })).optional(),
+				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.string().optional() })).optional(),
 				summary: z.string().optional(),
 			},
 		},
@@ -157,9 +150,11 @@ export function buildServer(env: Env) {
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
+					const q = it.tag ? await db.prepare("SELECT subject, stem, type, options FROM questions WHERE id = ?").bind(it.id).first<any>() : null;
+					const t = q ? pick({ ...q, tag: it.tag, opts: !!q.options }) : null;
 					const r = await db
 						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
-						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, it.tag ?? null, it.tag ? TAGS[it.tag][1] : null, it.id)
+						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board ?? null, it.id)
 						.run();
 					n += r.meta.changes;
 				}
@@ -200,7 +195,7 @@ export function buildServer(env: Env) {
 
 // ---------- 旧工具名兼容 ----------
 // claude.ai 会缓存工具列表；工具合并后，旧名字的调用在这里转成 save / get_data，不用重连也能用，且不增加工具列表长度。
-const oldQ = (q: any) => ({ ...q, tag: q.tag ?? ({ coord: "函数", grid: "作图", short: "简答", fill: "填空" } as Record<string, string>)[q.board ?? q.type], opts: q.opts ?? q.options, ans: q.ans ?? q.answer, exp: q.exp ?? q.explanation, origin: q.origin ?? q.origin_id, upload: q.upload ?? q.upload_id });
+const oldQ = (q: any) => ({ ...q, opts: q.opts ?? q.options, ans: q.ans ?? q.answer, exp: q.exp ?? q.explanation, origin: q.origin ?? q.origin_id, upload: q.upload ?? q.upload_id });
 const LEGACY: Record<string, (a: any) => [string, any]> = {
 	add_questions: (a) => ["save", { questions: (a.questions ?? []).map(oldQ) }],
 	add_wrong_questions: (a) => ["save", { wrong: (a.items ?? []).map(oldQ), done_uploads: a.done_upload_ids }],
