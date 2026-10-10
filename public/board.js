@@ -85,7 +85,7 @@ function nice(v) {
 function calcText(s) {
 	s = s.trim();
 	try {
-		const fy = (src, y) => compileFn(src.replace(/y/gi, `(${y})`)); // y 代成数，再按 x 的式子算
+		const memo = new Map(), fy = (src, y) => { const k = src + "|" + y; if (!memo.has(k)) memo.set(k, compileFn(src.replace(/y/gi, `(${y})`))); return memo.get(k); }; // y 代成数再按 x 算；编译结果缓存
 		const G = (eq) => { const [L, R] = eq.split("="); return (x, y = 0) => fy(L, y)(x) - fy(R, y)(x); };
 		const lin = (g) => { const c = g(0, 0), a = g(1, 0) - c, b = g(0, 1) - c; return Math.abs(g(2, 3) - (2 * a + 3 * b + c)) < 1e-9 ? [a, b, c] : null; };
 		const eqs = s.split(/[;；,，]/).filter((e) => e.trim());
@@ -518,13 +518,18 @@ class Board {
 		if (pens) parts.push(`手绘${pens}笔`);
 		return (this.axes ? "坐标轴；" : "") + parts.join("；");
 	}
-	toFile() { return snapshot(this); }
+	toFile(full) { return snapshot(this, full); }
 }
 
-// 画板导出给 Claude 的小图：只裁出画了东西的区域，最长边 ≤512px、JPEG 0.7。
-// 图片用量按像素算（≈宽×高/750 token），裁掉空白比整板 600px 省一半以上，字也更大更清楚。
-function snapshot(b) {
+// 画板导出。full=true：整板高清图（2 倍、JPEG 0.92），只给自己看结果；
+// 否则是发给 Claude 批改的小图：只裁出画了东西的区域，最长边 ≤512px、JPEG 0.7（用量按像素算≈宽×高/750 token，裁掉空白省一半以上）。
+function snapshot(b, hd) {
 	const W = Math.round(b.W), H = Math.round(b.H), full = document.createElement("canvas");
+	if (hd) {
+		full.width = W * 2; full.height = H * 2;
+		const c = full.getContext("2d"); c.scale(2, 2); b.paint(c, false);
+		return new Promise((res) => full.toBlob((bb) => res(new File([bb], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.92));
+	}
 	full.width = W; full.height = H;
 	const fc = full.getContext("2d");
 	b.paint(fc, false);

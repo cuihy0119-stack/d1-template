@@ -62,7 +62,7 @@ class CalcBoard {
 	}
 	isEmpty() { this.sync(); return this.pad.isEmpty() && !this.vals.some((v) => v.trim()); }
 	hasPen() { return this.pad.hasPen(); }
-	toFile() { return this.pad.toFile(); }
+	toFile(full) { return this.pad.toFile(full); }
 	describe() {
 		this.sync();
 		const steps = this.vals.map((v) => v.trim()).filter(Boolean).map((v, i) => `${i + 1}) $${v}$`);
@@ -71,7 +71,8 @@ class CalcBoard {
 
 	// ---------- 计算器：同一套算式规则；可把结果贴到画板 ----------
 	buildCalc() {
-		const out = el("b"), inp = el("input", { type: "text", placeholder: "x²-5x+6=0、2x+y=5，x-y=1、2x-1>3", oninput: () => show() });
+		let raf = 0;
+		const out = el("b"), inp = el("input", { type: "text", placeholder: "x²-5x+6=0、2x+y=5，x-y=1、2x-1>3", oninput: () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; show(); }); } }); // 每帧最多算一次
 		const show = () => { const v = inp.value.trim(), r = v && calcText(v); out.textContent = !v ? "" : r === v ? "…" : r.slice(v.length); };
 		const put = (k) => { inp.value = k === "C" ? "" : k === "⌫" ? inp.value.slice(0, -1) : inp.value + ({ "√": "√(", "x²": "²" }[k] || k); show(); };
 		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "^", "π", "0", ".", "x", "+", "=", "⌫", "y", "，", "<", ">", "≥", "≤"];
