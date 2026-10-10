@@ -8,6 +8,10 @@ async function loadHome() {
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	if (h.summary) $("#summary").textContent = h.summary.text;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
+	const ask = $("#ask");
+	ask.replaceChildren();
+	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
+	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
 	const box = $("#subjects");
 	box.replaceChildren();
 	if (!h.subjects.length) box.append(el("p", { className: "mute", textContent: "还没有题，拍照上传错题或让 Claude 出题" }));

@@ -55,3 +55,11 @@ function autoRefresh(fn, every = 0) {
 	window.addEventListener("pageshow", (e) => e.persisted && fn());
 	if (every) setInterval(run, every);
 }
+
+// 一键打开 claude.ai 新对话并预填指令（网站不能主动叫醒 Claude，这是最省事的办法）
+const CLAUDE_ASK = {
+	grade: "用练习本：批改所有待批改的作答，写评语",
+	inbox: "用练习本：处理收件箱的照片，整理成错题并出同类题",
+};
+const askClaude = (text, label) =>
+	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), target: "_blank", rel: "noopener", textContent: label, style: "text-decoration:none;margin-top:10px" });
