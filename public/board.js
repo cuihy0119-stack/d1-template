@@ -189,6 +189,7 @@ class Board {
 	// ---------- 交互：拖动类按住拖；点选类抬手时才落点（可边按边调整位置） ----------
 	bind() {
 		const cv = this.cv;
+		guardCanvas(cv); // 先挂：防选中/放大、防手掌误触
 		cv.addEventListener("pointerdown", (e) => {
 			if (!e.isPrimary) return;
 			cv.setPointerCapture(e.pointerId);

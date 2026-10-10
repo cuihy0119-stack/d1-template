@@ -76,8 +76,29 @@ const CLAUDE_ASK = {
 	grade: "用练习本：批改所有待批改的作答，写评语",
 	inbox: "用练习本：处理收件箱的照片，整理成错题并出同类题",
 };
+// iPhone/iPad：同页打开链接，系统会直接拉起 Claude App（通用链接）；App 不一定读得到预填内容，所以同时把指令复制好，进去粘贴即可
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 const askClaude = (text, label) =>
-	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), target: "_blank", rel: "noopener", textContent: label, style: "text-decoration:none;margin-top:10px" });
+	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), textContent: label, style: "text-decoration:none;margin-top:10px",
+		...(IOS ? {} : { target: "_blank", rel: "noopener" }),
+		onclick: () => { navigator.clipboard?.writeText(text).then(() => toast("指令已复制，在 Claude 里粘贴发送即可"), () => {}); } });
+function toast(msg) {
+	const t = el("div", { className: "toast", textContent: msg });
+	document.body.append(t);
+	setTimeout(() => t.remove(), 2600);
+}
+
+// 画布手势封装：不触发浏览器的选中、双击放大、长按菜单、放大镜；用 Apple Pencil 时忽略手掌碰到的触摸
+function guardCanvas(cv) {
+	const stop = (e) => e.cancelable && e.preventDefault();
+	for (const ev of ["touchstart", "touchmove", "touchend", "dblclick", "contextmenu", "selectstart", "gesturestart"]) cv.addEventListener(ev, stop, { passive: false });
+	let pen = 0;
+	const palm = (e) => {
+		if (e.pointerType === "pen") pen = Date.now();
+		else if (e.pointerType === "touch" && Date.now() - pen < 2000) e.stopImmediatePropagation(); // 刚用过笔：手指/手掌的触摸不算
+	};
+	for (const ev of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) cv.addEventListener(ev, palm);
+}
 
 // 作答里的「[作图] …」「[电路] …」是给 Claude 的描述，自己看时换成提示；[计算] 步骤是公式，照常显示
 function plain(t) {
