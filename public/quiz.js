@@ -3,14 +3,14 @@ const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
 let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
 
-// 画板按科目分：数学 = 计算解答板 + 几何函数板；物理 = 电路图板；其它科目 = 作图板
+// 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路，其它 作图
 const BOARDS = {
 	calc: ["🧮 计算解答板", "[计算]", () => new CalcBoard()],
 	geo: ["📐 几何函数板", "[作图]", (axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
 	circuit: ["🔌 电路图板", "[电路]", () => new CircuitBoard()],
 };
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
-const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["circuit"] : ["geo"]);
+const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit"] : ["geo"]);
 
 async function start() {
 	const p = new URLSearchParams(location.search);
@@ -34,7 +34,7 @@ function render() {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		el("div", {}, el("span", { className: "tag", textContent: q.subject })),
+		el("div", {}, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : ""),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());

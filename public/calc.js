@@ -1,5 +1,6 @@
-// 计算解答板（数学）：一行写一步，用 MathLive 公式输入（分式、根号、上下标像纸上一样所见即所得，参考 MathLive / Desmos 的虚拟键盘），
-// 键盘按初中范围定制；下方有横格草稿区（手写）和验算器。交卷时步骤转成 LaTeX 文字发给 Claude，只有手写了才附图（省用量）。
+// 计算解答板：横线纸手写板（和作图板同一套：画笔/算式/文字/橡皮/撤销/放大），「＝算式」写完自动出得数、方程自动解；
+// 旁边计算器；需要时展开「打字整理步骤」（MathLive 公式输入，初中定制键盘）。
+// 交卷：算式结果和步骤都是文字（省用量），只有手写了才附图。
 
 let mathLiveReady;
 function loadMathLive() {
@@ -35,36 +36,55 @@ function loadMathLive() {
 
 class CalcBoard {
 	constructor() {
-		Object.assign(this, { kind: "calc", vals: [""], strokes: [], hist: [], fut: [], color: "#111111", erase: false, big: false });
-		this.lines = el("div", { className: "clines" });
-		this.check = el("div", { className: "ccheck" });
-		this.cv = el("canvas");
-		this.wrap = el("div", { className: "cpad" }, this.cv);
-		this.bar = el("div", { className: "btools" });
-		this.el = el("div", { className: "board calc" },
-			el("div", { className: "bhint" }, el("span", { textContent: "一行写一步，回车换下一行；点公式框弹出数学键盘（123 / ∵∴ / abc 切换）" })),
-			this.lines,
-			el("div", { className: "row", style: "margin:6px 0" }, el("button", { type: "button", className: "btn small", textContent: "＋ 下一步", onclick: () => this.addLine(this.vals.length) })),
-			this.check,
-			el("div", { className: "bhint" }, el("span", { textContent: "草稿区（手写，交卷会附图）" })), this.bar, this.wrap);
-		this.lines.textContent = "公式键盘加载中…";
+		Object.assign(this, { kind: "calc", vals: [""] });
+		this.pad = new Board({ calc: true });
+		this.panel = this.buildCalc();
+		this.pad.extra = () => [el("button", { type: "button", className: this.panel.hidden ? "" : "on", textContent: "🧮计算器",
+			onclick: () => { this.panel.hidden = !this.panel.hidden; this.pad.build(); } })];
+		this.pad.build();
+		this.lines = el("div", { className: "clines", hidden: true });
 		this.lines.addEventListener("keydown", (e) => { // 回车 = 下一步
 			const i = this.fields?.indexOf(e.target);
 			if (e.key === "Enter" && i >= 0) { e.preventDefault(); e.stopPropagation(); this.addLine(i + 1); }
 		}, { capture: true });
-		loadMathLive().then(() => this.renderLines(), (e) => (this.lines.textContent = e.message));
-		this.buildCheck();
-		this.buildBar();
-		this.bindPad();
-		new ResizeObserver(() => this.resize()).observe(this.wrap);
+		const more = el("button", { type: "button", className: "btn small", textContent: "📝 打字整理步骤（Claude 读文字更准更省）", onclick: () => {
+			more.remove(); this.lines.hidden = false; this.lines.textContent = "公式键盘加载中…";
+			loadMathLive().then(() => this.renderLines(0), (e) => (this.lines.textContent = e.message));
+		} });
+		this.el = el("div", { className: "calc" }, this.pad.el, this.panel, el("div", { style: "margin-top:8px" }, more), this.lines);
 	}
-	isEmpty() { this.sync(); return !this.vals.some((v) => v.trim()) && !this.strokes.length; }
-	hasPen() { return this.strokes.length > 0; }
+	isEmpty() { this.sync(); return this.pad.isEmpty() && !this.vals.some((v) => v.trim()); }
+	hasPen() { return this.pad.hasPen(); }
+	toFile() { return this.pad.toFile(); }
+	describe() {
+		this.sync();
+		const steps = this.vals.map((v) => v.trim()).filter(Boolean).map((v, i) => `${i + 1}) $${v}$`);
+		return [this.pad.isEmpty() ? "" : "画板：" + this.pad.describe(), steps.length ? "步骤：\n" + steps.join("\n") : ""].filter(Boolean).join("\n");
+	}
 
-	// ---------- 公式行 ----------
+	// ---------- 计算器：同一套算式规则；可把结果贴到画板 ----------
+	buildCalc() {
+		const out = el("b"), inp = el("input", { type: "text", placeholder: "如 (3/4-1/6)×12、√48、x²-5x+6=0", oninput: () => show() });
+		const show = () => { const v = inp.value.trim(), r = v && calcText(v); out.textContent = !v ? "" : r === v ? "…" : r.slice(v.length); };
+		const put = (k) => { inp.value = k === "C" ? "" : k === "⌫" ? inp.value.slice(0, -1) : inp.value + ({ "√": "√(", "x²": "²" }[k] || k); show(); };
+		const keys = ["7", "8", "9", "÷", "(", ")", "4", "5", "6", "×", "√", "x²", "1", "2", "3", "−", "π", "^", "0", ".", "x", "+", "=", "⌫"];
+		const paste = () => {
+			const v = inp.value.trim(), b = this.pad;
+			if (!v) return;
+			let y = Math.floor(b.oy / CELL) - 1; // 从上往下找第一行空行
+			while (y > -b.H / CELL && b.objs.some((o) => o.p && Math.abs(o.p[1] - y) < 1)) y--;
+			b.add({ t: "text", p: [Math.ceil(-b.ox / CELL) + 1, y], s: calcText(v) });
+		};
+		return el("div", { className: "calcpad", hidden: true },
+			el("div", { className: "row" }, inp, el("div", { className: "res" }, out)),
+			el("div", { className: "keysg" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onclick: () => put(k) })),
+				el("button", { type: "button", textContent: "C", onclick: () => put("C") }),
+				el("button", { type: "button", className: "wide", textContent: "📌 贴到画板", onclick: paste })));
+	}
+
+	// ---------- 打字步骤（MathLive） ----------
 	sync() { this.fields?.forEach((mf, i) => (this.vals[i] = mf.value)); } // 以公式框当前内容为准
 	renderLines(focus) {
-		if (!window.MathfieldElement) return;
 		this.fields = this.vals.map((v, i) => {
 			const mf = new MathfieldElement();
 			mf.value = v;
@@ -73,7 +93,8 @@ class CalcBoard {
 		});
 		this.lines.replaceChildren(...this.fields.map((mf, i) => el("div", { className: "cline" },
 			el("b", { textContent: i + 1 }), mf,
-			el("button", { type: "button", textContent: "×", title: "删掉这一步", onclick: () => this.delLine(i) }))));
+			el("button", { type: "button", textContent: "×", title: "删掉这一步", onclick: () => this.delLine(i) }))),
+			el("button", { type: "button", className: "btn small", textContent: "＋ 下一步", onclick: () => this.addLine(this.vals.length) }));
 		if (focus != null) setTimeout(() => this.fields[focus]?.focus());
 	}
 	addLine(i) { this.sync(); this.vals.splice(i, 0, ""); this.renderLines(i); }
@@ -87,95 +108,4 @@ class CalcBoard {
 	mount() { // 题目切换后重新挂到页面上，确保公式框内容还在
 		requestAnimationFrame(() => this.fields?.forEach((mf, i) => !mf.value && this.vals[i] && (mf.value = this.vals[i])));
 	}
-
-	// ---------- 验算器（用作图板的式子解析，不发给 Claude） ----------
-	buildCheck() {
-		const out = el("span", { className: "mute" });
-		const inp = el("input", { type: "text", placeholder: "验算：如 (3/4-1/6)*12 或 sqrt(48)", oninput: () => {
-			const s = inp.value.trim();
-			if (!s) return (out.textContent = "");
-			try { const v = compileFn(s)(0); out.textContent = Number.isFinite(v) ? "= " + fmt(v) : "无意义"; } catch { out.textContent = "…"; }
-		} });
-		this.check.replaceChildren(el("span", { textContent: "🧮" }), inp, out);
-	}
-
-	// ---------- 草稿区：横格纸手写 ----------
-	resize() {
-		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
-		if (!W || !H) return;
-		Object.assign(this, { W, H });
-		this.cv.width = W * dpr; this.cv.height = H * dpr;
-		this.cv.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
-		this.draw();
-	}
-	at(e) { const r = this.cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
-	change(fn) { this.hist.push(JSON.stringify(this.strokes)); this.fut = []; fn(); this.draw(); }
-	step(from, to) { if (!from.length) return; to.push(JSON.stringify(this.strokes)); this.strokes = JSON.parse(from.pop()); this.draw(); }
-	bindPad() {
-		const cv = this.cv;
-		const rub = (p) => { const i = this.strokes.findIndex((s) => s.pts.some((q) => dist(p, q) < 12)); if (i >= 0) this.change(() => this.strokes.splice(i, 1)); };
-		cv.addEventListener("pointerdown", (e) => {
-			if (!e.isPrimary) return;
-			cv.setPointerCapture(e.pointerId);
-			if (this.erase) { this.rubbing = true; return rub(this.at(e)); }
-			this.cur = { c: this.color, pts: [this.at(e)] };
-		});
-		cv.addEventListener("pointermove", (e) => {
-			if (this.rubbing) return rub(this.at(e));
-			if (this.cur) { this.cur.pts.push(this.at(e)); this.draw(); }
-		});
-		const up = () => {
-			this.rubbing = false;
-			const s = this.cur; this.cur = null;
-			if (s) this.change(() => this.strokes.push(s.pts.length > 1 ? s : { ...s, pts: [s.pts[0], [s.pts[0][0] + 0.5, s.pts[0][1]]] }));
-		};
-		cv.addEventListener("pointerup", up);
-		cv.addEventListener("pointercancel", up);
-	}
-	draw() { if (this.W && !this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(this.cv.getContext("2d")); }); }
-	paint(c) {
-		const { W, H } = this;
-		c.fillStyle = "#fffdf6"; c.fillRect(0, 0, W, H);
-		c.strokeStyle = "#dfe6f0"; c.lineWidth = 1; c.beginPath();
-		for (let y = 32; y < H; y += 32) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
-		c.stroke();
-		c.lineCap = c.lineJoin = "round"; c.lineWidth = 2.2;
-		for (const s of this.cur ? [...this.strokes, this.cur] : this.strokes) {
-			c.strokeStyle = s.c; c.beginPath();
-			s.pts.forEach((q, i) => (i ? c.lineTo(...q) : c.moveTo(...q)));
-			c.stroke();
-		}
-	}
-	buildBar() {
-		const B = (text, on, onclick, cls = "") => el("button", { type: "button", className: cls + (on ? " on" : ""), textContent: text, onclick });
-		const fab = (t, title, f) => el("button", { type: "button", className: "fab", textContent: t, title, onclick: f });
-		this.bar.replaceChildren(
-			...COLORS.map((col) => Object.assign(B("", !this.erase && col === this.color, () => { this.color = col; this.erase = false; this.buildBar(); }, "dot"), { style: `background:${col}` })),
-			B("⌫橡皮", this.erase, () => { this.erase = !this.erase; this.buildBar(); }),
-			B("清空", false, () => this.strokes.length && confirm("清空草稿？") && this.change(() => (this.strokes = []))),
-			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.buildBar(); }),
-			fab("↶", "撤销", () => this.step(this.hist, this.fut)), fab("↷", "重做", () => this.step(this.fut, this.hist)));
-	}
-
-	// ---------- 交卷 ----------
-	describe() {
-		this.sync();
-		const steps = this.vals.map((v) => v.trim()).filter(Boolean).map((v, i) => `${i + 1}) $${v}$`);
-		return (steps.length ? steps.join("\n") : "（无公式步骤）") + (this.hasPen() ? `\n草稿手写${this.strokes.length}笔，见图` : "");
-	}
-	toFile() {
-		const s = Math.min(2, 600 / Math.max(this.W, this.H)), out = document.createElement("canvas");
-		out.width = Math.round(this.W * s); out.height = Math.round(this.H * s);
-		const c = out.getContext("2d"); c.scale(s, s);
-		this.paint(c);
-		return new Promise((res) => out.toBlob((b) => res(new File([b], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.85));
-	}
-}
-
-// 小数尽量还原成分数（分母 ≤ 1000），如 0.41666… → 5/12
-function fmt(v) {
-	const r = Math.round(v * 1e9) / 1e9;
-	if (Number.isInteger(r)) return String(r);
-	for (let d = 2; d <= 1000; d++) { const n = Math.round(v * d); if (Math.abs(n / d - v) < 1e-9) return `${n}/${d} ≈ ${+v.toFixed(6)}`; }
-	return String(+v.toFixed(8));
 }
