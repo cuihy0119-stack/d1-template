@@ -4,22 +4,22 @@
    老浏览器不支持的特性（backdrop-filter、color-mix、aspect-ratio）都有退路。 */
 :root{
   --bg:#f4efe6;--fg:#2b2622;--mute:#8a8178;--pri:#c96442;--pri2:#d98a6a;--ok:#5e8c61;--bad:#b5483b;--warn:#b98228;
-  --line:rgba(80,55,30,.12);--card:rgba(255,252,246,.62);--solid:#fffcf6;--edge:rgba(255,255,255,.7);
-  --shadow:0 10px 30px -14px rgba(80,50,20,.28),0 2px 6px -2px rgba(80,50,20,.08);
+  --line:rgba(80,55,30,.12);--card:rgba(255,252,246,.86);--solid:#fffcf6;--edge:rgba(255,255,255,.7);
+  --shadow:0 6px 16px -10px rgba(80,50,20,.3),0 1px 3px rgba(80,50,20,.06);
   --serif:'Newsreader','LXGW WenKai Screen','Songti SC',serif;
   --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
   --ease:cubic-bezier(.2,.8,.2,1);
 }
 @media(prefers-color-scheme:dark){:root{
   --bg:#1f1d1a;--fg:#ede8df;--mute:#a39b90;--pri:#e08a6a;--pri2:#c96442;--ok:#8fb88f;--bad:#e07a6c;--warn:#e0b060;
-  --line:rgba(255,240,220,.10);--card:rgba(48,45,41,.55);--solid:#2a2825;--edge:rgba(255,255,255,.12);
-  --shadow:0 10px 30px -14px rgba(0,0,0,.6),0 2px 6px -2px rgba(0,0,0,.3);
+  --line:rgba(255,240,220,.10);--card:rgba(48,45,41,.88);--solid:#2a2825;--edge:rgba(255,255,255,.12);
+  --shadow:0 6px 16px -10px rgba(0,0,0,.6),0 1px 3px rgba(0,0,0,.3);
 }}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{background:var(--bg)}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 var(--sans);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;min-height:100dvh}
 /* 背景：流动光斑 + 纸张颗粒 */
-body::before{content:"";position:fixed;top:-20%;right:-20%;bottom:-20%;left:-20%;z-index:-2;pointer-events:none;
+body::before{content:"";position:fixed;top:-20%;right:-20%;bottom:-20%;left:-20%;transform:translateZ(0);z-index:-2;pointer-events:none;
   background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.32),transparent 70%),radial-gradient(34% 28% at 82% 30%,rgba(143,176,150,.30),transparent 70%),
   radial-gradient(40% 32% at 60% 82%,rgba(214,178,120,.28),transparent 70%),radial-gradient(30% 26% at 15% 85%,rgba(150,160,200,.22),transparent 70%);
   animation:bgin 1.2s ease-out both}
@@ -35,8 +35,9 @@ h2{font-size:19px;margin:0 0 10px}
 /* 液态玻璃 */
 .card,.subj,#list,.tabbar,.btn,.chip,.opt,.calcpad,.tabs{
   background:var(--card);border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),inset 0 -1px 0 rgba(0,0,0,.03),var(--shadow)}
-/* 液态玻璃（背景模糊）只用在几块大面板上：好看且不卡 */
-.card,.subj,#list,.tabs{-webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%)}
+/* 卡片用「静态玻璃」：半透明 + 顶部高光，不做实时背景模糊（滚动时每帧重算模糊是卡顿主因）；只有悬浮导航用实时模糊 */
+.card,.subj,#list,.tabs{background-image:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,0) 180px)}
+@media(prefers-color-scheme:dark){.card,.subj,#list,.tabs{background-image:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,0) 40%)}}
 .btn,.chip,.opt,.calcpad{background:color-mix(in srgb,var(--solid) 82%,transparent)}
 .card .opt,.card .btn:not(.primary){box-shadow:inset 0 1px 0 var(--edge),0 1px 2px rgba(80,50,20,.06)}
 .card{border-radius:var(--r-xl);padding:18px;margin-bottom:16px;position:relative}
@@ -89,7 +90,7 @@ textarea{min-height:120px}
 /* 底部导航：悬浮液态玻璃胶囊 */
 body.has-tabs main{padding-bottom:110px}
 .tabbar{background:color-mix(in srgb,var(--solid) 72%,transparent);position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(92vw,420px);display:flex;padding:6px;border-radius:30px;z-index:5;
-  -webkit-backdrop-filter:blur(22px) saturate(190%);backdrop-filter:blur(22px) saturate(190%);animation:dock .6s var(--ease) both .2s}
+  -webkit-backdrop-filter:blur(14px) saturate(150%);backdrop-filter:blur(14px) saturate(150%);animation:dock .5s var(--ease) both .1s}
 .tabbar::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.45),transparent 50%);opacity:.6}
 @keyframes dock{from{opacity:0;transform:translate(-50%,30px)}to{opacity:1;transform:translate(-50%,0)}}
 .tabbar a{flex:1;position:relative;text-align:center;padding:7px 0 5px;color:var(--mute);text-decoration:none;font:13px/1.3 var(--serif);border-radius:24px;transition:color .25s,background .3s var(--ease)}
@@ -131,7 +132,7 @@ button.del:active{transform:scale(.95)}
 /* ================= 画板：玻璃外框 + 白纸画布（画布本身不加滤镜，保证清晰好画） ================= */
 .bhead{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;font:500 16px/1.4 var(--serif)}
 .bhead button{padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute);font:14px/1.3 var(--serif)}
-.board{margin:0 -8px;padding:8px;border-radius:var(--r-l);background:color-mix(in srgb,var(--solid) 55%,transparent);
+.board{margin:0 -8px;padding:8px;border-radius:var(--r-l);background:color-mix(in srgb,var(--solid) 60%,transparent);
   border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),var(--shadow)}
 .btools{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none;-webkit-mask:linear-gradient(90deg,#000 92%,transparent);mask:linear-gradient(90deg,#000 92%,transparent)}
 .btools::-webkit-scrollbar{display:none}
@@ -193,7 +194,7 @@ button.del:active{transform:scale(.95)}
 .row .btn.small{white-space:nowrap}
 /* ================= 兼容与低配 ================= */
 /* 不支持背景模糊：面板用实色，文字照样清楚 */
-@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.subj,#list,.tabs,.tabbar,.board{background:var(--solid)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.tabbar{background:var(--solid)}}
 /* 不支持 color-mix（较老的 Safari/Chrome）：给实色 */
 @supports not (color:color-mix(in srgb,red,blue)){
   .btn,.chip,.opt,.calcpad,.tabbar,.board,.btools button,.keysg button{background:var(--solid)}
@@ -202,7 +203,7 @@ button.del:active{transform:scale(.95)}
 /* 不支持 aspect-ratio：用 padding 撑出正方形画布 */
 @supports not (aspect-ratio:1/1){.bwrap{height:0;padding-top:100%}.board.big .bwrap{padding-top:133%}}
 /* 低配设备：关模糊、关进场动画、阴影变轻、背景光斑只留底色 */
-.lite .card,.lite .subj,.lite #list,.lite .tabs,.lite .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+.lite .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}.lite .card,.lite .subj,.lite #list,.lite .tabs{background:var(--solid)}
 .lite main>*,.lite #app>*,.lite #app.fwd>.card,.lite #app.back>.card,.lite .tabbar,.lite body::before,.lite .btn.primary::after,.lite .bar>i{animation:none}
 .lite body::after{display:none}
 .lite{--shadow:0 2px 8px -4px rgba(0,0,0,.25)}

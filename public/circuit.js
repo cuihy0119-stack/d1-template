@@ -279,11 +279,13 @@ class CircuitBoard {
 		const B = (text, on, onclick) => el("button", { type: "button", className: on ? "on" : "", textContent: text, onclick });
 		const pick = (k) => () => { this.tool = k; this.build(); };
 		// 元件按钮直接画符号（同画板里的样子）
-		this.bar1.replaceChildren(...Object.entries(PARTS).map(([k, [nm]]) => {
+		if (!this.icons) this.icons = Object.entries(PARTS).map(([k, [nm]]) => { // 只画一次，之后只切换高亮
 			const cv = el("canvas", { width: 112, height: 56 }), c = cv.getContext("2d");
 			c.scale(1.25, 1.25); this.obj(c, { t: k, on: true }, null, [4, 18], [86, 18]);
-			return el("button", { type: "button", className: "ico" + (this.tool === k ? " on" : ""), onclick: pick(k), title: nm }, cv, el("span", { textContent: nm }));
-		}));
+			return el("button", { type: "button", className: "ico", onclick: pick(k), title: nm }, cv, el("span", { textContent: nm }));
+		});
+		Object.keys(PARTS).forEach((k, i) => this.icons[i].classList.toggle("on", this.tool === k));
+		if (!this.bar1.firstChild) this.bar1.append(...this.icons);
 		this.bar2.replaceChildren(...CTOOLS.map(([k, name]) => B(name, this.tool === k, pick(k))),
 			B("🔍通电", this.check, () => { this.check = !this.check; this.build(); this.draw(); }),
 			B("清空", false, () => this.objs.length && confirm("清空电路？") && this.change(() => (this.objs = []))),
