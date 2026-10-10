@@ -48,12 +48,14 @@ async function save(i) {
 		const photo_keys = [];
 		const up = async (f, kind) => {
 			const fd = new FormData();
-			fd.append("file", kind ? f : await compress(f));
+			if (kind === "") return; // 计算板只打了字步骤，没有草纸
+			fd.append("file", kind ? f : await compress(f, 1024));
 			if (kind) fd.append("kind", kind);
 			photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
 		};
 		for (const f of files[i]) await up(f);
-		for (const b of boards[i]) if (!b.isEmpty() && (b.kind !== "calc" || b.hasPen())) await up(await b.toFile(), "board"); // 计算板只有手写才附图
+		// 画板图：动了画笔的、计算板的草纸 → 发给 Claude（kind=board）；其余只存一份自己看（kind=view），Claude 读文字描述就够
+		for (const b of boards[i]) if (!b.isEmpty()) await up(await b.toFile(), b.kind === "calc" ? (b.pad.isEmpty() ? "" : "board") : b.hasPen?.() ? "board" : "view");
 		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ ...it, photo_keys }] }) })).attempt_ids[0];
 		sig[i] = s;
 	} catch (e) { done[i] = prev; throw e; }

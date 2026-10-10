@@ -294,7 +294,7 @@ class CircuitBoard {
 		const fab = (t, title, f) => el("button", { type: "button", className: "fab", textContent: t, title, onclick: f });
 		this.hint.append(fab("↶", "撤销", () => this.step(this.hist, this.fut)), fab("↷", "重做", () => this.step(this.fut, this.hist)));
 	}
-	toFile() { return Board.prototype.toFile.call(this); } // 同作图板：600px 小图
+	toFile() { return snapshot(this); } // 同作图板：裁剪后的小图
 }
 
 // 高斯消元（列主元），A 为增广矩阵
