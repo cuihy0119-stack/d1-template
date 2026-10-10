@@ -74,10 +74,11 @@ function nice(v) {
 	const r = (n, d) => Math.abs(v * d - n) < 1e-9 * Math.max(1, Math.abs(v * d));
 	const n0 = Math.round(v);
 	if (r(n0, 1)) return String(n0);
-	for (let d = 2; d <= 1000; d++) { const n = Math.round(v * d); if (r(n, d)) return `${n}/${d}`; }
+	const dec = `（≈${+v.toPrecision(6)}）`; // 分数、根式后面附小数，方便核对
+	for (let d = 2; d <= 1000; d++) { const n = Math.round(v * d); if (r(n, d)) return `${n}/${d}${dec}`; }
 	for (const b of [2, 3, 5, 6, 7, 10, 11, 13, 14, 15]) for (let d = 1; d <= 12; d++) { // a√b/d
 		const a = Math.round((v * d) / Math.sqrt(b));
-		if (a && Math.abs((a * Math.sqrt(b)) / d - v) < 1e-9) return `${a === 1 ? "" : a === -1 ? "-" : a}√${b}${d > 1 ? "/" + d : ""}`;
+		if (a && Math.abs((a * Math.sqrt(b)) / d - v) < 1e-9) return `${a === 1 ? "" : a === -1 ? "-" : a}√${b}${d > 1 ? "/" + d : ""}${dec}`;
 	}
 	return String(+v.toPrecision(6));
 }
