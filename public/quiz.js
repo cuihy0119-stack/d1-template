@@ -1,7 +1,16 @@
 const app = $("#app");
 const FROM_WRONG = new URLSearchParams(location.search).get("from") === "wrong";
-const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], marks = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
+// 答案框快捷键：化学式、数学/物理方程常用符号（点一下插到光标处）
+const KEYS = { 化学: ["₂", "₃", "₄", "↑", "↓", "△", "="], 数学: ["x₁=", "x₂=", "/", "√", "²", "³", "±", "=", "，", "π", "≤", "≥"], 物理: ["/", "²", "³", "×10", "=", "，", "Ω", "℃", "π", "≈"] };
+function keyRow(field, keys) {
+	return el("div", { className: "keys" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onclick: () => {
+		const s = field.selectionStart ?? field.value.length, e = field.selectionEnd ?? s;
+		field.value = field.value.slice(0, s) + k + field.value.slice(e);
+		field.focus(); field.setSelectionRange(s + k.length, s + k.length);
+		field.dispatchEvent(new Event("input"));
+	} })));
+}
+let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], marks = [], hands = [], cur = 0, shownAt = 0; // hands[i]：手写答案板 // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
@@ -27,6 +36,7 @@ async function start() {
 	done = qs.map(() => null);
 	sig = qs.map(() => "");
 	marks = qs.map(() => false);
+	hands = qs.map(() => null);
 	cur = 0;
 	render("enter");
 }
@@ -40,11 +50,12 @@ function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownA
 // 计算板是草纸：不算作答、不发给 Claude；只有题目要求写过程时，草纸才作为过程一起交。
 const needProcess = (q) => q.tag === "解答" || /过程|步骤|写出.{0,4}(解|推理|推导)|说明理由/.test(q.stem);
 const sends = (i, b) => !b.isEmpty() && (b.kind !== "calc" || (qs[i].type === "short" && needProcess(qs[i])));
-const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || (qs[i].type === "short" && (files[i].length || boards[i].some((b) => sends(i, b))));
+const handed = (i) => hands[i] && !hands[i].isEmpty(); // 用了手写答案板：网站判不了，交给 Claude 看图批改
+const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || handed(i) || (qs[i].type === "short" && (files[i].length || boards[i].some((b) => sends(i, b))));
 // 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
-const work = (i) => boards[i].filter((b) => sends(i, b)).map((b) => BOARDS[b.kind][1] + " " + b.describe()).join("\n");
-const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined });
-const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].length]);
+const work = (i) => [...boards[i].filter((b) => sends(i, b)).map((b) => BOARDS[b.kind][1] + " " + b.describe()), handed(i) ? "[手写答案] 见附图" : ""].filter(Boolean).join("\n");
+const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined, hand: !!handed(i) });
+const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].length, hands[i]?.objs.length]);
 const pending = (i) => answered(i) && done[i] !== "…" && (!done[i] || sigOf(i) !== sig[i]); // 没交过，或交过又改了
 async function save(i) {
 	if (!pending(i)) return;
@@ -61,6 +72,7 @@ async function save(i) {
 		};
 		for (const f of files[i]) await up(f);
 		// 画板图：动了画笔的、计算板的草纸 → 发给 Claude（kind=board）；其余只存一份自己看（kind=view），Claude 读文字描述就够
+		if (handed(i)) { await up(await hands[i].toFile(true), "view"); await up(await hands[i].toFile(), "board"); } // 手写答案：高清给自己看，裁剪小图发 Claude
 		for (const b of boards[i]) {
 			if (b.isEmpty()) continue;
 			if (b.kind !== "calc" || !b.pad.isEmpty()) await up(await b.toFile(true), "view"); // 高清整图：自己看结果
@@ -84,6 +96,15 @@ async function go(i) {
 	tick(); const dir = i > cur ? "fwd" : "back"; cur = i; render(dir);
 }
 
+// 手写答案板：答案框下面一块横线小板，用了就把图发给 Claude 批改（数理化）
+function handPad(q) {
+	if (!/数学|物理|化学/.test(q.subject)) return "";
+	const h = hands[cur];
+	if (!h) return el("button", { type: "button", className: "btn small hand-open", textContent: "✍️ 手写答案", onclick: () => { const h = Object.assign(new Board({ calc: true }), { extra: () => [] }); h.tools = h.tools.filter(([k]) => k === "pen" || k === "erase"); h.build(); hands[cur] = h; render(); } }); // 只留画笔和橡皮
+	return el("div", { className: "handpad" }, el("div", { className: "bhead" }, el("b", { textContent: "✍️ 手写答案（会发给 Claude 批改）" }),
+		el("button", { type: "button", textContent: "收起 ×", onclick: () => (h.isEmpty() || confirm("收起手写答案？写的内容会丢掉")) && ((hands[cur] = null), render()) })), h.el);
+}
+
 // anim：只在换题时播放进场动画；点选项、加图片等局部更新不重播，避免闪烁
 function render(anim) {
 	shownAt = Date.now();
@@ -101,7 +122,7 @@ function render(anim) {
 			} }),
 			el("button", { type: "button", className: "del", title: "删题", textContent: "🗑", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
-				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks]) a.splice(cur, 1);
+				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks, hands]) a.splice(cur, 1);
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
@@ -131,29 +152,18 @@ function render(anim) {
 		});
 	} else if (q.type === "fill") {
 		const input = el("input", { type: "text", value: ans[cur], placeholder: "答案", oninput: () => (ans[cur] = input.value) });
-		if (q.subject === "化学") {
-			const keys = el("div", { className: "keys" });
-			for (const k of CHEM) keys.append(el("button", {
-				type: "button", textContent: k,
-				onclick: () => {
-					const s = input.selectionStart ?? input.value.length, e = input.selectionEnd ?? s;
-					input.value = input.value.slice(0, s) + k + input.value.slice(e);
-					input.focus(); input.setSelectionRange(s + 1, s + 1);
-					ans[cur] = input.value;
-				},
-			}));
-			box.append(keys);
-		}
-		box.append(input);
+		if (KEYS[q.subject]) box.append(keyRow(input, KEYS[q.subject]));
+		box.append(input, handPad(q));
 	} else {
 		const ta = el("textarea", { value: ans[cur], placeholder: "写下作答过程（也可以拍照上传）", oninput: () => (ans[cur] = ta.value) });
+		if (KEYS[q.subject]) box.append(keyRow(ta, KEYS[q.subject]));
 		const pick = el("input", { type: "file", accept: "image/*", multiple: true, hidden: true,
 			onchange: () => { files[cur].push(...pick.files); render(); } });
 		const att = el("div", { className: "att" });
 		files[cur].forEach((f, i) => att.append(el("div", {},
 			el("img", { src: (f.url ||= URL.createObjectURL(f)) }), // 同一张图只建一次预览地址
 			el("button", { type: "button", textContent: "×", onclick: () => { URL.revokeObjectURL(f.url); files[cur].splice(i, 1); render(); } }))));
-		box.append(ta,
+		box.append(ta, handPad(q),
 			el("div", { className: "row", style: "margin-top:8px" },
 				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
 				...offer(q).filter((k) => !boards[cur].some((b) => b.kind === k)).map((k) => el("button", { type: "button", className: "btn small", textContent: BOARDS[k][0],

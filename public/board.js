@@ -327,7 +327,7 @@ class Board {
 		for (const q of this.pend?.pts || (this.pend?.p ? [this.pend.p] : [])) this.dot(c, this.px(q), 3.5, "#d64545");
 		const cur = this.drag && this.drag.t !== "pen" ? this.drag.b : this.tap ? this.tap[0] : this.hover;
 		if (this.drag?.a) this.ring(c, this.px(this.drag.a));
-		if (cur) this.guide(c, cur);
+		if (cur && !this.calc) this.guide(c, cur); // 手写板不显示坐标十字
 	}
 	ring(c, [x, y]) { c.setLineDash([]); c.strokeStyle = "#2f6fed"; c.lineWidth = 1.5; c.beginPath(); c.arc(x, y, 7, 0, 7); c.stroke(); this.dot(c, [x, y], 2.5, "#2f6fed"); }
 	// 当前落点：十字辅助线 + 手指上方的坐标气泡
