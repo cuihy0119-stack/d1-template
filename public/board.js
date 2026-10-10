@@ -158,13 +158,14 @@ class Board {
 		this.bind();
 		this.build();
 		new ResizeObserver(() => this.resize()).observe(this.wrap);
+		document.fonts?.ready.then(() => this.draw()); // 文楷字体到了再画一遍
 	}
 	isEmpty() { return !this.objs.length; }
 	hasPen() { return this.objs.some((o) => o.t === "pen"); }
 
 	// ---------- 坐标 ----------
 	resize() {
-		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+		const W = this.wrap.clientWidth, H = this.wrap.clientHeight, dpr = DPR();
 		if (!W || !H) return;
 		Object.assign(this, { W, H, ox: Math.round(W / 2 / CELL) * CELL, oy: Math.round(H / 2 / CELL) * CELL });
 		this.cv.width = W * dpr; this.cv.height = H * dpr;
@@ -332,7 +333,7 @@ class Board {
 		const s = xy(q);
 		c.font = "bold 14px sans-serif";
 		const w = c.measureText(s).width + 14, bx = Math.min(Math.max(x - w / 2, 2), W - w - 2), by = y - 64 < 2 ? y + 30 : y - 64;
-		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect(bx, by, w, 24, 12); c.fill();
+		c.fillStyle = "#2f6fed"; c.beginPath(); c.roundRect ? c.roundRect(bx, by, w, 24, 12) : c.rect(bx, by, w, 24); c.fill(); // 老浏览器没有 roundRect
 		c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(s, bx + w / 2, by + 12);
 		c.restore();
 	}
@@ -412,7 +413,7 @@ class Board {
 				c.stroke(); break;
 			}
 			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); label(q, (o.name || "") + xy(o.p), o.name ? "italic 15px serif" : "13px sans-serif"); break; }
-			case "text": { const q = P(o.p); c.font = "16px sans-serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
+			case "text": { const q = P(o.p); c.font = "17px 'LXGW WenKai Screen', serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
 			case "ra": { const k = 0.45, a = o.at; path([[a[0] + o.u[0] * k, a[1] + o.u[1] * k], [a[0] + (o.u[0] + o.v[0]) * k, a[1] + (o.u[1] + o.v[1]) * k], [a[0] + o.v[0] * k, a[1] + o.v[1] * k]]); break; }
 			case "fn": {
 				const f = this.fn(o.expr); if (!f) break;

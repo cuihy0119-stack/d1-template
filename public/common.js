@@ -6,6 +6,8 @@ async function api(url, opts) {
 	return r.json();
 }
 const $ = (s) => document.querySelector(s);
+// 画布清晰度：低配设备降到 1.5 倍，省内存省电
+const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 1.5 : 2);
 function el(tag, props = {}, ...kids) {
 	const e = Object.assign(document.createElement(tag), props);
 	for (const k of kids) e.append(k);
@@ -46,6 +48,9 @@ function tabbar(active) {
 		nav.append(el("a", { href, className: href === active ? "on" : "" }, el("b", { textContent: icon }), name));
 	}
 	document.body.append(nav);
+	// 支持的浏览器手指按下链接时预取其它页面（只下载，不提前渲染，不占性能），切换更快
+	if (HTMLScriptElement.supports?.("speculationrules"))
+		document.head.append(Object.assign(document.createElement("script"), { type: "speculationrules", textContent: JSON.stringify({ prefetch: [{ source: "list", urls: tabs.map((t) => t[0]), eagerness: "conservative" }] }) }));
 }
 
 // 自动刷新：切回页面、按返回键回来（浏览器缓存的旧页面）时刷新；every>0 时页面可见期间定时刷新

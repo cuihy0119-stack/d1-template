@@ -68,7 +68,7 @@ async function go(i) {
 	const btns = [...document.querySelectorAll(".nav .btn")];
 	btns.forEach((b) => (b.disabled = true));
 	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = false)); }
-	tick(); cur = i; render();
+	tick(); app.className = i > cur ? "fwd" : "back"; cur = i; render();
 }
 
 function render() {
@@ -97,7 +97,7 @@ function render() {
 			const letter = o.trim()[0].toUpperCase();
 			const on = q.type === "multi" ? ans[cur].includes(letter) : ans[cur] === letter;
 			box.append(el("button", {
-				className: "opt" + (on ? " on" : ""), textContent: o,
+				className: "opt" + (on ? " on" : ""),
 				onclick: () => {
 					if (q.type === "multi") {
 						const a = ans[cur];
@@ -105,7 +105,7 @@ function render() {
 					} else ans[cur] = letter;
 					render();
 				},
-			}));
+			}, el("span", { className: "ol", textContent: letter }), el("span", { textContent: o.replace(/^\s*[A-Za-z][.．、:：]?\s*/, "") })));
 		});
 	} else if (q.type === "fill") {
 		const input = el("input", { type: "text", value: ans[cur], placeholder: "答案", oninput: () => (ans[cur] = input.value) });

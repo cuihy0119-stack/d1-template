@@ -341,7 +341,8 @@ app.get("/api/question/:id", async (c) => {
 // 其余请求：已登录后交给静态页面
 app.all("*", async (c) => {
 	const res = await c.env.ASSETS.fetch(c.req.raw), r = new Response(res.body, res);
-	r.headers.set("Cache-Control", "no-cache"); // 每次都向服务器确认，改版后手机马上用上新页面
+	// 字体、KaTeX、MathLive 不会变：缓存一年；页面和脚本每次向服务器确认（没变只回 304，很快），改版后马上用上
+	r.headers.set("Cache-Control", /^\/(fonts|katex|mathlive)\//.test(new URL(c.req.url).pathname) ? "public, max-age=31536000, immutable" : "no-cache");
 	return r;
 });
 

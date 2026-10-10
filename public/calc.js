@@ -4,7 +4,7 @@
 
 let mathLiveReady;
 function loadMathLive() {
-	mathLiveReady ??= new Promise((res, rej) => {
+	mathLiveReady = mathLiveReady || new Promise((res, rej) => {
 		const s = el("script", { src: "/mathlive/mathlive.min.js" });
 		s.onload = () => {
 			MathfieldElement.fontsDirectory = "/katex/fonts"; // 字体与 KaTeX 同名，共用一份

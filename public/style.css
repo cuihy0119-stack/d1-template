@@ -1,6 +1,7 @@
 /* ================= 主题：暖纸色 + 衬线文楷 + 液态玻璃（参考 Claude 的文艺排版） =================
-   液态玻璃：backdrop-filter 模糊+饱和 + 内高光/边缘光（参考 archisvaze/liquid-glass、@real-human/liquid-glass 的 Safari 兼容做法），
-   背景缓慢流动的彩色光斑让玻璃有东西可「折射」。动画尊重「减少动态效果」设置。 */
+   液态玻璃：backdrop-filter 模糊+饱和 + 内高光/边缘光（参考 archisvaze/liquid-glass、@real-human/liquid-glass 的 Safari 兼容做法）。
+   渲染原则：动画只用 transform/opacity 且只在出现时播一次，页面静止时 0 动画；低配设备（html.lite）关掉模糊和进场动画；
+   老浏览器不支持的特性（backdrop-filter、color-mix、aspect-ratio）都有退路。 */
 :root{
   --bg:#f4efe6;--fg:#2b2622;--mute:#8a8178;--pri:#c96442;--pri2:#d98a6a;--ok:#5e8c61;--bad:#b5483b;--warn:#b98228;
   --line:rgba(80,55,30,.12);--card:rgba(255,252,246,.62);--solid:#fffcf6;--edge:rgba(255,255,255,.7);
@@ -16,16 +17,16 @@
 }}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{background:var(--bg)}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 var(--sans);-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;min-height:100vh;min-height:100dvh}
 /* 背景：流动光斑 + 纸张颗粒 */
-body::before{content:"";position:fixed;inset:-20%;z-index:-2;pointer-events:none;
+body::before{content:"";position:fixed;top:-20%;right:-20%;bottom:-20%;left:-20%;z-index:-2;pointer-events:none;
   background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.32),transparent 70%),radial-gradient(34% 28% at 82% 30%,rgba(143,176,150,.30),transparent 70%),
   radial-gradient(40% 32% at 60% 82%,rgba(214,178,120,.28),transparent 70%),radial-gradient(30% 26% at 15% 85%,rgba(150,160,200,.22),transparent 70%);
-  filter:blur(30px);animation:drift 28s var(--ease) infinite alternate}
-body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.35;mix-blend-mode:multiply;
+  animation:bgin 1.2s ease-out both}
+@keyframes bgin{from{opacity:0;transform:scale(1.05)}to{opacity:1;transform:none}} /* 只在打开时淡入一次：背景静止，玻璃不用每帧重算，不卡 */
+body::after{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;opacity:.22;
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .25 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
-@media(prefers-color-scheme:dark){body::after{mix-blend-mode:screen;opacity:.12}.tabbar::before{opacity:.12}}
-@keyframes drift{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(3%,-2%,0) rotate(4deg)}100%{transform:translate3d(-3%,2%,0) rotate(-3deg)}}
+@media(prefers-color-scheme:dark){body::after{opacity:.08}.tabbar::before{opacity:.12}}
 main{max-width:640px;margin:0 auto;padding:22px 18px 18px}
 h1,h2,.serif{font-family:var(--serif);font-weight:500;letter-spacing:.02em}
 h1{font-size:30px;line-height:1.25;margin:6px 0 4px}
@@ -33,41 +34,49 @@ h2{font-size:19px;margin:0 0 10px}
 .sub{font-family:var(--serif);color:var(--mute);font-size:15px;margin:0 0 20px;font-style:italic}
 /* 液态玻璃 */
 .card,.subj,#list,.tabbar,.btn,.chip,.opt,.calcpad,.tabs{
-  background:var(--card);-webkit-backdrop-filter:blur(18px) saturate(170%);backdrop-filter:blur(18px) saturate(170%);
-  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),inset 0 -1px 0 rgba(0,0,0,.03),var(--shadow)}
-.card{border-radius:22px;padding:18px;margin-bottom:16px;position:relative}
+  background:var(--card);border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),inset 0 -1px 0 rgba(0,0,0,.03),var(--shadow)}
+/* 液态玻璃（背景模糊）只用在几块大面板上：好看且不卡 */
+.card,.subj,#list,.tabs{-webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%)}
+.btn,.chip,.opt,.calcpad{background:color-mix(in srgb,var(--solid) 82%,transparent)}
+.card .opt,.card .btn:not(.primary){box-shadow:inset 0 1px 0 var(--edge),0 1px 2px rgba(80,50,20,.06)}
+.card{border-radius:var(--r-xl);padding:18px;margin-bottom:16px;position:relative}
 /* 进场动画：内容依次浮现 */
 main>*{animation:rise .55s var(--ease) both}
 main>*:nth-child(2){animation-delay:.05s}main>*:nth-child(3){animation-delay:.1s}main>*:nth-child(4){animation-delay:.15s}
 main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(6){animation-delay:.25s}main>*:nth-child(n+7){animation-delay:.3s}
 #app>*{animation:rise .45s var(--ease) both}
-@keyframes rise{from{opacity:0;transform:translateY(12px) scale(.985);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+@keyframes rise{from{opacity:0;transform:translateY(12px) scale(.985)}to{opacity:1;transform:none}}
+/* 换题：前进从右滑入，后退从左滑入 */
+#app.fwd>.card{animation:slidein .38s var(--ease) both}#app.back>.card{animation:slidein .38s var(--ease) both reverse}
+@keyframes slidein{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+/* 跨页面平滑过渡（支持的浏览器） */
+@view-transition{navigation:auto}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.22s}
 /* 按钮：玻璃 + 按下回弹 + 主按钮流光 */
-.btn{display:block;width:100%;padding:14px;border-radius:18px;color:var(--fg);font:500 17px/1.4 var(--serif);text-align:center;cursor:pointer;text-decoration:none;
-  position:relative;overflow:hidden;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
+.btn{display:block;width:100%;padding:14px;border-radius:var(--r-l);color:var(--fg);font:500 17px/1.4 var(--serif);text-align:center;cursor:pointer;text-decoration:none;position:relative;overflow:hidden;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
 .btn:active,.opt:active,.chip:active,.subj:active{transform:scale(.97)}
 .btn.primary{color:#fff;border-color:transparent;background:linear-gradient(135deg,var(--pri2),var(--pri) 55%,#b35537);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 12px 28px -12px rgba(201,100,66,.65)}
-.btn.primary::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);transform:translateX(-120%);animation:sheen 4.5s ease-in-out infinite 1s}
-@keyframes sheen{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
-.btn.small{display:inline-block;width:auto;padding:7px 14px;font-size:15px;border-radius:14px}
+.btn.primary::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);transform:translateX(-120%);animation:sheen 1.4s ease-in-out .6s 1 both}
+@keyframes sheen{to{transform:translateX(120%)}}
+.btn.small{display:inline-block;width:auto;padding:7px 14px;font-size:15px;border-radius:var(--r-m)}
 .btn:disabled{opacity:.5}
-.row{display:flex;gap:10px}.row>*{flex:1}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1}
 .mute{color:var(--mute);font-size:14px}
 .err{color:var(--bad)}
-input[type=text],input[type=password],textarea{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.55);color:var(--fg);font:16px/1.6 var(--sans);transition:border-color .2s,box-shadow .2s}
+input[type=text],input[type=password],textarea{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r-m);background:rgba(255,255,255,.55);color:var(--fg);font:16px/1.6 var(--sans);transition:border-color .2s,box-shadow .2s}
 @media(prefers-color-scheme:dark){input[type=text],input[type=password],textarea{background:rgba(0,0,0,.18)}}
 input:focus,textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 4px color-mix(in srgb,var(--pri) 18%,transparent)}
 textarea{min-height:120px}
 .login{margin-top:22vh;text-align:center}.login form{display:grid;gap:14px;margin-top:22px}
 .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 16px}
-.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--pri2),var(--pri),var(--pri2));background-size:200% 100%;transition:width .5s var(--ease);animation:flow 3s linear infinite}
-@keyframes flow{to{background-position:-200% 0}}
-.opt{display:block;width:100%;text-align:left;padding:14px 16px;margin:10px 0;border-radius:16px;color:var(--fg);font-size:16px;cursor:pointer;transition:transform .2s var(--ease),border-color .2s,background .2s}
+.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--pri2),var(--pri));transform-origin:left;animation:grow .6s var(--ease) both}
+@keyframes grow{from{transform:scaleX(0)}}
+.opt{display:flex;width:100%;text-align:left;padding:12px 16px;margin:10px 0;border-radius:var(--r-l);color:var(--fg);font-size:16px;cursor:pointer;transition:transform .2s var(--ease),border-color .2s,background .2s;align-items:center;gap:12px;min-height:54px;font:17px/1.5 var(--serif)}
 .opt.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,var(--card));animation:pop .35s var(--ease)}
 @keyframes pop{50%{transform:scale(1.02)}}
 .keys{display:flex;gap:8px;margin:8px 0}.keys button{flex:1;padding:8px 0;font-size:18px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
-.tag{display:inline-block;font:13px/1.6 var(--serif);padding:1px 10px;border-radius:999px;background:color-mix(in srgb,var(--pri) 10%,transparent);color:color-mix(in srgb,var(--pri) 80%,var(--fg));margin-right:6px}
+.tag{display:inline-block;font:13px/1.6 var(--serif);padding:2px 10px;border-radius:var(--r-s);background:color-mix(in srgb,var(--pri) 10%,transparent);color:color-mix(in srgb,var(--pri) 80%,var(--fg));margin-right:6px}
 .badge{font-family:var(--serif);font-weight:600}.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.badge.wait{color:var(--warn)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .chip{padding:5px 14px;border-radius:999px;color:var(--fg);font:15px/1.5 var(--serif);transition:transform .2s var(--ease),background .25s}
@@ -75,7 +84,7 @@ textarea{min-height:120px}
 .thumbs img{width:72px;height:72px;object-fit:cover;border-radius:12px;margin:4px 4px 0 0}
 .hide{display:none}
 .nav{display:flex;gap:10px;margin-top:16px}.nav .btn{flex:1}
-.ans{background:color-mix(in srgb,var(--pri) 7%,transparent);border-left:3px solid color-mix(in srgb,var(--pri) 45%,transparent);border-radius:12px;padding:9px 12px;margin-top:10px;font-size:15px}
+.ans{background:color-mix(in srgb,var(--pri) 7%,transparent);border-left:3px solid color-mix(in srgb,var(--pri) 45%,transparent);border-radius:12px;padding:9px 12px;margin-top:10px;font-size:15px;white-space:pre-wrap}
 .card>p{font-family:var(--serif);font-size:18px;line-height:1.8}
 /* 底部导航：悬浮液态玻璃胶囊 */
 body.has-tabs main{padding-bottom:110px}
@@ -89,16 +98,15 @@ body.has-tabs main{padding-bottom:110px}
 .tabbar a.on b{transform:translateY(-1px) scale(1.12)}
 /* 各科概览 */
 .subjects{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-.subj{display:block;text-decoration:none;color:var(--fg);border-radius:20px;padding:14px 16px;transition:transform .25s var(--ease)}
+.subj{display:block;text-decoration:none;color:var(--fg);border-radius:var(--r-l);padding:14px 16px;transition:transform .25s var(--ease)}
 .subj b{font:500 20px/1.4 var(--serif)}.subj .due{color:var(--bad);font-weight:600}
 /* 题库 / 错题本 */
-#list{border-radius:22px;overflow:hidden}
+#list{border-radius:var(--r-xl);overflow:hidden}
 #list:empty{display:none}
 .item{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;transition:background .2s}.item:active{background:color-mix(in srgb,var(--pri) 6%,transparent)}
-.item .stem{font-family:var(--serif);font-size:16px}
+.item .stem{font-family:var(--serif);font-size:16px;margin-top:4px;white-space:pre-wrap}
 .wrapitem+.wrapitem,.item+.item{border-top:1px solid var(--line)}
 .item .body{flex:1;min-width:0}
-.item .stem{margin-top:4px;white-space:pre-wrap}
 .detail{padding:0 14px 14px}
 .ans.bad{color:var(--bad)}
 .st{flex:none;font-size:12px;padding:2px 10px;border-radius:10px}
@@ -107,22 +115,64 @@ body.has-tabs main{padding-bottom:110px}
 .st.wait{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
 .st.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
 #redo{margin-bottom:12px}#redo:empty{display:none}
-/* 作图板 */
-.board{margin:10px -6px 0}
-.btools{display:flex;gap:6px;overflow-x:auto;padding:4px 2px;scrollbar-width:none}
+/* ================= 圆角体系：苹果连续圆角（支持 corner-shape 的浏览器用 squircle），统一四档 ================= */
+:root{--r-xl:26px;--r-l:20px;--r-m:14px;--r-s:9px}
+@supports (corner-shape:squircle){
+  .card,.opt,.btn,.subj,#list,.board,.bwrap,.calcpad,.tag,.chip,.btools button,.bhint button,.bhead button,button.del,.keysg button,.cline math-field,input[type=text],textarea,.tabs,.tab,.att img{corner-shape:squircle}
+  :root{--r-xl:34px;--r-l:26px;--r-m:18px;--r-s:12px}
+}
+/* 题卡头：标签、时间、删题一行 */
+.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .time{flex:1}
+button.del{flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--bad);font:14px/1.3 var(--serif);transition:transform .2s var(--ease)}
+button.del:active{transform:scale(.95)}
+/* 选项：圆角矩形 + 左侧字母徽章 */
+.opt .ol{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:var(--r-s);background:color-mix(in srgb,var(--fg) 7%,transparent);font:600 15px/1 var(--serif);color:var(--mute);transition:background .25s,color .25s}
+.opt.on .ol{background:var(--pri);color:#fff}
+/* ================= 画板：玻璃外框 + 白纸画布（画布本身不加滤镜，保证清晰好画） ================= */
+.bhead{display:flex;align-items:center;justify-content:space-between;margin:16px 2px 8px;font:500 16px/1.4 var(--serif)}
+.bhead button{padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute);font:14px/1.3 var(--serif)}
+.board{margin:0 -8px;padding:8px;border-radius:var(--r-l);background:color-mix(in srgb,var(--solid) 55%,transparent);
+  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),var(--shadow)}
+.btools{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none;-webkit-mask:linear-gradient(90deg,#000 92%,transparent);mask:linear-gradient(90deg,#000 92%,transparent)}
 .btools::-webkit-scrollbar{display:none}
-.btools button{flex:none;padding:6px 11px;border:1px solid var(--line);border-radius:12px;background:var(--card);transition:transform .2s var(--ease),background .2s;color:var(--fg);font-size:14px;white-space:nowrap}
-.btools button.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 15%,transparent);color:var(--pri)}
-.btools .dot{width:28px;height:28px;padding:0;border-radius:50%}
-.btools .dot.on{outline:2px solid var(--pri);outline-offset:2px}
-.bhint{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--mute);min-height:30px;padding:2px}
+.btools button{flex:none;min-height:38px;padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:color-mix(in srgb,var(--solid) 70%,transparent);color:var(--fg);
+  font:15px/1.2 var(--serif);white-space:nowrap;box-shadow:inset 0 1px 0 var(--edge);transition:transform .2s var(--ease),background .2s,color .2s}
+.btools button:active{transform:scale(.94)}
+.btools button.on{border-color:transparent;background:var(--pri);color:#fff;box-shadow:0 6px 14px -8px var(--pri)}
+.btools .dot{width:32px;min-height:32px;height:32px;padding:0;border-radius:50%;align-self:center;border:2px solid var(--solid)}
+.btools .dot.on{outline:2px solid var(--pri);outline-offset:1px;box-shadow:none}
+.btools .ico{display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 8px 3px;font-size:12px}
+.btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:6px}
+.btools .ico.on canvas{box-shadow:0 0 0 1.5px #fff}
+.bhint{display:flex;gap:8px;align-items:center;font:14px/1.4 var(--serif);color:var(--mute);min-height:44px;padding:2px 2px 8px}
 .bhint span{flex:1}
-.bhint button{padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-.bhint button.on{background:var(--pri);border-color:var(--pri);color:#fff}
-.bwrap{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;aspect-ratio:1/1;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;background:#fff}
+.bhint button{min-height:36px;padding:4px 14px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);color:var(--fg);font:15px var(--serif)}
+.bhint button.on{background:var(--pri);border-color:transparent;color:#fff}
+.bhint .fab{width:46px;height:42px;padding:0;font-size:22px;line-height:1;transition:transform .2s var(--ease)}
+.bhint .fab:active{transform:scale(.9);background:color-mix(in srgb,var(--pri) 15%,transparent)}
+.bwrap{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;aspect-ratio:1/1;border-radius:var(--r-m);overflow:hidden;background:#fff;
+  box-shadow:inset 0 0 0 1px rgba(80,55,30,.14),0 1px 2px rgba(0,0,0,.06)}
 .board.big .bwrap{aspect-ratio:3/4}
-.bwrap input.btext{position:absolute;width:130px;padding:4px 6px;font-size:16px;border:1.5px solid var(--pri);border-radius:6px;background:#fff;color:#111;z-index:2}
-.bwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.bwrap input.btext{position:absolute;width:150px;padding:6px 8px;font:16px var(--serif);border:1.5px solid var(--pri);border-radius:var(--r-s);background:#fff;color:#111;z-index:2;box-shadow:var(--shadow)}
+.bwrap canvas{position:absolute;top:0;left:0;width:100%;height:100%;touch-action:none}
+.cstat{min-height:24px;font:15px/1.5 var(--serif);padding:8px 4px 2px;color:var(--fg)}
+/* 计算板：计算器、公式、打字步骤 */
+.calc>div:not(.board):not(.calcpad):not(.chips){margin-top:10px}
+.calcpad{margin-top:10px;padding:10px;border-radius:var(--r-l)}
+.calcpad .row{align-items:center}.calcpad input[type=text]{flex:3;padding:10px 12px;font-size:16px}
+.calcpad .res{flex:2;min-width:0;overflow-wrap:anywhere;color:var(--pri);font-family:var(--serif)}
+.keysg{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:10px}
+.keysg button{min-height:44px;font:18px/1 var(--serif);border:1px solid var(--line);border-radius:var(--r-m);background:color-mix(in srgb,var(--solid) 75%,transparent);color:var(--fg);
+  box-shadow:inset 0 1px 0 var(--edge);transition:transform .15s var(--ease),background .15s}
+.keysg button:active{transform:scale(.92);background:color-mix(in srgb,var(--pri) 18%,var(--solid))}
+.keysg .wide{grid-column:span 5;font-size:16px;background:var(--pri);color:#fff;border-color:transparent}
+.clines{display:grid;gap:8px}
+.cline{display:flex;align-items:center;gap:8px}
+.cline b{flex:none;width:20px;color:var(--mute);font:14px var(--serif);text-align:right}
+.cline math-field{flex:1;min-width:0;font-size:20px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--solid);color:var(--fg)}
+.cline math-field::part(menu-toggle){display:none}
+.cline button{flex:none;width:34px;height:34px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute)}
+.forms{margin:8px 0 0}.forms .chip{font-size:15px}
 .att{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .att div{position:relative}.att img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .att button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:var(--bad);color:#fff;font-size:13px;line-height:1}
@@ -131,37 +181,30 @@ body.has-tabs main{padding-bottom:110px}
 .tab.on{background:var(--solid);color:var(--pri);box-shadow:var(--shadow)}
 .back{font-family:var(--serif);color:var(--mute);text-decoration:none;font-size:15px}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
-.bhint .fab{width:44px;height:40px;padding:0;border-radius:12px;font-size:22px;line-height:1;background:var(--card);border:1px solid var(--line);color:var(--fg)}
-.bhint .fab:active{background:color-mix(in srgb,var(--pri) 15%,transparent)}
-/* 画板标题（可收起） */
-.bhead{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:14px}
-.bhead button{padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute);font-size:13px}
-/* 计算解答板 */
-.clines{display:grid;gap:6px}
-.cline{display:flex;align-items:center;gap:6px}
-.cline b{flex:none;width:20px;color:var(--mute);font-size:13px;text-align:right}
-.cline math-field{flex:1;min-width:0;font-size:20px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-.cline math-field::part(menu-toggle){display:none}
-.cline button{flex:none;width:28px;height:28px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mute)}
 [hidden]{display:none!important}
-.calcpad{margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px}
-.calcpad .row{align-items:center}.calcpad input[type=text]{flex:3;padding:8px 10px;font-size:16px}
-.calcpad .res{flex:2;min-width:0;overflow-wrap:anywhere;color:var(--pri)}
-.keysg{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}
-.keysg button{padding:9px 0;font-size:17px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-.keysg .wide{grid-column:span 5;font-size:15px}
-.ans{white-space:pre-wrap}
-/* 推送时间、删题 */
-.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .time{flex:1}
-button.del{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--bad);font-size:13px}
+.qhead .time{flex:1}
 .time{font-size:13px;color:var(--mute);margin-left:4px;white-space:nowrap}
 .item .side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .recent{display:flex;gap:10px;align-items:center;padding:8px 0}.recent+.recent{border-top:1px solid var(--line)}
 .recent a{flex:1;min-width:0;color:var(--fg);text-decoration:none}.recent .stem{font:16px/1.6 var(--serif);margin-top:2px}
-/* 电路图板：元件符号按钮、通电结果 */
-.btools .ico{display:flex;flex-direction:column;align-items:center;padding:3px 6px 2px;font-size:11px;line-height:1.2}
-.btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:4px}
-.cstat{min-height:22px;font-size:14px;padding:4px 2px;color:var(--fg)}
-.forms{margin:8px 0 0}.forms .chip{font-size:15px}
+.forms .chip{font-size:15px}
+/* 长列表只渲染看得见的部分 */
+#list>.wrapitem,#list>.item{content-visibility:auto;contain-intrinsic-size:auto 76px}
+.row .btn.small{white-space:nowrap}
+/* ================= 兼容与低配 ================= */
+/* 不支持背景模糊：面板用实色，文字照样清楚 */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.subj,#list,.tabs,.tabbar,.board{background:var(--solid)}}
+/* 不支持 color-mix（较老的 Safari/Chrome）：给实色 */
+@supports not (color:color-mix(in srgb,red,blue)){
+  .btn,.chip,.opt,.calcpad,.tabbar,.board,.btools button,.keysg button{background:var(--solid)}
+  .opt.on,.tabbar a.on,.ans,.tag{background:rgba(201,100,66,.12)}.tag{color:var(--pri)}
+}
+/* 不支持 aspect-ratio：用 padding 撑出正方形画布 */
+@supports not (aspect-ratio:1/1){.bwrap{height:0;padding-top:100%}.board.big .bwrap{padding-top:133%}}
+/* 低配设备：关模糊、关进场动画、阴影变轻、背景光斑只留底色 */
+.lite .card,.lite .subj,.lite #list,.lite .tabs,.lite .tabbar{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+.lite main>*,.lite #app>*,.lite #app.fwd>.card,.lite #app.back>.card,.lite .tabbar,.lite body::before,.lite .btn.primary::after,.lite .bar>i{animation:none}
+.lite body::after{display:none}
+.lite{--shadow:0 2px 8px -4px rgba(0,0,0,.25)}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

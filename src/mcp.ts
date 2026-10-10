@@ -10,10 +10,9 @@ const PASS = 80; // 简答得分（百分制）≥80 算做对
 const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"] as const;
 const MAX_IMAGES = 6;
 
-const INSTRUCTIONS = `错题练习站（初三学生自用）。省用量：尽量一次 save 做完所有写入，回复简短。
-流程：get_inbox → save({grades, wrong, questions, summary})。
-出题前先 get_data({kind:"tpl"}) 取模板（每个对话取一次），照模板填 tag 和字段；复习旧题用 save({review:[id]})，不用重出。
-作答里：「[计算]」=逐步公式(LaTeX)；「[作图]」=作图板描述（坐标单位=格，含代码算好的方程、交轴点、交点、点在哪条线上）；「[电路]」=电路网表（各元件两端接的节点、串并联/短路/断头提示）。以文字为准，配小图核对整体。`;
+const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
+批改：get_inbox → save({grades})。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+作答标记：[计算]逐步公式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；以文字为准，有手绘才附图。`;
 
 // 题目（短字段名省输出）
 const Q = z.object({
@@ -21,10 +20,10 @@ const Q = z.object({
 	category: z.string().optional(),
 	topic: z.string().optional(),
 	stem: z.string(),
-	opts: z.array(z.string()).optional().describe('["A. ..","B. .."]'),
-	ans: z.array(z.string()).describe("选择=字母；填空=所有可接受答案；简答=[参考答案]"),
+	opts: z.array(z.string()).optional(),
+	ans: z.array(z.string()).describe("见模板"),
 	exp: z.string().optional().describe("解析"),
-	tag: z.string().optional().describe("必填：选择/填空/计算/解答/证明/作图/函数/电路/光路/受力/简答"),
+	tag: z.string().optional().describe("必填，见模板"),
 }).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
 type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
 
@@ -89,7 +88,8 @@ export function buildServer(env: Env) {
 		).results;
 		for (const a of atts) {
 			const ans = String(a.answer_text ?? "");
-			const keys = String(a.photo_key ?? "").split(",").filter(Boolean); // 作图板小图（约 500 token）+ 拍的照片
+			// 拍的照片都给；画板小图（约 500 token/张）只在有手绘时给，其余靠文字描述就够
+				const keys = String(a.photo_key ?? "").split(",").filter((k) => k && (!k.startsWith("boards/") || /手绘|手写/.test(ans)));
 			if (keys.length > budget) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
 			budget -= keys.length;
 			out.push(
