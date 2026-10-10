@@ -90,15 +90,15 @@ function render(anim) {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
-			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
+		// 专注：题头只留科目/题型和两个小图标（标记、删题）
+		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
 			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）
-			el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), textContent: marks[cur] ? "🔖 已标记" : "🔖 标记", onclick: (e) => {
+			el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "🔖", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
-				b.classList.toggle("on", on); b.textContent = on ? "🔖 已标记" : "🔖 标记";
+				b.classList.toggle("on", on);
 				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});
 			} }),
-			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
+			el("button", { type: "button", className: "del", title: "删题", textContent: "🗑", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
 				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks]) a.splice(cur, 1);
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
@@ -168,8 +168,7 @@ function render(anim) {
 			: el("button", { className: "btn primary", textContent: "下一题", onclick: () => go(cur + 1) }));
 
 	app.replaceChildren(
-		el("div", { className: "mute", textContent: `${cur + 1} / ${qs.length}` }),
-		el("div", { className: "bar" }, el("i", { style: `width:${((cur + 1) / qs.length) * 100}%` })),
+		el("div", { className: "qtop" }, el("div", { className: "bar" }, el("i", { style: `width:${((cur + 1) / qs.length) * 100}%` })), el("span", { className: "mute", textContent: `${cur + 1}/${qs.length}` })),
 		box, nav);
 	math(box);
 	isle.fill(q);

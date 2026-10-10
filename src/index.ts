@@ -7,7 +7,7 @@ import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { pick } from "./tags";
 import { loginPage } from "./login";
-import { dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
+import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 
 type Q = {
 	id: number;
@@ -145,7 +145,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
-	const [qs, summary, pending, wrong, subjects, ungraded, marked, recent] = await Promise.all([
+	const [qs, summary, pending, wrong, subjects, ungraded, marked, recent, exams, days_, right7] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
@@ -163,7 +163,14 @@ app.get("/api/home", async (c) => {
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
 		db.prepare("SELECT id, subject, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
+		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
+		// 打卡：按北京时间统计每天有没有做题，近 7 天做对多少
+		db.prepare("SELECT DISTINCT date(created_at, '+8 hours') d FROM attempts ORDER BY d DESC LIMIT 400").all<{ d: string }>(),
+		db.prepare("SELECT COUNT(*) n FROM attempts WHERE is_correct = 1 AND created_at > datetime('now', '-7 days')").first<{ n: number }>(),
 	]);
+	const days = new Set(days_.results.map((r) => r.d));
+	let streak = 0;
+	for (let d = days.has(today()) ? today() : addDays(today(), -1); days.has(d); d = addDays(d, -1)) streak++; // 今天还没做不算断
 	return c.json({
 		today_count: qs.length,
 		summary,
@@ -172,6 +179,11 @@ app.get("/api/home", async (c) => {
 		queue_count: wrong?.n ?? 0,
 		subjects: subjects.results,
 		marked: marked?.n ?? 0,
+		exams: parse<{ name: string; date: string }[]>(exams?.v ?? null, []).filter((e) => e.date >= today()).sort((a, b) => a.date.localeCompare(b.date)),
+		today: today(),
+		streak,
+		done_today: days.has(today()),
+		right7: right7?.n ?? 0,
 		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: q.stem.slice(0, 60), created_at: q.created_at })),
 	});
 });

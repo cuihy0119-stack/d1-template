@@ -7,8 +7,23 @@
 <link rel="stylesheet" href="/style.css">
 <meta name="theme-color" content="#f4efe6">
 </head><body><main>
-<h1>错题练习站</h1>
-<p class="sub" id="date"></p>
+<section class="hero">
+  <!-- 小插画：太阳升起、旗子在山顶飘、星星闪（只动 transform/opacity，精简模式和「减少动态」下静止） -->
+  <svg class="art" viewBox="0 0 320 120" aria-hidden="true">
+    <g class="cloud"><ellipse cx="60" cy="30" rx="22" ry="8"/><ellipse cx="76" cy="26" rx="14" ry="8"/></g>
+    <circle class="sun" cx="236" cy="52" r="20"/>
+    <path class="far" d="M0 120 L70 62 L120 92 L190 46 L260 86 L320 58 L320 120Z"/>
+    <path class="near" d="M40 120 L160 30 L280 120Z"/>
+    <path class="trail" d="M84 118 Q110 100 128 92 T150 62 T160 32"/>
+    <line class="pole" x1="160" y1="31" x2="160" y2="8"/>
+    <path class="flag" d="M160 8 L180 13 L160 19Z"/>
+    <path class="star s1" d="M290 22l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/><path class="star s2" d="M28 70l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z"/><path class="star s3" d="M120 18l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z"/>
+  </svg>
+  <h1>错题练习站</h1>
+  <p class="sub" id="date"></p>
+  <div class="stats" id="stats"></div>
+</section>
+<div class="exams" id="exams"></div>
 
 <a id="today" class="btn primary" href="/quiz" style="text-decoration:none">今日练习</a>
 <div id="ask" style="margin-bottom:14px"></div>

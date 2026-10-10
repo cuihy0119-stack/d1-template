@@ -11,7 +11,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})（只有作图/写过程的题，选择填空网站已判）。学生说「解析标记的题」：get_data({kind:"marked"})。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+批改：get_inbox → save({grades})（只有作图/写过程的题，选择填空网站已判）。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
@@ -138,10 +138,11 @@ export function buildServer(env: Env) {
 					.optional(),
 				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.string().optional() })).optional(),
 				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
+				exams: z.array(z.object({ name: z.string(), date: z.string().describe("YYYY-MM-DD") })).optional().describe("临近考试（整表替换），首页显示倒计时"),
 				summary: z.string().optional(),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], organize = [], review = [], summary }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], organize = [], review = [], exams, summary }) => {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (grades.length) {
@@ -195,6 +196,10 @@ export function buildServer(env: Env) {
 					await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, today()).run();
 				}
 				out.push(`复习 ${review.join(",")}`);
+			}
+			if (exams) {
+				await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('exams', ?)").bind(JSON.stringify(exams.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date)))).run();
+				out.push(`考试 ${exams.length} 场`);
 			}
 			if (summary) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
