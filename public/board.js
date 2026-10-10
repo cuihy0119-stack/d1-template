@@ -153,7 +153,9 @@ class Board {
 		this.bar1 = el("div", { className: "btools" });
 		this.bar2 = el("div", { className: "btools" });
 		this.hint = el("div", { className: "bhint" });
-		this.el = el("div", { className: "board" }, this.bar1, this.bar2, this.hint, this.wrap);
+		// 工具区放进 slot：往下滑到画板时，做题页把它变成底部悬浮的「工具岛」（slot 留住原高度，版面不跳）
+		this.slot = el("div", { className: "slot" }, el("div", { className: "dock" }, this.bar1, this.bar2, this.hint));
+		this.el = el("div", { className: "board" }, this.slot, this.wrap);
 		this.ctx = this.cv.getContext("2d");
 		this.bind();
 		this.build();

@@ -87,7 +87,7 @@ function render() {
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
-		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
+		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }));
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
 	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
@@ -155,7 +155,29 @@ function render() {
 		el("div", { className: "bar" }, el("i", { style: `width:${((cur + 1) / qs.length) * 100}%` })),
 		box, nav);
 	math(box);
+	isle.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("span", { className: "istem", textContent: q.stem }));
+	math(isle);
+	isle.hidden = true;
+	islands();
 }
+
+// ---------- 灵动岛：往下滑到画板时，题干缩成顶部的岛（点一下展开/收起），画板工具变成底部的岛 ----------
+const isle = el("div", { className: "isle", hidden: true, onclick: () => isle.classList.toggle("open") });
+document.body.append(isle);
+let raf = 0;
+function islands() {
+	raf = 0;
+	const card = app.querySelector(".card"), stem = card?.querySelector(".stem"), bs = boards[cur] || [];
+	const show = !!(stem && bs.length && stem.getBoundingClientRect().bottom < 0 && card.getBoundingClientRect().bottom > 160);
+	if (show === isle.hidden) { isle.hidden = !show; isle.classList.remove("open"); }
+	for (const b of bs) {
+		const p = b.pad || b, slot = p.slot, dock = slot.getBoundingClientRect().top < 4 && p.wrap.getBoundingClientRect().bottom > 220;
+		if (dock === slot.classList.contains("docked")) continue;
+		slot.style.height = dock ? slot.offsetHeight + "px" : ""; // 留住原高度，版面不跳
+		slot.classList.toggle("docked", dock);
+	}
+}
+addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(islands); }, { passive: true });
 
 async function submit() {
 	const btn = $("#submit");
@@ -174,6 +196,7 @@ async function submit() {
 
 let poll = 0;
 async function showResult(ids) {
+	isle.hidden = true;
 	clearInterval(poll);
 	const rows = await api("/api/attempts?ids=" + ids);
 	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语
