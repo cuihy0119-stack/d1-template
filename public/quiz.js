@@ -264,11 +264,12 @@ async function submit() {
 }
 
 let poll = 0;
+let burstDone = false;
 async function showResult(ids) {
 	isle.hide();
 	clearInterval(poll);
 	const rows = await api("/api/attempts?ids=" + ids);
-	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语
+	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语（只更新内容，展开状态保留）
 	if (rows.some((r) => r.status === "待批改")) {
 		const last = JSON.stringify(rows);
 		poll = setInterval(async () => {
@@ -279,21 +280,25 @@ async function showResult(ids) {
 	const objective = rows.filter((r) => r.status === "已判");
 	const right = objective.filter((r) => r.is_correct).length;
 	const pending = rows.filter((r) => r.status === "待批改").length;
-	const wrap = el("div", {});
-	wrap.append(el("h1", { textContent: "结果" }),
-		el("p", { textContent: `客观题 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") }));
+	const open = new Set([...app.querySelectorAll("details[open]")].map((d) => d.dataset.id)); // 刷新后保持展开
+	const fold = rows.length > 3; // 题多就折叠，点开看详情
+	const score = el("p", { className: "score", textContent: `客观题 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") });
+	const wrap = el("div", {}, el("h1", { textContent: "结果" }), score);
+	if (fold) wrap.append(el("p", { className: "mute", textContent: "点题目展开看答案和解析" }));
 	for (const r of rows) {
 		const badge = r.status === "待批改" ? ["待批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
-		const card = el("div", { className: "card" },
+		const card = el("details", { className: "card rcard", open: !fold || open.has(String(r.id)) });
+		card.dataset.id = r.id;
+		card.append(el("summary", {},
 			el("span", { className: "badge " + badge[1], textContent: badge[0] }),
-			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "🔖 已标记" }) : "",
-			el("p", { textContent: r.stem, style: "white-space:pre-wrap" }));
+			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "🔖" }) : "",
+			el("p", { className: "rstem", textContent: r.stem })));
 		if (r.options.length) card.append(el("div", { className: "mute", textContent: r.options.join("\n"), style: "white-space:pre-wrap" }));
 		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
 		if (r.photos.length) {
 			const t = el("div", { className: "thumbs" });
 			for (const k of r.photos.filter((k) => !k.startsWith("boards/") || !r.photos.some((x) => x.startsWith("views/")))) t.append( // 发给 Claude 的小图不重复显示
-				el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k })));
+				el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k, loading: "lazy" })));
 			card.append(t);
 		}
 		card.append(el("div", { className: "ans", textContent: (r.type === "short" ? "参考答案：" : "正确答案：") + r.answer.join(" / ") }));
@@ -309,6 +314,29 @@ async function showResult(ids) {
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);
+	// 结算特效（只放一次）：客观题全对 🥳 + 彩纸；全错 😭
+	if (!burstDone && objective.length) {
+		burstDone = true;
+		if (right === objective.length) burst(score, "🥳", true);
+		else if (!right) burst(score, "😭", false);
+	}
+}
+
+// 小范围爆开特效：几个 emoji 从比分处向外飞散淡出；confetti=true 时加一圈彩纸片。只动 transform/opacity，1.6 秒后清掉
+function burst(anchor, emoji, confetti) {
+	if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+	const r = anchor.getBoundingClientRect(), box = el("div", { className: "burst", style: `left:${r.left + Math.min(r.width, 200) / 2}px;top:${r.top + r.height / 2}px` });
+	const fly = (cls, txt, i, n, dist) => {
+		const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, d = dist * (0.6 + Math.random() * 0.4);
+		const s = el("span", { className: cls, textContent: txt });
+		s.style.cssText = `--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - 20}px;--r:${(Math.random() - 0.5) * 540}deg;animation-delay:${Math.random() * 0.12}s`;
+		if (cls === "cf") s.style.background = ["#c96442", "#e0b060", "#5e8c61", "#6b8fd6", "#d98a6a"][i % 5];
+		box.append(s);
+	};
+	for (let i = 0; i < 6; i++) fly("em", emoji, i, 6, 90);
+	if (confetti) for (let i = 0; i < 22; i++) fly("cf", "", i, 22, 120);
+	document.body.append(box);
+	setTimeout(() => box.remove(), 1700);
 }
 
 window.addEventListener("load", start);
