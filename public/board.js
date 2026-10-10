@@ -158,6 +158,7 @@ class Board {
 		this.bind();
 		this.build();
 		new ResizeObserver(() => this.resize()).observe(this.wrap);
+		document.fonts?.ready.then(() => this.draw()); // 文楷字体到了再画一遍
 	}
 	isEmpty() { return !this.objs.length; }
 	hasPen() { return this.objs.some((o) => o.t === "pen"); }
@@ -412,7 +413,7 @@ class Board {
 				c.stroke(); break;
 			}
 			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); label(q, (o.name || "") + xy(o.p), o.name ? "italic 15px serif" : "13px sans-serif"); break; }
-			case "text": { const q = P(o.p); c.font = "16px sans-serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
+			case "text": { const q = P(o.p); c.font = "17px 'LXGW WenKai Screen', serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
 			case "ra": { const k = 0.45, a = o.at; path([[a[0] + o.u[0] * k, a[1] + o.u[1] * k], [a[0] + (o.u[0] + o.v[0]) * k, a[1] + (o.u[1] + o.v[1]) * k], [a[0] + o.v[0] * k, a[1] + o.v[1] * k]]); break; }
 			case "fn": {
 				const f = this.fn(o.expr); if (!f) break;
