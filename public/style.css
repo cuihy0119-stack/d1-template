@@ -231,6 +231,17 @@ html{touch-action:manipulation}
 .slot.docked .bhint .fab{background:color-mix(in srgb,var(--solid) 80%,transparent);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border-radius:999px;box-shadow:var(--shadow)}
 .slot.docked .ico canvas{width:46px;height:23px}.slot.docked .ico{font-size:11px;padding:3px 6px 2px}
 @keyframes dockin{from{opacity:0;transform:translateX(-50%) translateY(24px) scale(.7)}to{opacity:1;transform:translateX(-50%)}}
+/* iPad 横屏等宽屏：题干岛贴在画板左侧（直接显示全文），工具岛竖排在右侧 */
+@media(min-width:1000px){
+  .isle,.slot.docked>.dock{top:calc(80px + env(safe-area-inset-top));width:calc((100vw - 780px) / 2 - 28px);max-height:calc(100vh - 120px);overflow:auto;border-radius:var(--r-xl);transform:none}
+  .isle{left:14px;flex-direction:column;align-items:flex-start;padding:14px;cursor:default;animation:isleL .5s cubic-bezier(.34,1.56,.64,1) both}
+  .isle .istem{-webkit-line-clamp:unset;font-size:16px;line-height:1.75}
+  .slot.docked>.dock{left:auto;right:14px;bottom:auto;padding:10px;animation:dockR .5s cubic-bezier(.34,1.56,.64,1) both}
+  .slot.docked .btools{flex-wrap:wrap;overflow:visible;-webkit-mask:none;mask:none}
+  .slot.docked .bhint{position:static;margin:4px 0 0}
+  @keyframes isleL{from{opacity:0;transform:translateX(-30px) scale(.85)}to{opacity:1;transform:none}}
+  @keyframes dockR{from{opacity:0;transform:translateX(30px) scale(.85)}to{opacity:1;transform:none}}
+}
 .lite .isle,.lite .slot.docked>.dock{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

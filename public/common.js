@@ -16,8 +16,8 @@ try {
 		requestAnimationFrame(f);
 	}
 } catch {}
-// 画布清晰度：低配设备降到 1.5 倍，省内存省电
-const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 1.5 : 2);
+// 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
+const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);
 function el(tag, props = {}, ...kids) {
 	const e = Object.assign(document.createElement(tag), props);
 	for (const k of kids) e.append(k);

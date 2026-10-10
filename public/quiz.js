@@ -48,14 +48,17 @@ async function save(i) {
 		const photo_keys = [];
 		const up = async (f, kind) => {
 			const fd = new FormData();
-			if (kind === "") return; // 计算板只打了字步骤，没有草纸
 			fd.append("file", kind ? f : await compress(f, 1024));
 			if (kind) fd.append("kind", kind);
 			photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
 		};
 		for (const f of files[i]) await up(f);
 		// 画板图：动了画笔的、计算板的草纸 → 发给 Claude（kind=board）；其余只存一份自己看（kind=view），Claude 读文字描述就够
-		for (const b of boards[i]) if (!b.isEmpty()) await up(await b.toFile(), b.kind === "calc" ? (b.pad.isEmpty() ? "" : "board") : b.hasPen?.() ? "board" : "view");
+		for (const b of boards[i]) {
+			if (b.isEmpty()) continue;
+			if (b.kind !== "calc" || !b.pad.isEmpty()) await up(await b.toFile(true), "view"); // 高清整图：自己看结果
+			if (b.kind === "calc" ? !b.pad.isEmpty() : b.hasPen?.()) await up(await b.toFile(), "board"); // 裁剪压缩小图：只发给 Claude
+		}
 		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ ...it, photo_keys }] }) })).attempt_ids[0];
 		sig[i] = s;
 	} catch (e) { done[i] = prev; throw e; }
@@ -223,7 +226,8 @@ async function showResult(ids) {
 		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
 		if (r.photos.length) {
 			const t = el("div", { className: "thumbs" });
-			for (const k of r.photos) t.append(el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k })));
+			for (const k of r.photos.filter((k) => !k.startsWith("boards/") || !r.photos.some((x) => x.startsWith("views/")))) t.append( // 发给 Claude 的小图不重复显示
+				el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k })));
 			card.append(t);
 		}
 		card.append(el("div", { className: "ans", textContent: "参考答案：" + r.answer.join(" / ") }));

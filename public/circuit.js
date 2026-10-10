@@ -282,8 +282,8 @@ class CircuitBoard {
 		const pick = (k) => () => { this.tool = k; this.build(); };
 		// 元件按钮直接画符号（同画板里的样子）
 		if (!this.icons) this.icons = Object.entries(PARTS).map(([k, [nm]]) => { // 只画一次，之后只切换高亮
-			const cv = el("canvas", { width: 112, height: 56 }), c = cv.getContext("2d");
-			c.scale(1.25, 1.25); this.obj(c, { t: k, on: true }, null, [4, 18], [86, 18]);
+			const cv = el("canvas", { width: 168, height: 84 }), c = cv.getContext("2d"); // 3 倍清晰度
+			c.scale(1.875, 1.875); this.obj(c, { t: k, on: true }, null, [4, 18], [86, 18]);
 			return el("button", { type: "button", className: "ico", onclick: pick(k), title: nm }, cv, el("span", { textContent: nm }));
 		});
 		Object.keys(PARTS).forEach((k, i) => this.icons[i].classList.toggle("on", this.tool === k));
@@ -296,7 +296,7 @@ class CircuitBoard {
 		const fab = (t, title, f) => el("button", { type: "button", className: "fab", textContent: t, title, onclick: f });
 		this.hint.append(fab("↶", "撤销", () => this.step(this.hist, this.fut)), fab("↷", "重做", () => this.step(this.fut, this.hist)));
 	}
-	toFile() { return snapshot(this); } // 同作图板：裁剪后的小图
+	toFile(full) { return snapshot(this, full); } // 同作图板
 }
 
 // 高斯消元（列主元），A 为增广矩阵
