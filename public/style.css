@@ -278,5 +278,18 @@ body.drawing .rail.show{opacity:.3}
 .keys{flex-wrap:wrap}.keys button{flex:1 0 13%;min-height:38px;font:17px var(--serif);border-radius:var(--r-s)}
 .hand-open{margin-top:10px}
 .handpad .bwrap{aspect-ratio:5/2}.handpad .board{margin:0}.handpad .dock>.btools+.btools{display:none} /* 手写答案板只留画笔、橡皮、撤销 */
+/* ================= 结果页：可折叠题卡 + 结算特效 ================= */
+.rcard>summary{list-style:none;cursor:pointer}.rcard>summary::-webkit-details-marker{display:none}
+.rcard>summary{position:relative;padding-right:56px}.rcard>summary::after{content:"展开 ▾";position:absolute;right:0;top:2px;font-size:13px;color:var(--mute)}
+.rcard .badge{margin-right:8px}.rcard[open]>summary::after{content:"收起 ▴"}
+.rcard:not([open]) .rstem{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
+.rstem{font:17px/1.7 var(--serif);margin:6px 0 2px;white-space:pre-wrap}
+.rcard[open]>*:not(summary){animation:rise .3s var(--ease) both}
+.burst{position:fixed;width:0;height:0;z-index:40;pointer-events:none}
+.burst span{position:absolute;left:0;top:0;animation:fly 1.3s cubic-bezier(.2,.7,.3,1) both}
+.burst .em{font-size:26px;margin:-14px 0 0 -14px}
+.burst .cf{width:7px;height:11px;border-radius:2px;margin:-5px 0 0 -3px}
+@keyframes fly{0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0)}12%,60%{opacity:1}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 40px)) scale(1) rotate(var(--r))}}
+.lite .burst{display:none}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
