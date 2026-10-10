@@ -2,7 +2,7 @@
 // Claude 批改过的题用它给的错因；网站自动判的选择/填空，按作答推断错因。
 
 type Row = {
-	id: number; subject: string; topic?: string | null; type: string; stem: string; options?: string | null; answer: string;
+	id: number; no?: number | null; subject: string; topic?: string | null; type: string; stem: string; options?: string | null; answer: string;
 	explanation?: string | null; answer_text?: string | null; error_reason?: string | null; comment?: string | null;
 	time_spent_sec?: number | null; is_correct?: number | null; status?: string | null;
 };
@@ -37,8 +37,7 @@ export function cause(r: Row): string {
 export function wrongLine(r: Row): string {
 	const opts = arr(r.options);
 	return [
-		`#${r.id} ${r.subject}${r.topic ? "·" + r.topic : ""}`,
-		`题：${r.stem}`,
+		`${r.subject}${r.no ?? ""}${r.topic ? "（" + r.topic + "）" : ""}：${r.stem}`,
 		opts.length ? `选项：${opts.join(" ")}` : "",
 		`错答：${mine(r) || "（空）"}`,
 		`正确：${arr(r.answer).join(" / ")}`,

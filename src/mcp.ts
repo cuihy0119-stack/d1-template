@@ -57,13 +57,14 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 		options: q.opts?.length ? JSON.stringify(q.opts) : null, answer: JSON.stringify(q.ans), explanation: q.exp ?? null, source,
 		origin_id: q.origin ?? null, board: board === "coord" || board === "grid" ? board : null, tag, // 画板读题时由 tag 推出
 	};
-	const ins = () => db.prepare(`INSERT INTO questions (${Object.keys(row)}) VALUES (${Object.keys(row).map(() => "?")})`).bind(...Object.values(row)).run();
+	const ins = () => db.prepare(`INSERT INTO questions (${Object.keys(row)}, no) VALUES (${Object.keys(row).map(() => "?")}, (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?))`).bind(...Object.values(row), subject).run();
 	const r = await ins().catch((e) => { // 迁移 0006 还没跑：先不存 tag，读题时按题干判断
 		if (!/no such column: tag/.test(String(e))) throw e;
 		delete row.tag;
 		return ins();
 	});
-	return `${r.meta.last_row_id}${tag}`;
+	const no = (await db.prepare("SELECT no FROM questions WHERE id = ?").bind(r.meta.last_row_id).first<{ no: number }>())?.no;
+	return { id: r.meta.last_row_id, label: `${subject}${no}[${tag}]` };
 }
 
 // ---------- 错题本打包推送 ----------
@@ -74,7 +75,7 @@ const PACK_DAYS = 7, PACK_SIZE = 20;
 async function wrongPack(db: D1Database): Promise<string> {
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
+			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
 			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec,
 			        (SELECT is_correct FROM attempts WHERE question_id = q.id ORDER BY id DESC LIMIT 1) last
 			 FROM questions q JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
@@ -90,14 +91,14 @@ async function wrongPack(db: D1Database): Promise<string> {
 		db.prepare(`UPDATE questions SET sent_at = datetime('now') WHERE id IN (${list})`),
 		db.prepare(`UPDATE questions SET status = 'mastered', status_at = datetime('now') WHERE id IN (${list}) AND id NOT IN (SELECT question_id FROM review_queue)`), // 已重做做对的：发完就隐藏
 	]);
-	return `\n\n【错题本打包】${results.length} 道错题（后端已整理题干、选项、错答、正确答案、错因、解析）：\n${results.map((r) => `作答#${r.aid}${r.last === 1 ? "（已重做做对）" : ""} ` + wrongLine(r)).join("\n")}\n→ 先回答完学生，再：①每题简要讲解并写错因 save({grades:[{id:作答#,score:0,comment,reason}]})（重做已对的可略）；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
+	return `\n\n【错题本打包】${results.length} 道错题（后端已整理题干、选项、错答、正确答案、错因、解析）：\n${results.map((r) => wrongLine(r) + `｜作答id=${r.aid}${r.last === 1 ? "（已重做做对）" : ""}`).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①每题简要讲解并写错因 save({grades:[{id:作答id,score:0,comment,reason}]})（重做已对的可略）；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
 }
 
 export function buildServer(env: Env) {
 	const db = env.DB;
 	const s = new McpServer({ name: "错题练习站", version: "2.0.0" }, { instructions: INSTRUCTIONS });
 
-	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
+	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（作答id）。和学生说题时用题号（如 数学1），不要说 id。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
 		let budget = MAX_IMAGES;
 		const ups = (await db.prepare("SELECT id, r2_key FROM uploads WHERE status = '待处理' ORDER BY id").all<{ id: number; r2_key: string }>()).results;
@@ -109,7 +110,7 @@ export function buildServer(env: Env) {
 		const atts = (
 			await db
 				.prepare(
-					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.stem, q.options, q.answer
+					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.no, q.stem, q.options, q.answer
 					 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' ORDER BY a.id`,
 				)
 				.all<any>()
@@ -121,7 +122,7 @@ export function buildServer(env: Env) {
 			if (keys.length > budget) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
 			budget -= keys.length;
 			out.push(
-				{ type: "text", text: `#${a.id} ${a.subject}｜题：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}` },
+				{ type: "text", text: `${a.subject}${a.no ?? ""}：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}｜作答id=${a.id}` },
 				...(await images(db, keys)),
 			);
 		}
@@ -154,20 +155,20 @@ export function buildServer(env: Env) {
 			if (grades.length) {
 				const r: string[] = [];
 				for (const g of grades) {
-					const a = await db.prepare("SELECT question_id, status, is_correct FROM attempts WHERE id = ?").bind(g.id).first<{ question_id: number; status: string; is_correct: number | null }>();
-					if (!a) { err.push(`#${g.id} 不存在`); continue; }
+					const a = await db.prepare("SELECT a.question_id, a.status, a.is_correct, a.subject || COALESCE(q.no, '') lab FROM attempts a LEFT JOIN questions q ON q.id = a.question_id WHERE a.id = ?").bind(g.id).first<{ question_id: number; status: string; is_correct: number | null; lab: string }>();
+					if (!a) { err.push(`作答id=${g.id} 不存在`); continue; }
 					const ok = g.score >= PASS;
 					await db
 						.prepare("UPDATE attempts SET score = ?, comment = ?, error_reason = ?, is_correct = ?, status = '已判' WHERE id = ?")
 						.bind(g.score, g.comment, g.reason ?? null, ok ? 1 : 0, g.id)
 						.run();
 					if (a.status === "待批改" || a.is_correct !== (ok ? 1 : 0)) await updateQueue(db, a.question_id, ok); // 只是给错题补讲解：不重复动复习队列
-					r.push(`#${g.id}${ok ? "✓" : "✗"}`);
+					r.push(`${a.lab}${ok ? "✓" : "✗"}`);
 				}
 				out.push("批改 " + r.join(" "));
 			}
 			const add = async (list: QIn[], source: "原错题" | "同类题") => {
-				const ids: string[] = [];
+				const ids: { id: number; label: string }[] = [];
 				for (const q of list) {
 					try { ids.push(await insertQuestion(db, q, def, source)); } catch (e) { err.push(`「${q.stem.slice(0, 10)}」${(e as Error).message}`); }
 				}
@@ -176,22 +177,25 @@ export function buildServer(env: Env) {
 			if (wrong.length) {
 				const ids = await add(wrong, "原错题");
 				const next = addDays(today(), 1);
-				for (const id of ids) await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(parseInt(id), next).run();
-				out.push(`错题 ${ids.join(",")}`);
+				for (const { id } of ids) await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, next).run();
+				out.push(`错题 ${ids.map((q) => q.label).join(",")}`);
 			}
 			const done = new Set([...done_uploads, ...wrong.map((w) => w.upload).filter((u): u is number => !!u)]);
 			for (const u of done) await db.prepare("UPDATE uploads SET status = '已处理' WHERE id = ?").bind(u).run();
 			if (done.size) out.push(`照片已处理 ${done.size}`);
-			if (questions.length) out.push(`新题 ${(await add(questions, "同类题")).join(",")}`);
+			if (questions.length) out.push(`新题 ${(await add(questions, "同类题")).map((q) => q.label).join(",")}`);
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
+					const old = it.subject ? (await db.prepare("SELECT subject FROM questions WHERE id = ?").bind(it.id).first<{ subject: string }>())?.subject : null;
 					const q = it.tag ? await db.prepare("SELECT subject, stem, type, options FROM questions WHERE id = ?").bind(it.id).first<any>() : null;
 					const t = q ? pick({ ...q, tag: it.tag, opts: !!q.options }) : null;
 					const r = await db
 						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
 						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board === "coord" || t?.board === "grid" ? t.board : null, it.id)
 						.run();
+					if (old && old !== it.subject) // 换了科目：在新科目里接着编号
+						await db.prepare("UPDATE questions SET no = (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?1 AND id <> ?2) WHERE id = ?2").bind(it.subject, it.id).run();
 					n += r.meta.changes;
 				}
 				out.push(`分类 ${n}`);
@@ -225,7 +229,7 @@ export function buildServer(env: Env) {
 			if (kind === "tpl") return text(TEMPLATES);
 			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一行，错题带错答和错因
 				const { results } = await db.prepare(
-					`SELECT q.id, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec
+					`SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec
 					 FROM marks m JOIN questions q ON q.id = m.question_id LEFT JOIN attempts a ON a.id = m.attempt_id
 					 WHERE m.attempt_id IS NOT NULL AND m.created_at > datetime('now','-1 day') ORDER BY m.created_at`).all<any>();
 				return text(results.length ? results.map((r) => (r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】") + wrongLine(r)).join("\n") : "没有标记的题（或已过 24 小时）");
@@ -236,7 +240,7 @@ export function buildServer(env: Env) {
 					        CASE a.status WHEN '待批改' THEN '?' ELSE a.is_correct END ok, a.score sc, a.error_reason why, a.time_spent_sec sec
 					   FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 					   WHERE a.created_at >= datetime('now', ?1) AND (?2 IS NULL OR a.subject = ?2) AND ?3 IS NOT NULL ORDER BY a.id LIMIT 1000`
-					: `SELECT q.id, q.subject s, q.category c, q.topic t, q.tag g, substr(q.stem, 1, 30) stem,
+					: `SELECT q.id, q.subject || COALESCE(q.no, '') no, q.subject s, q.category c, q.topic t, q.tag g, substr(q.stem, 1, 30) stem,
 					        CASE WHEN r.question_id IS NOT NULL THEN '复习' WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN '已做' ELSE '未做' END st
 					   FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
 					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR q.status = 'active') ORDER BY q.id LIMIT 2000`;
