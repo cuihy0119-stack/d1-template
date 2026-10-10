@@ -48,6 +48,7 @@ export async function updateQueue(db: D1Database, questionId: number, correct: b
 export async function removeQuestion(db: D1Database, id: number) {
 	await db.batch([
 		db.prepare("DELETE FROM review_queue WHERE question_id = ?").bind(id),
+		db.prepare("DELETE FROM marks WHERE question_id = ?").bind(id),
 		db.prepare("DELETE FROM attempts WHERE question_id = ? AND status = '待批改'").bind(id),
 		db.prepare("DELETE FROM questions WHERE id = ?").bind(id),
 	]);

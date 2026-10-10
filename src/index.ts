@@ -57,9 +57,9 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.use("*", async (c, next) => {
-	if (new URL(c.req.url).pathname === "/style.css") return next(); // 登录页要用
-	if (c.env.PASSCODE && (await getSignedCookie(c, c.env.PASSCODE, COOKIE)) === "ok") return next();
 	const p = new URL(c.req.url).pathname;
+	if (p === "/style.css" || p.startsWith("/fonts/")) return next(); // 登录页要用的样式和字体
+	if (c.env.PASSCODE && (await getSignedCookie(c, c.env.PASSCODE, COOKIE)) === "ok") return next();
 	if (p.startsWith("/api/") || p.startsWith("/photo/")) return c.json({ error: "未登录" }, 401);
 	return c.redirect("/login");
 });
@@ -123,7 +123,8 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 			 AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id`,
 		)
 		.all<Q>();
-	return [...due.results, ...fresh.results];
+	const seen = new Set(due.results.map((q) => q.id)); // 放回复习的新题可能两边都有，去重
+	return [...due.results, ...fresh.results.filter((q) => !seen.has(q.id))];
 }
 
 // 按科目自由练：没做过的 + 做错还没掌握的（已掌握/已做对的不再出现）
@@ -201,7 +202,7 @@ app.get("/photo/*", async (c) => {
 		.first<{ content_type: string; data: string }>();
 	if (!row) return c.notFound();
 	return new Response(Uint8Array.from(atob(row.data), (ch) => ch.charCodeAt(0)), {
-		headers: { "content-type": row.content_type, "cache-control": "private, max-age=86400" },
+		headers: { "content-type": row.content_type, "cache-control": "private, max-age=31536000, immutable" }, // 文件名随机，内容不会变
 	});
 });
 
