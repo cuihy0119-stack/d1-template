@@ -1,7 +1,7 @@
 const app = $("#app");
 const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], boards = [], secs = [], done = [], sig = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
+let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
@@ -21,7 +21,8 @@ async function start() {
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
-	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q, q.board === "coord")] : []));
+	boards = qs.map(() => []);
+	want = qs.map((q) => q.board); // 默认画板：做到这题时才创建，打开页面更快
 	secs = qs.map(() => 0);
 	done = qs.map(() => null);
 	sig = qs.map(() => "");
@@ -80,12 +81,13 @@ function render() {
 			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
 			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
-				for (const a of [qs, ans, files, boards, secs, done]) a.splice(cur, 1);
+				for (const a of [qs, ans, files, boards, want, secs, done, sig]) a.splice(cur, 1);
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
+	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
 		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);

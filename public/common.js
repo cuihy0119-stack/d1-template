@@ -6,6 +6,16 @@ async function api(url, opts) {
 	return r.json();
 }
 const $ = (s) => document.querySelector(s);
+// 第一次打开时测一下帧率：明显掉帧就记住用精简模式（关模糊和进场动画），以后打开直接流畅
+try {
+	if (!localStorage.perf) {
+		let n = 0, t0 = 0;
+		const f = (t) => { if (!t0) t0 = t; if (++n < 40) return requestAnimationFrame(f);
+			localStorage.perf = (t - t0) / 39 > 22 ? "lite" : "full";
+			if (localStorage.perf === "lite") document.documentElement.classList.add("lite"); };
+		requestAnimationFrame(f);
+	}
+} catch {}
 // 画布清晰度：低配设备降到 1.5 倍，省内存省电
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 1.5 : 2);
 function el(tag, props = {}, ...kids) {
