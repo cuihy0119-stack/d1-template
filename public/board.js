@@ -15,7 +15,7 @@ const TOOLS = [
 	["perp", "⊥垂线", "先点一个点，再点一条线"],
 	["para", "∥平行线", "先点一条线，再点一个点"],
 	["pen", "✏️画笔", "自由手绘"],
-	["calc", "＝算式", "点一下写算式，自动出得数；方程自动解，如 2x+1=5"],
+	["calc", "＝算式", "点一下写算式出得数；方程、方程组（逗号隔开）、不等式自动解"],
 	["erase", "⌫橡皮", "点或划过删除"],
 	["force", "➚力", "从作用点拖向力的方向，松手起名（F、G、F浮…）"],
 	["light", "⇢光线", "沿光的传播方向拖动，中间自动画箭头"],
@@ -81,14 +81,34 @@ function nice(v) {
 	}
 	return String(+v.toPrecision(6));
 }
+// 方程为主：一元方程（含二次，附判别式）、二元一次方程组（逗号隔开）、一元一次不等式；没有未知数就直接算
 function calcText(s) {
 	s = s.trim();
 	try {
+		const fy = (src, y) => compileFn(src.replace(/y/gi, `(${y})`)); // y 代成数，再按 x 的式子算
+		const G = (eq) => { const [L, R] = eq.split("="); return (x, y = 0) => fy(L, y)(x) - fy(R, y)(x); };
+		const lin = (g) => { const c = g(0, 0), a = g(1, 0) - c, b = g(0, 1) - c; return Math.abs(g(2, 3) - (2 * a + 3 * b + c)) < 1e-9 ? [a, b, c] : null; };
+		const eqs = s.split(/[;；,，]/).filter((e) => e.trim());
+		if (/y/i.test(s) && eqs.length !== 2) return s; // 如 y=2x+1 是函数式，不解
+		if (eqs.length === 2 && /y/i.test(s)) { // 二元一次方程组：克拉默法则
+			const [p, q] = eqs.map((e) => lin(G(e)));
+			if (!p || !q) return `${s} → 只会解二元一次方程组`;
+			const D = p[0] * q[1] - q[0] * p[1];
+			return `${s} → ${Math.abs(D) < 1e-12 ? "无解或有无数组解" : `x=${nice((p[1] * q[2] - q[1] * p[2]) / D)}，y=${nice((p[2] * q[0] - p[0] * q[2]) / D)}`}`;
+		}
+		const iq = s.match(/^([^<>≤≥]*)(>=|<=|≥|≤|>|<)([^<>≤≥]*)$/);
+		if (iq && /x/i.test(s)) { // 一元一次不等式：系数为负要变号
+			const L = lin(G(iq[1] + "=" + iq[3]));
+			if (!L) return `${s} → 只会解一元一次不等式`;
+			const [a, , c] = L, op = { ">=": "≥", "<=": "≤" }[iq[2]] ?? iq[2], flip = { ">": "<", "<": ">", "≥": "≤", "≤": "≥" };
+			if (Math.abs(a) < 1e-12) return `${s} → ${({ ">": c > 0, "<": c < 0, "≥": c >= 0, "≤": c <= 0 })[op] ? "任意数" : "无解"}`;
+			return `${s} → x${a > 0 ? op : flip[op]}${nice(-c / a)}`;
+		}
 		const [L, R, extra] = s.split("=");
 		if (extra !== undefined) return s;
 		if (R === undefined || !R.trim()) return `${L.replace(/=$/, "")} = ${nice(compileFn(L)(0))}`;
 		if (!/x/i.test(s)) return s;
-		const f0 = compileFn(L), f1 = compileFn(R), f = (x) => f0(x) - f1(x), roots = [];
+		const g = G(s), f = (x) => g(x), roots = [];
 		for (let x = -100, p = NaN, a = f(x); x < 100; x += 0.01) { // 扫描变号再二分；不变号的重根看 |f| 的极小值
 			const b = f(x + 0.01);
 			if (Math.abs(a) <= Math.abs(p) && Math.abs(a) <= Math.abs(b) && a * b >= 0) {
@@ -102,8 +122,10 @@ function calcText(s) {
 			}
 			p = a; a = b;
 		}
+		const c = f(0), a2 = (f(1) + f(-1)) / 2 - c, b2 = (f(1) - f(-1)) / 2; // 二次方程附判别式
+		const quad = Math.abs(a2) > 1e-12 && [2, 3, -4].every((x) => Math.abs(f(x) - (a2 * x * x + b2 * x + c)) < 1e-9);
 		const out = [...new Set(roots.map(nice))];
-		return `${s} → ${out.length ? out.map((v) => "x=" + v).join("，") : "无解"}`;
+		return `${s} → ${out.length ? out.map((v) => "x=" + v).join("，") : "无实数解"}${quad ? `（Δ=${nice(b2 * b2 - 4 * a2 * c)}）` : ""}`;
 	} catch { return s; }
 }
 

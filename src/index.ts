@@ -217,7 +217,7 @@ app.get("/api/practice", async (c) => {
 	return c.json(results.sort((a, b) => order.get(a.id)! - order.get(b.id)!).map(clientQ));
 });
 
-type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number };
+type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number; work?: string };
 
 app.post("/api/submit", async (c) => {
 	const { items } = await c.req.json<{ items: Item[] }>();
@@ -228,6 +228,7 @@ app.post("/api/submit", async (c) => {
 		const q = await db.prepare("SELECT * FROM questions WHERE id = ?").bind(it.question_id).first<Q>();
 		if (!q) continue;
 		const ans = Array.isArray(it.answer) ? [...it.answer].sort().join("") : String(it.answer ?? "");
+		const text = it.work ? (ans ? ans + "\n" : "") + it.work : ans; // 画板过程附在答案后，给 Claude 看
 		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards)\/[\w.-]+$/.test(k)).join(",") || null;
 		const secs = Math.max(0, Math.min(Math.round(Number(it.time_spent_sec) || 0), 86400));
 		let res;
@@ -236,15 +237,15 @@ app.post("/api/submit", async (c) => {
 				.prepare(
 					"INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, '待批改', ?)",
 				)
-				.bind(q.id, q.subject, q.topic, ans, photo, secs)
+				.bind(q.id, q.subject, q.topic, text, photo, secs)
 				.run();
 		} else {
 			const ok = judge(q.type, parse<string[]>(q.answer, []), it.answer);
 			res = await db
 				.prepare(
-					"INSERT INTO attempts (question_id, subject, topic, answer_text, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, '已判', ?)",
+					"INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, ?, '已判', ?)",
 				)
-				.bind(q.id, q.subject, q.topic, ans, ok ? 1 : 0, ok ? 100 : 0, secs)
+				.bind(q.id, q.subject, q.topic, text, photo, ok ? 1 : 0, ok ? 100 : 0, secs)
 				.run();
 			await updateQueue(db, q.id, ok);
 		}

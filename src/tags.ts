@@ -12,6 +12,7 @@ const ALIAS: [RegExp, Tag][] = [
 	[/证明/, "证明"], [/函数|图像/, "函数"], [/作图|画图/, "作图"], [/计算|求值|化简|方程/, "计算"], [/解答|应用|综合/, "解答"],
 	[/简答|问答|说明|实验|探究/, "简答"],
 ];
+const CALC = /计算|求|解方程|解不等式|方程组|化简|多少|取值范围|配方|公式法|因式分解|开平方/;
 const DRAW = /画出|作出|画图|作图|画上|标出|连接|连线|设计|完成.{0,4}(光路|电路)|示意图/;
 // 物理作图分三类：看题干
 const physDraw = (s: string): Tag => (/电路|电流表|电压表|开关|灯泡|电阻/.test(s) ? "电路" : /光|镜|像|影|折射|反射/.test(s) ? "光路" : "受力");
@@ -21,14 +22,14 @@ type In = { subject?: string | null; stem: string; tag?: string | null; board?: 
 export function pick(q: In): { tag: Tag; board: string | null } {
 	const s = q.stem, phys = /物理/.test(q.subject ?? ""), out = (t: Tag) => ({ tag: t, board: TAGS[t][1] as string | null });
 	if (q.opts || q.type === "single" || q.type === "multi") return out("选择");
-	if (q.type === "fill") return out("填空"); // 已存的填空题不改题型
+	if (q.type === "fill") return /数学|物理|化学/.test(q.subject ?? "") && CALC.test(s) ? { tag: "计算", board: "calc" } : out("填空"); // 计算类填空：仍自动判分，配草稿计算板
 	let t = q.tag ? ALIAS.find(([re]) => re.test(q.tag!))?.[1] : undefined;
 	if (t === "选择") t = undefined; // 没有选项不能是选择题
 	t ??= /证明|求证/.test(s) ? "证明"
 		: DRAW.test(s) ? (phys ? "作图" : /函数|图像|抛物线|坐标/.test(s) ? "函数" : "作图")
 		: q.board === "coord" ? "函数"
 		: q.board === "grid" && !phys ? "作图"
-		: /计算|求|解方程|化简|多少/.test(s) ? "计算"
+		: CALC.test(s) ? "计算"
 		: q.type === "short" || q.board ? "简答" : "填空";
 	if (phys && (t === "作图" || t === "证明" || t === "函数")) t = physDraw(s);
 	return out(t);
