@@ -233,7 +233,7 @@ app.get("/api/practice", async (c) => {
 	return c.json(results.sort((a, b) => order.get(a.id)! - order.get(b.id)!).map(clientQ));
 });
 
-type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number; work?: string; attempt_id?: number };
+type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number; work?: string; attempt_id?: number; hand?: boolean };
 
 app.post("/api/submit", async (c) => {
 	const { items } = await c.req.json<{ items: Item[] }>();
@@ -252,7 +252,7 @@ app.post("/api/submit", async (c) => {
 			? await db.prepare("SELECT id, is_correct FROM attempts WHERE id = ? AND question_id = ?").bind(it.attempt_id, q.id).first<{ id: number; is_correct: number | null }>()
 			: null;
 		// 判分：选择、填空网站直接判（Claude 出题时已给答案）；简答（作图、写过程）交给 Claude
-		const ok = q.type === "short" ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
+		const ok = q.type === "short" || it.hand ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0; // 用了手写答案：交给 Claude 看图
 		const status = ok == null ? "待批改" : "已判";
 		let id = old?.id;
 		if (old) {

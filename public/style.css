@@ -274,5 +274,9 @@ body.drawing .rail.show{opacity:.3}
 .focus .card{box-shadow:inset 0 1px 0 var(--edge),0 1px 3px rgba(80,50,20,.08)}
 .qhead button.mark,.qhead button.del{width:36px;height:34px;padding:0;font-size:16px;opacity:.75}
 .qhead button.mark.on{opacity:1}
+/* 答案快捷键、手写答案板 */
+.keys{flex-wrap:wrap}.keys button{flex:1 0 13%;min-height:38px;font:17px var(--serif);border-radius:var(--r-s)}
+.hand-open{margin-top:10px}
+.handpad .bwrap{aspect-ratio:5/2}.handpad .board{margin:0}.handpad .dock>.btools+.btools{display:none} /* 手写答案板只留画笔、橡皮、撤销 */
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
