@@ -77,11 +77,13 @@ class CircuitBoard {
 			this.draw();
 		});
 		cv.addEventListener("pointermove", (e) => {
+			if (!e.isPrimary) return;
 			const [p] = this.at(e);
 			if (this.drag) this.drag.b = p; else this.hover = e.pointerType === "mouse" ? p : null;
 			this.draw();
 		});
-		const up = () => {
+		const up = (e) => {
+			if (!e.isPrimary) return;
 			const d = this.drag; this.drag = null;
 			if (!d) return this.draw();
 			if (this.tool === "wire") { if (dist(d.a, d.b) > 0) this.change(() => this.objs.push({ t: "wire", pts: this.route(d.a, d.b) })); else this.draw(); return; }
@@ -92,7 +94,7 @@ class CircuitBoard {
 			this.change(() => this.objs.push({ t, a: d.a, b: this.place(d.a, d.b), name, on: false }));
 		};
 		cv.addEventListener("pointerup", up);
-		cv.addEventListener("pointercancel", up);
+		cv.addEventListener("pointercancel", () => { this.drag = null; this.draw(); }); // 被系统打断：作废
 		cv.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
 	}
 	toggle(i) { this.change(() => (this.objs[i].on = !this.objs[i].on)); }

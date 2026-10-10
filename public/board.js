@@ -203,14 +203,17 @@ class Board {
 			this.draw();
 		});
 		cv.addEventListener("pointermove", (e) => {
+			if (!e.isPrimary) return; // 第二根手指不动这一笔
 			const [p, raw] = this.at(e);
 			if (this.rub) return this.rubAt(raw);
-			if (this.drag) this.drag.t === "pen" ? this.drag.pts.push(raw) : (this.drag.b = p);
+			if (this.drag?.t === "pen") for (const ev of e.getCoalescedEvents?.() || [e]) this.drag.pts.push(this.at(ev)[1]); // 快写时取齐中间点，线更顺
+			else if (this.drag) this.drag.b = p;
 			else if (this.tap) this.tap = [p, raw];
 			else this.hover = e.pointerType === "mouse" ? p : null;
 			this.draw();
 		});
-		const up = () => {
+		const up = (e) => {
+			if (!e.isPrimary) return;
 			const d = this.drag, tp = this.tap;
 			this.drag = this.tap = null; this.rub = false;
 			if (d?.t === "force" && dist(d.a, d.b) > 0.01) { // 力：松手起名
@@ -221,7 +224,7 @@ class Board {
 			else this.draw();
 		};
 		cv.addEventListener("pointerup", up);
-		cv.addEventListener("pointercancel", up);
+		cv.addEventListener("pointercancel", () => { this.drag = this.tap = null; this.rub = false; this.draw(); }); // 被系统打断（如转成滚动）：这一笔作废，不乱加
 		cv.addEventListener("pointerleave", () => { this.hover = null; this.draw(); });
 	}
 
