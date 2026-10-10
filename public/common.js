@@ -81,6 +81,7 @@ function autoRefresh(fn, every = 0) {
 const CLAUDE_ASK = {
 	grade: "用练习本：批改所有待批改的作答，写评语",
 	inbox: "用练习本：处理收件箱的照片，整理成错题并出同类题",
+	marked: "用练习本：解析我标记的题",
 };
 // iPhone/iPad：同页打开链接，系统会直接拉起 Claude App（通用链接）；App 不一定读得到预填内容，所以同时把指令复制好，进去粘贴即可
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));

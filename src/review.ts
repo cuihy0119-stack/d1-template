@@ -59,6 +59,7 @@ export async function masterQuestion(db: D1Database, id: number) {
 
 /** 每日清理（Cron）：精简题库和照片，作答记录永久保留供统计 */
 export async function dailyCleanup(db: D1Database) {
+	await db.prepare("DELETE FROM marks WHERE created_at < datetime('now','-1 day')").run(); // 标记的题 24 小时过期
 	const delKeys = async (keys: string[]) => {
 		for (let i = 0; i < keys.length; i += 50) {
 			const part = keys.slice(i, i + 50);

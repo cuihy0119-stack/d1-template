@@ -144,7 +144,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
-	const [qs, summary, pending, wrong, subjects, ungraded, recent] = await Promise.all([
+	const [qs, summary, pending, wrong, subjects, ungraded, marked, recent] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
@@ -160,6 +160,7 @@ app.get("/api/home", async (c) => {
 			.bind(today())
 			.all(),
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
+		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
 		db.prepare("SELECT id, subject, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
 	]);
 	return c.json({
@@ -169,6 +170,7 @@ app.get("/api/home", async (c) => {
 		pending_grades: ungraded?.n ?? 0,
 		queue_count: wrong?.n ?? 0,
 		subjects: subjects.results,
+		marked: marked?.n ?? 0,
 		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: q.stem.slice(0, 60), created_at: q.created_at })),
 	});
 });
@@ -235,9 +237,8 @@ app.post("/api/submit", async (c) => {
 		const old = it.attempt_id
 			? await db.prepare("SELECT id, is_correct FROM attempts WHERE id = ? AND question_id = ?").bind(it.attempt_id, q.id).first<{ id: number; is_correct: number | null }>()
 			: null;
-		// 判分：选择题机器判；填空题对上标准答案直接算对，对不上交给 Claude 批改（可能是等价写法）；简答都给 Claude
-		const hit = q.type === "short" ? false : judge(q.type, parse<string[]>(q.answer, []), it.answer);
-		const ok = q.type === "short" || (q.type === "fill" && !hit) ? null : hit ? 1 : 0;
+		// 判分：选择、填空网站直接判（Claude 出题时已给答案）；简答（作图、写过程）交给 Claude
+		const ok = q.type === "short" ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
 		const status = ok == null ? "待批改" : "已判";
 		let id = old?.id;
 		if (old) {
@@ -253,6 +254,7 @@ app.post("/api/submit", async (c) => {
 		}
 		if (ok != null && ok !== old?.is_correct) await updateQueue(db, q.id, !!ok);
 		attemptIds.push(id!);
+		await db.prepare("UPDATE marks SET attempt_id = ? WHERE question_id = ?").bind(id!, q.id).run(); // 标记过的题：交卷后进临时文件夹
 	}
 	return c.json({ attempt_ids: attemptIds });
 });
@@ -264,7 +266,7 @@ app.get("/api/attempts", async (c) => {
 	const { results } = await c.env.DB
 		.prepare(
 			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status,
-			        a.question_id, a.subject, a.topic, q.type, COALESCE(q.stem, '（题目已删除）') stem, q.options, q.answer, q.explanation
+			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
@@ -304,6 +306,15 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 
 app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB)));
 app.get("/api/wrong", async (c) => c.json(await listQuestions(c.env.DB, c.req.query("tab") === "mastered" ? "mastered" : "active")));
+// 标记 / 取消标记（临时文件夹，24 小时过期）
+app.post("/api/mark", async (c) => {
+	const { question_id, on } = await c.req.json<{ question_id: number; on: boolean }>();
+	const db = c.env.DB;
+	await (on
+		? db.prepare("INSERT OR REPLACE INTO marks (question_id) VALUES (?)").bind(question_id)
+		: db.prepare("DELETE FROM marks WHERE question_id = ?").bind(question_id)).run();
+	return c.json({ ok: true });
+});
 app.post("/api/question/:id/delete", async (c) => (await removeQuestion(c.env.DB, Number(c.req.param("id"))), c.json({ ok: true })));
 app.post("/api/question/:id/master", async (c) => (await masterQuestion(c.env.DB, Number(c.req.param("id"))), c.json({ ok: true })));
 

@@ -20,6 +20,7 @@ async function loadHome() {
 	ask.replaceChildren();
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
 	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
+	if (h.marked) ask.append(askClaude(CLAUDE_ASK.marked, `让 Claude 解析标记的题（${h.marked} 题）`));
 	const rec = $("#recent");
 	if (!h.recent.length) rec.replaceChildren("还没有题");
 	else rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
