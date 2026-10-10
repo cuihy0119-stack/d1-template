@@ -140,7 +140,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	const db = c.env.DB;
-	const [qs, summary, pending, wrong, subjects] = await Promise.all([
+	const [qs, summary, pending, wrong, subjects, ungraded] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
@@ -155,11 +155,13 @@ app.get("/api/home", async (c) => {
 			)
 			.bind(today())
 			.all(),
+		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
 	]);
 	return c.json({
 		today_count: qs.length,
 		summary,
 		pending_uploads: pending?.n ?? 0,
+		pending_grades: ungraded?.n ?? 0,
 		queue_count: wrong?.n ?? 0,
 		subjects: subjects.results,
 	});

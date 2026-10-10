@@ -161,7 +161,7 @@ async function showResult(ids) {
 		}
 		wrap.append(card);
 	}
-	if (pending) wrap.append(el("p", { className: "mute", textContent: "让 Claude 批改后，评语会自动出现在这里" }));
+	if (pending) wrap.append(askClaude(CLAUDE_ASK.grade, "让 Claude 批改"), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);
