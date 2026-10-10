@@ -110,5 +110,3 @@ button.del{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:
 .btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:4px}
 .cstat{min-height:22px;font-size:14px;padding:4px 2px;color:var(--fg)}
 .forms{margin:8px 0 0}.forms .chip{font-size:15px}
-/* 已提交的题：锁定作答 */
-.locked .opt,.locked input,.locked textarea,.locked .board,.locked .calc,.locked .row{pointer-events:none;opacity:.6}

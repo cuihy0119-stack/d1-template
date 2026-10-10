@@ -217,7 +217,7 @@ app.get("/api/practice", async (c) => {
 	return c.json(results.sort((a, b) => order.get(a.id)! - order.get(b.id)!).map(clientQ));
 });
 
-type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number; work?: string };
+type Item = { question_id: number; answer: string | string[]; photo_keys?: string[]; time_spent_sec?: number; work?: string; attempt_id?: number };
 
 app.post("/api/submit", async (c) => {
 	const { items } = await c.req.json<{ items: Item[] }>();
@@ -231,6 +231,20 @@ app.post("/api/submit", async (c) => {
 		const text = it.work ? (ans ? ans + "\n" : "") + it.work : ans; // 画板过程附在答案后，给 Claude 看
 		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards)\/[\w.-]+$/.test(k)).join(",") || null;
 		const secs = Math.max(0, Math.min(Math.round(Number(it.time_spent_sec) || 0), 86400));
+		// 改答案：更新原来那条作答（不新增），简答重新待批改，客观题重新判分
+		const old = it.attempt_id
+			? await db.prepare("SELECT id, is_correct FROM attempts WHERE id = ? AND question_id = ?").bind(it.attempt_id, q.id).first<{ id: number; is_correct: number | null }>()
+			: null;
+		if (old) {
+			const ok = q.type === "short" ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
+			await db
+				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ? WHERE id = ?")
+				.bind(text, photo, ok, ok == null ? null : ok * 100, ok == null ? "待批改" : "已判", secs, old.id)
+				.run();
+			if (ok != null && ok !== old.is_correct) await updateQueue(db, q.id, !!ok);
+			attemptIds.push(old.id);
+			continue;
+		}
 		let res;
 		if (q.type === "short") {
 			res = await db

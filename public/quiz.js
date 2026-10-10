@@ -1,7 +1,7 @@
 const app = $("#app");
 const TYPE = { single: "单选", multi: "多选", fill: "填空", short: "简答" };
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], boards = [], secs = [], done = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id
+let qs = [], ans = [], files = [], boards = [], secs = [], done = [], sig = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
@@ -24,20 +24,24 @@ async function start() {
 	boards = qs.map((q) => (q.board ? [BOARDS[kindOf(q.board)][2](q, q.board === "coord")] : []));
 	secs = qs.map(() => 0);
 	done = qs.map(() => null);
+	sig = qs.map(() => "");
 	cur = 0;
 	render();
 }
 
 function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownAt = Date.now(); }
 
-// ---------- 一题一交：离开这题（上/下一题、交卷、退出页面）就提交做过的题，交过的锁定 ----------
+// ---------- 一题一交：离开这题（上/下一题、交卷、退出页面）就提交做过的题；回来改了再离开，会更新那次提交 ----------
 const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || files[i].length || boards[i].some((b) => !b.isEmpty());
 // 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
 const work = (i) => boards[i].filter((b) => !b.isEmpty()).map((b) => BOARDS[b.kind][1] + " " + b.describe()).join("\n");
-const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i] });
+const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined });
+const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].length]);
+const pending = (i) => answered(i) && done[i] !== "…" && (!done[i] || sigOf(i) !== sig[i]); // 没交过，或交过又改了
 async function save(i) {
-	if (done[i] || !answered(i)) return;
+	if (!pending(i)) return;
 	if (i === cur) tick();
+	const prev = done[i], s = sigOf(i), it = item(i);
 	done[i] = "…";
 	try {
 		const photo_keys = [];
@@ -49,14 +53,16 @@ async function save(i) {
 		};
 		for (const f of files[i]) await up(f);
 		for (const b of boards[i]) if (!b.isEmpty() && (b.kind !== "calc" || b.hasPen())) await up(await b.toFile(), "board"); // 计算板只有手写才附图
-		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [item(i, photo_keys)] }) })).attempt_ids[0];
-	} catch (e) { done[i] = null; throw e; }
+		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ ...it, photo_keys }] }) })).attempt_ids[0];
+		sig[i] = s;
+	} catch (e) { done[i] = prev; throw e; }
 }
 // 中途退出：用 sendBeacon 把当前题发出去（来不及传图，文字和画板描述都在）
 addEventListener("pagehide", () => {
-	if (!qs.length || done[cur] || !answered(cur)) return;
-	tick(); done[cur] = "…";
+	if (!qs.length || !pending(cur)) return;
+	tick();
 	navigator.sendBeacon("/api/submit", new Blob([JSON.stringify({ items: [item(cur)] })], { type: "application/json" }));
+	done[cur] = "…";
 });
 async function go(i) {
 	const btns = [...document.querySelectorAll(".nav .btn")];
@@ -68,7 +74,7 @@ async function go(i) {
 function render() {
 	shownAt = Date.now();
 	const q = qs[cur];
-	const box = el("div", { className: "card" + (done[cur] ? " locked" : "") });
+	const box = el("div", { className: "card" });
 	box.append(
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
 			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
@@ -79,7 +85,7 @@ function render() {
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
 		el("p", { textContent: q.stem, style: "white-space:pre-wrap" }));
-	if (done[cur]) box.append(el("div", { className: "ans", textContent: "✓ 这题已提交" }));
+	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
 		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);
