@@ -5,6 +5,7 @@ import { mountAuthorize } from "./authorize";
 import { passcodeOk } from "./auth";
 import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
+import { pick } from "./tags";
 import { loginPage } from "./login";
 import { dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 
@@ -78,8 +79,7 @@ const clientQ = (q: Q) => ({
 	type: q.type,
 	stem: q.stem,
 	options: parse<string[]>(q.options, []),
-	board: q.board,
-	tag: q.tag,
+	...pick({ ...q, opts: !!q.options }), // tag、board：旧题按题干补判
 });
 const inList = (ids: number[]) => ids.map(() => "?").join(",");
 const idsParam = (s: string | undefined) =>
