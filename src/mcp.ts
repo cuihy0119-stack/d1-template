@@ -67,31 +67,30 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	return { id: r.meta.last_row_id, label: `${subject}${no}[${tag}]` };
 }
 
-// ---------- 错题本打包推送 ----------
-// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：错题本里还没发过的错题攒到 20 道，
-// 或距上次发送满 7 天且有新错题，就整包附上（后端整理好题干、选项、错答、正确答案、错因、解析），
-// 请 Claude 讲解并问是否归档进 Notion。发过的标记 sent_at；其中已重做做对的随即隐藏。
-const PACK_DAYS = 7, PACK_SIZE = 20;
+// ---------- 错题文件夹打包推送 ----------
+// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：错题重做做对后进错题文件夹，
+// 攒满 20 道就整包附上（后端整理好题干、选项、错答、正确答案、错因、解析），请 Claude 整理并问是否归档进 Notion。
+// 发出去就从题库清掉（作答记录保留，Claude 照样能用作答 id 补错因）。
+const PACK_SIZE = 20;
 async function wrongPack(db: D1Database): Promise<string> {
+	const n = (await db.prepare("SELECT COUNT(*) n FROM questions WHERE status = 'mastered' AND sent_at IS NULL").first<{ n: number }>())?.n ?? 0;
+	if (n < PACK_SIZE) return "";
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
-			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec,
-			        (SELECT is_correct FROM attempts WHERE question_id = q.id ORDER BY id DESC LIMIT 1) last
+			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
 			 FROM questions q JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
-			 WHERE q.status = 'active' AND q.sent_at IS NULL ORDER BY q.subject, topic LIMIT 40`,
+			 WHERE q.status = 'mastered' AND q.sent_at IS NULL ORDER BY q.subject, topic LIMIT 40`,
 		)
 		.all<any>();
 	if (!results.length) return "";
-	const last = (await db.prepare("SELECT v FROM meta WHERE k = 'digest_at'").first<{ v: string }>())?.v ?? "1970-01-01 00:00:00";
-	if (results.length < PACK_SIZE && Date.now() - Date.parse(last.replace(" ", "T") + "Z") < PACK_DAYS * 864e5) return "";
-	const ids = results.map((r) => r.id), list = ids.join(",");
-	await db.batch([
-		db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('digest_at', datetime('now'))"),
-		db.prepare(`UPDATE questions SET sent_at = datetime('now') WHERE id IN (${list})`),
-		db.prepare(`UPDATE questions SET status = 'mastered', status_at = datetime('now') WHERE id IN (${list}) AND id NOT IN (SELECT question_id FROM review_queue)`), // 已重做做对的：发完就隐藏
+	const list = results.map((r) => r.id).join(",");
+	await db.batch([ // 发出即清
+		db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
+		db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
+		db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
 	]);
-	return `\n\n【错题本打包】${results.length} 道错题（后端已整理题干、选项、错答、正确答案、错因、解析）：\n${results.map((r) => wrongLine(r) + `｜作答id=${r.aid}${r.last === 1 ? "（已重做做对）" : ""}`).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①每题简要讲解并写错因 save({grades:[{id:作答id,score:0,comment,reason}]})（重做已对的可略）；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
+	return `\n\n【错题文件夹】${results.length} 道错题已重做做对（后端已整理题干、选项、当初的错答、正确答案、错因、解析），已从题库清掉：\n${results.map((r) => wrongLine(r) + `｜作答id=${r.aid}`).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①按科目/考点整理，指出反复错的点；错因不准的 save({grades:[{id:作答id,score:0,comment,reason}]}) 补上；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
 }
 
 export function buildServer(env: Env) {

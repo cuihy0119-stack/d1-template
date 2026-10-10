@@ -1,7 +1,7 @@
 // 题库 / 错题本：简洁列表（学科标签 + 题目 + 状态）
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
-let tab = "active"; // 错题本：active 复习中 / mastered 已掌握
+let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，满 20 道发给 Claude 整理后清掉）
 let subject = new URLSearchParams(location.search).get("subject") || "";
 tabbar("/" + MODE);
 
@@ -10,13 +10,13 @@ const short = (s) => (s.length > 70 ? s.slice(0, 70) + "…" : s);
 
 function state(q) {
 	if (q.pending) return ["待批改", "wait"];
-	if (MODE === "wrong") return tab === "mastered" ? ["已掌握", "ok"] : q.last === 1 ? ["重做已对", "ok"] : ["待重做", "due"];
+	if (MODE === "wrong") return tab === "mastered" ? ["已改对", "ok"] : q.last === 1 ? ["重做已对", "ok"] : ["待重做", "due"];
 	return !q.tries ? ["未做", "new"] : q.last === 1 ? ["✓ 做对", "ok"] : ["✗ 做错", "due"]; // 显示最近一次的结果，不再笼统写「已做」
 }
 
 function render() {
 	if (MODE === "wrong") {
-		$("#tabs").replaceChildren(...[["active", "复习中"], ["mastered", "已掌握"]].map(([k, name]) =>
+		$("#tabs").replaceChildren(...[["active", "复习中"], ["mastered", "📁 错题文件夹"]].map(([k, name]) =>
 			el("button", { className: "tab" + (tab === k ? " on" : ""), textContent: name, onclick: () => { tab = k; load(); } })));
 	}
 	const subjects = [...new Set(data.items.map((q) => q.subject))];
@@ -31,6 +31,7 @@ function render() {
 	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries));
 	const top = $("#redo");
 	top.replaceChildren();
+	if (MODE === "wrong" && tab === "mastered") top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length}/20，满 20 道下次和 Claude 交互时发去整理，然后清掉` }));
 	if (todo.length) {
 		const href = MODE === "bank" && subject ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id));
 		top.append(el("a", { className: "btn primary", href, style: "text-decoration:none",
@@ -39,7 +40,7 @@ function render() {
 
 	const list = $("#list");
 	list.replaceChildren();
-	if (!shown.length) list.append(el("p", { className: "mute", textContent: MODE === "wrong" ? "还没有错题，做错的题会自动收进来" : "还没有题" }));
+	if (!shown.length) list.append(el("p", { className: "mute", textContent: MODE === "wrong" ? (tab === "mastered" ? "文件夹是空的，错题重做做对后会放进来" : "还没有错题，做错的题会自动收进来") : "还没有题" }));
 	for (const q of shown) list.append(row(q));
 	math(list);
 }
