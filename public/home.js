@@ -1,5 +1,11 @@
 tabbar("/");
 
+// 日期 + 每天一句古训（文艺一点）
+const LINES = ["学而不思则罔，思而不学则殆", "不积跬步，无以至千里", "博观而约取，厚积而薄发", "业精于勤，荒于嬉", "纸上得来终觉浅，绝知此事要躬行",
+	"温故而知新，可以为师矣", "千淘万漉虽辛苦，吹尽狂沙始到金", "路漫漫其修远兮，吾将上下而求索", "问渠那得清如许，为有源头活水来", "宝剑锋从磨砺出，梅花香自苦寒来"];
+const now = new Date();
+$("#date").textContent = now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }) + " · " + LINES[Math.floor(now / 864e5) % LINES.length];
+
 let uploading = false;
 
 async function loadHome() {

@@ -1,49 +1,101 @@
-:root{--bg:#f5f6f8;--card:#fff;--fg:#1d2330;--mute:#6b7385;--pri:#2f6fed;--ok:#1a9d5b;--bad:#d64545;--warn:#d98a00;--line:#e3e6ec}
-@media(prefers-color-scheme:dark){:root{--bg:#14171d;--card:#1e222b;--fg:#e8ebf2;--mute:#9099ad;--line:#2d3340;--pri:#5b8cff}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
-main{max-width:640px;margin:0 auto;padding:16px}
-h1{font-size:22px;margin:8px 0 16px}
-h2{font-size:17px;margin:0 0 8px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
-.btn{display:block;width:100%;padding:13px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:16px;text-align:center;cursor:pointer}
-.btn.primary{background:var(--pri);border-color:var(--pri);color:#fff}
-.btn.small{display:inline-block;width:auto;padding:5px 12px;font-size:14px}
+/* ================= 主题：暖纸色 + 衬线文楷 + 液态玻璃（参考 Claude 的文艺排版） =================
+   液态玻璃：backdrop-filter 模糊+饱和 + 内高光/边缘光（参考 archisvaze/liquid-glass、@real-human/liquid-glass 的 Safari 兼容做法），
+   背景缓慢流动的彩色光斑让玻璃有东西可「折射」。动画尊重「减少动态效果」设置。 */
+:root{
+  --bg:#f4efe6;--fg:#2b2622;--mute:#8a8178;--pri:#c96442;--pri2:#d98a6a;--ok:#5e8c61;--bad:#b5483b;--warn:#b98228;
+  --line:rgba(80,55,30,.12);--card:rgba(255,252,246,.62);--solid:#fffcf6;--edge:rgba(255,255,255,.7);
+  --shadow:0 10px 30px -14px rgba(80,50,20,.28),0 2px 6px -2px rgba(80,50,20,.08);
+  --serif:'Newsreader','LXGW WenKai Screen','Songti SC',serif;
+  --sans:-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1f1d1a;--fg:#ede8df;--mute:#a39b90;--pri:#e08a6a;--pri2:#c96442;--ok:#8fb88f;--bad:#e07a6c;--warn:#e0b060;
+  --line:rgba(255,240,220,.10);--card:rgba(48,45,41,.55);--solid:#2a2825;--edge:rgba(255,255,255,.12);
+  --shadow:0 10px 30px -14px rgba(0,0,0,.6),0 2px 6px -2px rgba(0,0,0,.3);
+}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 var(--sans);-webkit-font-smoothing:antialiased;min-height:100vh}
+/* 背景：流动光斑 + 纸张颗粒 */
+body::before{content:"";position:fixed;inset:-20%;z-index:-2;pointer-events:none;
+  background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.32),transparent 70%),radial-gradient(34% 28% at 82% 30%,rgba(143,176,150,.30),transparent 70%),
+  radial-gradient(40% 32% at 60% 82%,rgba(214,178,120,.28),transparent 70%),radial-gradient(30% 26% at 15% 85%,rgba(150,160,200,.22),transparent 70%);
+  filter:blur(30px);animation:drift 28s var(--ease) infinite alternate}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.35;mix-blend-mode:multiply;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .25 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+@media(prefers-color-scheme:dark){body::after{mix-blend-mode:screen;opacity:.12}.tabbar::before{opacity:.12}}
+@keyframes drift{0%{transform:translate3d(0,0,0) rotate(0)}50%{transform:translate3d(3%,-2%,0) rotate(4deg)}100%{transform:translate3d(-3%,2%,0) rotate(-3deg)}}
+main{max-width:640px;margin:0 auto;padding:22px 18px 18px}
+h1,h2,.serif{font-family:var(--serif);font-weight:500;letter-spacing:.02em}
+h1{font-size:30px;line-height:1.25;margin:6px 0 4px}
+h2{font-size:19px;margin:0 0 10px}
+.sub{font-family:var(--serif);color:var(--mute);font-size:15px;margin:0 0 20px;font-style:italic}
+/* 液态玻璃 */
+.card,.subj,#list,.tabbar,.btn,.chip,.opt,.calcpad,.tabs{
+  background:var(--card);-webkit-backdrop-filter:blur(18px) saturate(170%);backdrop-filter:blur(18px) saturate(170%);
+  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),inset 0 -1px 0 rgba(0,0,0,.03),var(--shadow)}
+.card{border-radius:22px;padding:18px;margin-bottom:16px;position:relative}
+/* 进场动画：内容依次浮现 */
+main>*{animation:rise .55s var(--ease) both}
+main>*:nth-child(2){animation-delay:.05s}main>*:nth-child(3){animation-delay:.1s}main>*:nth-child(4){animation-delay:.15s}
+main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(6){animation-delay:.25s}main>*:nth-child(n+7){animation-delay:.3s}
+#app>*{animation:rise .45s var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(12px) scale(.985);filter:blur(3px)}to{opacity:1;transform:none;filter:none}}
+/* 按钮：玻璃 + 按下回弹 + 主按钮流光 */
+.btn{display:block;width:100%;padding:14px;border-radius:18px;color:var(--fg);font:500 17px/1.4 var(--serif);text-align:center;cursor:pointer;text-decoration:none;
+  position:relative;overflow:hidden;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
+.btn:active,.opt:active,.chip:active,.subj:active{transform:scale(.97)}
+.btn.primary{color:#fff;border-color:transparent;background:linear-gradient(135deg,var(--pri2),var(--pri) 55%,#b35537);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 12px 28px -12px rgba(201,100,66,.65)}
+.btn.primary::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.35) 50%,transparent 65%);transform:translateX(-120%);animation:sheen 4.5s ease-in-out infinite 1s}
+@keyframes sheen{0%,70%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+.btn.small{display:inline-block;width:auto;padding:7px 14px;font-size:15px;border-radius:14px}
 .btn:disabled{opacity:.5}
 .row{display:flex;gap:10px}.row>*{flex:1}
 .mute{color:var(--mute);font-size:14px}
 .err{color:var(--bad)}
-input[type=text],input[type=password],textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);font-size:16px}
+input[type=text],input[type=password],textarea{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.55);color:var(--fg);font:16px/1.6 var(--sans);transition:border-color .2s,box-shadow .2s}
+@media(prefers-color-scheme:dark){input[type=text],input[type=password],textarea{background:rgba(0,0,0,.18)}}
+input:focus,textarea:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 4px color-mix(in srgb,var(--pri) 18%,transparent)}
 textarea{min-height:120px}
-.login{margin-top:20vh}.login form{display:grid;gap:12px}
-.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 14px}
-.bar>i{display:block;height:100%;background:var(--pri);transition:width .2s}
-.opt{display:block;width:100%;text-align:left;padding:12px 14px;margin:8px 0;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--fg);font-size:16px;cursor:pointer}
-.opt.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 12%,transparent)}
-.keys{display:flex;gap:8px;margin:8px 0}.keys button{flex:1;padding:8px 0;font-size:18px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
-.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;background:var(--line);color:var(--mute);margin-right:6px}
-.badge{font-weight:600}.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.badge.wait{color:var(--warn)}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.chip{padding:4px 12px;border-radius:16px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:14px}
-.chip.on{background:var(--pri);color:#fff;border-color:var(--pri)}
-.thumbs img{width:72px;height:72px;object-fit:cover;border-radius:8px;margin:4px 4px 0 0}
+.login{margin-top:22vh;text-align:center}.login form{display:grid;gap:14px;margin-top:22px}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0 16px}
+.bar>i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--pri2),var(--pri),var(--pri2));background-size:200% 100%;transition:width .5s var(--ease);animation:flow 3s linear infinite}
+@keyframes flow{to{background-position:-200% 0}}
+.opt{display:block;width:100%;text-align:left;padding:14px 16px;margin:10px 0;border-radius:16px;color:var(--fg);font-size:16px;cursor:pointer;transition:transform .2s var(--ease),border-color .2s,background .2s}
+.opt.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,var(--card));animation:pop .35s var(--ease)}
+@keyframes pop{50%{transform:scale(1.02)}}
+.keys{display:flex;gap:8px;margin:8px 0}.keys button{flex:1;padding:8px 0;font-size:18px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.tag{display:inline-block;font:13px/1.6 var(--serif);padding:1px 10px;border-radius:999px;background:color-mix(in srgb,var(--pri) 10%,transparent);color:color-mix(in srgb,var(--pri) 80%,var(--fg));margin-right:6px}
+.badge{font-family:var(--serif);font-weight:600}.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.badge.wait{color:var(--warn)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.chip{padding:5px 14px;border-radius:999px;color:var(--fg);font:15px/1.5 var(--serif);transition:transform .2s var(--ease),background .25s}
+.chip.on{background:var(--pri);color:#fff;border-color:transparent}
+.thumbs img{width:72px;height:72px;object-fit:cover;border-radius:12px;margin:4px 4px 0 0}
 .hide{display:none}
-.nav{display:flex;gap:10px;margin-top:14px}.nav .btn{flex:1}
-.ans{background:color-mix(in srgb,var(--pri) 8%,transparent);border-radius:10px;padding:8px 10px;margin-top:8px;font-size:15px}
-/* 底部导航 */
-body.has-tabs main{padding-bottom:84px}
-.tabbar{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:5}
-.tabbar a{flex:1;text-align:center;padding:9px 0 7px;color:var(--mute);text-decoration:none;font-size:12px}
-.tabbar a b{display:block;font-size:20px;font-weight:400;line-height:1.2}
-.tabbar a.on{color:var(--pri)}
+.nav{display:flex;gap:10px;margin-top:16px}.nav .btn{flex:1}
+.ans{background:color-mix(in srgb,var(--pri) 7%,transparent);border-left:3px solid color-mix(in srgb,var(--pri) 45%,transparent);border-radius:12px;padding:9px 12px;margin-top:10px;font-size:15px}
+.card>p{font-family:var(--serif);font-size:18px;line-height:1.8}
+/* 底部导航：悬浮液态玻璃胶囊 */
+body.has-tabs main{padding-bottom:110px}
+.tabbar{background:color-mix(in srgb,var(--solid) 72%,transparent);position:fixed;left:50%;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(92vw,420px);display:flex;padding:6px;border-radius:30px;z-index:5;
+  -webkit-backdrop-filter:blur(22px) saturate(190%);backdrop-filter:blur(22px) saturate(190%);animation:dock .6s var(--ease) both .2s}
+.tabbar::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.45),transparent 50%);opacity:.6}
+@keyframes dock{from{opacity:0;transform:translate(-50%,30px)}to{opacity:1;transform:translate(-50%,0)}}
+.tabbar a{flex:1;position:relative;text-align:center;padding:7px 0 5px;color:var(--mute);text-decoration:none;font:13px/1.3 var(--serif);border-radius:24px;transition:color .25s,background .3s var(--ease)}
+.tabbar a b{display:block;font-size:21px;font-weight:400;line-height:1.25;transition:transform .35s var(--ease)}
+.tabbar a.on{color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,transparent)}
+.tabbar a.on b{transform:translateY(-1px) scale(1.12)}
 /* 各科概览 */
-.subjects{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-.subj{display:block;text-decoration:none;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
-.subj b{font-size:17px}.subj .due{color:var(--bad);font-weight:600}
+.subjects{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.subj{display:block;text-decoration:none;color:var(--fg);border-radius:20px;padding:14px 16px;transition:transform .25s var(--ease)}
+.subj b{font:500 20px/1.4 var(--serif)}.subj .due{color:var(--bad);font-weight:600}
 /* 题库 / 错题本 */
-#list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+#list{border-radius:22px;overflow:hidden}
 #list:empty{display:none}
-.item{display:flex;gap:12px;align-items:center;padding:12px 14px;cursor:pointer}
+.item{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;transition:background .2s}.item:active{background:color-mix(in srgb,var(--pri) 6%,transparent)}
+.item .stem{font-family:var(--serif);font-size:16px}
 .wrapitem+.wrapitem,.item+.item{border-top:1px solid var(--line)}
 .item .body{flex:1;min-width:0}
 .item .stem{margin-top:4px;white-space:pre-wrap}
@@ -59,7 +111,7 @@ body.has-tabs main{padding-bottom:84px}
 .board{margin:10px -6px 0}
 .btools{display:flex;gap:6px;overflow-x:auto;padding:4px 2px;scrollbar-width:none}
 .btools::-webkit-scrollbar{display:none}
-.btools button{flex:none;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:14px;white-space:nowrap}
+.btools button{flex:none;padding:6px 11px;border:1px solid var(--line);border-radius:12px;background:var(--card);transition:transform .2s var(--ease),background .2s;color:var(--fg);font-size:14px;white-space:nowrap}
 .btools button.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 15%,transparent);color:var(--pri)}
 .btools .dot{width:28px;height:28px;padding:0;border-radius:50%}
 .btools .dot.on{outline:2px solid var(--pri);outline-offset:2px}
@@ -67,16 +119,17 @@ body.has-tabs main{padding-bottom:84px}
 .bhint span{flex:1}
 .bhint button{padding:4px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 .bhint button.on{background:var(--pri);border-color:var(--pri);color:#fff}
-.bwrap{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;aspect-ratio:1/1;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.bwrap{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;aspect-ratio:1/1;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;background:#fff}
 .board.big .bwrap{aspect-ratio:3/4}
 .bwrap input.btext{position:absolute;width:130px;padding:4px 6px;font-size:16px;border:1.5px solid var(--pri);border-radius:6px;background:#fff;color:#111;z-index:2}
 .bwrap canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 .att{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .att div{position:relative}.att img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .att button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:var(--bad);color:#fff;font-size:13px;line-height:1}
-.tabs{display:flex;background:var(--line);border-radius:10px;padding:3px;margin-bottom:12px}
-.tab{flex:1;padding:7px 0;border:0;border-radius:8px;background:none;color:var(--mute);font-size:15px}
-.tab.on{background:var(--card);color:var(--fg);font-weight:600}
+.tabs{display:flex;border-radius:18px;padding:4px;margin-bottom:14px}
+.tab{flex:1;padding:8px 0;border:0;border-radius:14px;background:none;color:var(--mute);font:16px/1.4 var(--serif);transition:background .3s var(--ease),color .25s}
+.tab.on{background:var(--solid);color:var(--pri);box-shadow:var(--shadow)}
+.back{font-family:var(--serif);color:var(--mute);text-decoration:none;font-size:15px}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
 .bhint .fab{width:44px;height:40px;padding:0;border-radius:12px;font-size:22px;line-height:1;background:var(--card);border:1px solid var(--line);color:var(--fg)}
 .bhint .fab:active{background:color-mix(in srgb,var(--pri) 15%,transparent)}
@@ -104,9 +157,11 @@ button.del{flex:none;padding:3px 9px;border:1px solid var(--line);border-radius:
 .time{font-size:13px;color:var(--mute);margin-left:4px;white-space:nowrap}
 .item .side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .recent{display:flex;gap:10px;align-items:center;padding:8px 0}.recent+.recent{border-top:1px solid var(--line)}
-.recent a{flex:1;min-width:0;color:var(--fg);text-decoration:none}.recent .stem{font-size:15px;margin-top:2px}
+.recent a{flex:1;min-width:0;color:var(--fg);text-decoration:none}.recent .stem{font:16px/1.6 var(--serif);margin-top:2px}
 /* 电路图板：元件符号按钮、通电结果 */
 .btools .ico{display:flex;flex-direction:column;align-items:center;padding:3px 6px 2px;font-size:11px;line-height:1.2}
 .btools .ico canvas{width:56px;height:28px;background:#fff;border-radius:4px}
 .cstat{min-height:22px;font-size:14px;padding:4px 2px;color:var(--fg)}
 .forms{margin:8px 0 0}.forms .chip{font-size:15px}
+/* 减少动态效果 */
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
