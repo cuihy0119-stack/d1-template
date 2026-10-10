@@ -214,31 +214,34 @@ html{touch-action:manipulation}
 @media(min-width:700px){main{max-width:780px;padding:28px 28px 18px}.bwrap{aspect-ratio:4/3}.board.big .bwrap{aspect-ratio:1/1}.subjects{grid-template-columns:repeat(3,1fr)}}
 @media(min-width:700px){@supports not (aspect-ratio:1/1){.bwrap{padding-top:75%}}}
 .toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top));transform:translateX(-50%);z-index:20;padding:10px 18px;border-radius:var(--r-m);background:var(--fg);color:var(--bg);font:15px var(--serif);box-shadow:var(--shadow);animation:rise .3s var(--ease) both}
-/* ================= 浮岛：两侧小圆 ⇄ 展开面板（弹性动画，只动 transform/opacity） ================= */
-.bub,.pan{position:fixed;z-index:31;background:color-mix(in srgb,var(--solid) 80%,transparent);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);
-  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),0 10px 26px -10px rgba(40,25,10,.45)}
-.bub{width:46px;height:46px;border-radius:50%;padding:0;display:grid;place-items:center;color:var(--pri);font:600 18px/1 var(--serif);
-  opacity:0;transform:scale(0);pointer-events:none;transition:transform .5s cubic-bezier(.34,1.56,.64,1),opacity .25s}
-.bub.on{opacity:1;transform:none;pointer-events:auto}
-.bub.on:active{transform:scale(.88)}
-.bub.on.away{opacity:0;transform:scale(.6);pointer-events:none}
-body.drawing .bub.on{opacity:.35}
-.bq{left:8px;top:calc(42% - 23px)}.bt{right:8px;top:calc(42% - 23px)}.bu{right:12px;top:calc(42% + 32px);width:38px;height:38px;font-size:18px;color:var(--fg)}
-.pan{top:calc(42% - 23px);max-height:62vh;overflow:auto;padding:12px;border-radius:var(--r-xl);-webkit-overflow-scrolling:touch;
-  opacity:0;transform:scale(.25);pointer-events:none;transition:transform .45s cubic-bezier(.34,1.4,.64,1),opacity .2s}
-.pan.open{opacity:1;transform:none;pointer-events:auto}
-.pq{left:8px;width:min(80vw,420px);transform-origin:23px 23px}
-.pt{right:8px;width:min(88vw,400px);transform-origin:calc(100% - 23px) 23px}
+/* ================= 浮岛：手机右侧竖条 + 弹出面板；平板三栏 ================= */
+.rail,.pan{position:fixed;z-index:31;background:color-mix(in srgb,var(--solid) 82%,transparent);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);
+  border:1px solid var(--line);box-shadow:inset 0 1px 0 var(--edge),0 10px 26px -10px rgba(40,25,10,.4)}
+.rail{right:8px;top:50%;display:flex;flex-direction:column;gap:4px;padding:5px;border-radius:999px;
+  opacity:0;transform:translate(16px,-50%) scale(.85);pointer-events:none;transition:transform .45s cubic-bezier(.34,1.56,.64,1),opacity .25s}
+.rail.show{opacity:1;transform:translate(0,-50%);pointer-events:auto}
+body.drawing .rail.show{opacity:.3}
+.rb{width:40px;height:40px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:none;color:var(--fg);transition:background .2s,color .2s,transform .2s var(--ease)}
+.rb:active{transform:scale(.88)}
+.rb.on{background:var(--pri);color:#fff}
+.pan{right:62px;top:50%;max-height:66vh;overflow:auto;padding:12px;border-radius:var(--r-xl);-webkit-overflow-scrolling:touch;transform-origin:right center;
+  opacity:0;transform:translate(12px,-50%) scale(.6);pointer-events:none;transition:transform .42s cubic-bezier(.34,1.4,.64,1),opacity .2s}
+.pan.open{opacity:1;transform:translate(0,-50%);pointer-events:auto}
+.pq{width:min(76vw,400px)}.pt{width:min(80vw,380px)}
 .pq .istem{font:16px/1.75 var(--serif);white-space:pre-wrap;margin-top:6px}
 .pt .btools{flex-wrap:wrap;overflow:visible;-webkit-mask:none;mask:none}
 .pt .bhint{min-height:0;padding:4px 0 0}
 .pt .btools .ico{padding:3px 5px 2px;font-size:11px}.pt .btools .ico canvas{width:44px;height:22px}.pt .btools button{min-height:34px;padding:5px 10px;font-size:14px}
-/* iPad 横屏：面板常驻画板左右两侧的空白里 */
-@media(min-width:1100px){
-  .pan{top:calc(80px + env(safe-area-inset-top));max-height:calc(100vh - 120px);width:calc((100vw - 780px) / 2 - 28px)}
-  .pq{left:14px;transform-origin:left center}.pt{right:14px;transform-origin:right center}
-  .pan:not(.open){transform:translateX(0) scale(.9)}
+/* 平板（iPad 横竖屏）：三栏常驻——左题干、中画板、右工具 */
+@media(min-width:744px){
+  body.split{--side:clamp(150px,19vw,250px)}
+  body.split main{max-width:none;margin:0 calc(var(--side) + 22px)}
+  body.split .rail{display:none}
+  body.split .pan{top:calc(20px + env(safe-area-inset-top));max-height:calc(100vh - 40px);width:var(--side);transform:none;transition:opacity .3s}
+  body.split .pq{left:12px;right:auto}body.split .pt{right:12px}
+  body.split .pt .bhint span{display:none}body.split .pt .bhint{justify-content:center}
+  body.split .pan:not(.open){transform:none}
 }
-.lite .bub,.lite .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+.lite .rail,.lite .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
