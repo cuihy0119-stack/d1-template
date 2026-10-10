@@ -161,55 +161,66 @@ function render() {
 	isle.fill(q);
 }
 
-// ---------- 浮岛：往下滑到画板时，题干和工具收成屏幕两侧的小圆（点开才完整显示），不挡画板 ----------
-// 状态：隐藏 → 出现（小圆弹出）→ 展开（面板从小圆长出来）→ 收起（滚动、在画板上落笔、点空白处、选完工具）
-// iPad 横屏两侧有空白：面板直接展开贴在画板左右两侧，不需要小圆。动画只用 transform/opacity。
+// ---------- 浮岛 ----------
+// 平板（宽 ≥744px，iPad 横竖屏）：有画板的题分三栏——左边题干、中间画板、右边工具，常驻不收起。
+// 手机：滑到画板时右侧出现一根竖条（题干 / 工具 / 撤销三个图标），点开面板从竖条旁弹出；
+//       滑动、落笔、点空白、选完工具自动收回；落笔时竖条变淡。动画只用 transform/opacity。
 const isle = (() => {
-	const wide = matchMedia("(min-width:1100px)");
-	const mk = (cls, txt) => { const b = el("button", { type: "button", className: "bub " + cls, textContent: txt }); document.body.append(b); return b; };
-	const panel = (cls) => { const p = el("div", { className: "pan " + cls }); document.body.append(p); return p; };
-	const qb = mk("bq", "题"), tb = mk("bt", "✎"), ub = mk("bu", "↶"), qp = panel("pq"), tp = panel("pt");
+	const tablet = matchMedia("(min-width:744px)");
+	const svg = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+	const ICON = {
+		q: svg('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 12h7M9 16h5"/>'),
+		t: svg('<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>'),
+		u: svg('<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>'),
+	};
+	const btn = (k, title) => el("button", { type: "button", className: "rb", title, innerHTML: ICON[k] });
+	const qb = btn("q", "题干"), tb = btn("t", "工具"), ub = btn("u", "撤销");
+	const rail = el("div", { className: "rail" }, qb, tb, ub), qp = el("div", { className: "pan pq" }), tp = el("div", { className: "pan pt" });
+	document.body.append(rail, qp, tp);
 	let slot = null, dock = null, y0 = 0, raf = 0;
-	const open = (p, b, on) => { p.classList.toggle("open", on); b.classList.toggle("away", on); if (on) y0 = scrollY; };
-	const close = () => { if (!wide.matches) { open(qp, qb, false); open(tp, tb, false); } };
-	qb.onclick = () => open(qp, qb, !qp.classList.contains("open"));
-	tb.onclick = () => open(tp, tb, !tp.classList.contains("open"));
-	ub.onclick = () => dock?.querySelector(".fab")?.click(); // 不用展开也能撤销
+	const open = (p, b, on) => { p.classList.toggle("open", on); b.classList.toggle("on", on); if (on) y0 = scrollY; };
+	const close = () => { if (!tablet.matches) { open(qp, qb, false); open(tp, tb, false); } };
+	qb.onclick = () => { const on = !qp.classList.contains("open"); close(); open(qp, qb, on); };
+	tb.onclick = () => { const on = !tp.classList.contains("open"); close(); open(tp, tb, on); };
+	ub.onclick = () => dock?.querySelector(".fab")?.click(); // 不展开也能撤销
 	qp.onclick = close;
-	tp.addEventListener("click", (e) => { if (e.target.closest(".btools button") && !wide.matches) setTimeout(close, 180); }); // 选完工具自动收起
+	tp.addEventListener("click", (e) => { if (e.target.closest(".btools button") && !tablet.matches) setTimeout(close, 180); }); // 选完工具自动收起
 	document.addEventListener("pointerdown", (e) => {
-		if (e.target.closest(".bub,.pan")) return;
-		if (e.target.tagName === "CANVAS") document.body.classList.add("drawing"); // 落笔时小圆变淡
+		if (e.target.closest(".rail,.pan")) return;
+		if (e.target.tagName === "CANVAS") document.body.classList.add("drawing");
 		close();
 	}, { passive: true });
 	for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, () => document.body.classList.remove("drawing"), { passive: true });
-	// 工具区搬进面板 / 搬回原位（slot 留住原高度，版面不跳）
+	// 工具区搬进面板 / 搬回原位（slot 留住原高度，版面不跳；平板上不留高度，画板直接上移）
 	const park = (s) => {
 		if (s === slot) return;
 		if (slot) { slot.append(dock); slot.style.height = ""; }
 		slot = s; dock = s?.firstChild || null;
-		if (s) { s.style.height = s.offsetHeight + "px"; tp.append(dock); }
+		if (s) { s.style.height = tablet.matches ? "0px" : s.offsetHeight + "px"; tp.append(dock); }
 	};
 	function update() {
 		raf = 0;
 		const card = app.querySelector(".card"), stem = card?.querySelector(".stem"), p = (boards[cur] || []).map((b) => b.pad || b)[0];
+		if (tablet.matches) { // 平板：有画板就三栏常驻
+			document.body.classList.toggle("split", !!p);
+			park(p ? p.slot : null);
+			open(qp, qb, !!p); open(tp, tb, !!p);
+			return rail.classList.remove("show");
+		}
+		document.body.classList.remove("split");
 		const w = p?.wrap.getBoundingClientRect(), live = !!(p && w.top < innerHeight * 0.6 && w.bottom > 160);
-		const showQ = live && stem.getBoundingClientRect().bottom < 0;
 		const showT = live && (slot || p.slot).getBoundingClientRect().top < 4;
 		park(showT ? p.slot : null);
-		qb.classList.toggle("on", showQ && !wide.matches); tb.classList.toggle("on", showT && !wide.matches); ub.classList.toggle("on", showT && !wide.matches);
-		if (wide.matches) { open(qp, qb, showQ); open(tp, tb, showT); }
-		else {
-			if (!showQ) open(qp, qb, false);
-			if (!showT) open(tp, tb, false);
-			if (Math.abs(scrollY - y0) > 24) close(); // 一滑动就收起
-		}
+		rail.classList.toggle("show", live && (showT || stem.getBoundingClientRect().bottom < 0));
+		tb.hidden = ub.hidden = !showT;
+		if (!rail.classList.contains("show")) close();
+		else if (Math.abs(scrollY - y0) > 24) close(); // 一滑动就收起
 	}
 	addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(update); }, { passive: true });
-	wide.addEventListener?.("change", update);
+	tablet.addEventListener?.("change", () => { park(null); update(); });
 	return {
-		fill(q) { park(null); close(); qp.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("div", { className: "istem", textContent: q.stem })); math(qp); update(); },
-		hide() { park(null); for (const x of [qb, tb, ub]) x.classList.remove("on"); open(qp, qb, false); open(tp, tb, false); },
+		fill(q) { park(null); close(); qp.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("div", { className: "istem", textContent: q.stem })); math(qp); requestAnimationFrame(update); },
+		hide() { park(null); rail.classList.remove("show"); document.body.classList.remove("split"); open(qp, qb, false); open(tp, tb, false); },
 	};
 })();
 
