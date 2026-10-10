@@ -27,7 +27,8 @@ class CircuitBoard {
 		this.bar2 = el("div", { className: "btools" });
 		this.hint = el("div", { className: "bhint" });
 		this.stat = el("div", { className: "cstat" });
-		this.el = el("div", { className: "board" }, this.bar1, this.bar2, this.hint, this.wrap, this.stat);
+		this.slot = el("div", { className: "slot" }, el("div", { className: "dock" }, this.bar1, this.bar2, this.hint)); // 见作图板：可变成底部工具岛
+		this.el = el("div", { className: "board" }, this.slot, this.wrap, this.stat);
 		this.ctx = this.cv.getContext("2d");
 		this.bind();
 		this.build();
