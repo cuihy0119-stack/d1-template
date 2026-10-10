@@ -12,7 +12,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})（只有作图/写过程的题，选择填空网站已判）。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+批改：get_inbox → save({grades})：待批改的打分；「错题待讲解」写讲解和错因（score:0）。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
@@ -90,7 +90,7 @@ async function wrongDigest(db: D1Database): Promise<string> {
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.8.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.9.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -120,6 +120,18 @@ export function buildServer(env: Env) {
 				...(await images(db, keys)),
 			);
 		}
+		const explain = (
+			await db
+				.prepare(
+					`SELECT a.id aid, q.id, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
+					        a.answer_text, a.error_reason, a.comment, a.time_spent_sec
+					 FROM attempts a JOIN questions q ON q.id = a.question_id
+					 WHERE a.status = '已判' AND a.is_correct = 0 AND a.comment IS NULL
+					   AND a.id = (SELECT MAX(id) FROM attempts WHERE question_id = a.question_id) ORDER BY a.id LIMIT 15`,
+				)
+				.all<any>()
+		).results;
+		if (explain.length) out.push({ type: "text", text: `错题待讲解（网站已判错，写讲解和错因：grades {id:作答#, score:0, comment:讲解, reason}）：\n` + explain.map((r) => `作答#${r.aid} ` + wrongLine(r)).join("\n") });
 		if (!out.length) out.push({ type: "text", text: "收件箱是空的" });
 		const dg = await wrongDigest(db);
 		if (dg) out.push({ type: "text", text: dg });
@@ -150,14 +162,14 @@ export function buildServer(env: Env) {
 			if (grades.length) {
 				const r: string[] = [];
 				for (const g of grades) {
-					const a = await db.prepare("SELECT question_id FROM attempts WHERE id = ?").bind(g.id).first<{ question_id: number }>();
+					const a = await db.prepare("SELECT question_id, status, is_correct FROM attempts WHERE id = ?").bind(g.id).first<{ question_id: number; status: string; is_correct: number | null }>();
 					if (!a) { err.push(`#${g.id} 不存在`); continue; }
 					const ok = g.score >= PASS;
 					await db
 						.prepare("UPDATE attempts SET score = ?, comment = ?, error_reason = ?, is_correct = ?, status = '已判' WHERE id = ?")
 						.bind(g.score, g.comment, g.reason ?? null, ok ? 1 : 0, g.id)
 						.run();
-					await updateQueue(db, a.question_id, ok);
+					if (a.status === "待批改" || a.is_correct !== (ok ? 1 : 0)) await updateQueue(db, a.question_id, ok); // 只是给错题补讲解：不重复动复习队列
 					r.push(`#${g.id}${ok ? "✓" : "✗"}`);
 				}
 				out.push("批改 " + r.join(" "));
