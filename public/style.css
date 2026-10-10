@@ -126,6 +126,8 @@ body.has-tabs main{padding-bottom:110px}
 .qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .time{flex:1}
 button.del{flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--bad);font:14px/1.3 var(--serif);transition:transform .2s var(--ease)}
 button.del:active{transform:scale(.95)}
+button.mark{flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute);font:14px/1.3 var(--serif);transition:transform .2s var(--ease),background .2s,color .2s}
+button.mark.on{background:var(--warn);border-color:transparent;color:#fff;animation:pop .35s var(--ease)}
 /* 选项：圆角矩形 + 左侧字母徽章 */
 .opt .ol{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:var(--r-s);background:color-mix(in srgb,var(--fg) 7%,transparent);font:600 15px/1 var(--serif);color:var(--mute);transition:background .25s,color .25s}
 .opt.on .ol{background:var(--pri);color:#fff}

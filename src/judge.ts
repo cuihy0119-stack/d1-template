@@ -14,6 +14,7 @@ export function judge(type: string, answer: string[], user: string | string[]): 
 		const u = Array.isArray(user) ? user : [user];
 		return u.length > 0 && letters(u) === letters(answer);
 	}
-	const u = norm(Array.isArray(user) ? user.join("") : user);
-	return u !== "" && answer.some((a) => norm(a) === u);
+	const bare = (s: string) => norm(s).replace(/^[a-zA-Z]=/, ""); // 「x=2」和「2」算一样
+	const u = bare(Array.isArray(user) ? user.join("") : user);
+	return u !== "" && answer.some((a) => bare(a) === u);
 }

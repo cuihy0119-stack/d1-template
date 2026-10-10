@@ -1,6 +1,6 @@
 const app = $("#app");
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
-let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
+let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], marks = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
@@ -25,6 +25,7 @@ async function start() {
 	secs = qs.map(() => 0);
 	done = qs.map(() => null);
 	sig = qs.map(() => "");
+	marks = qs.map(() => false);
 	cur = 0;
 	render("enter");
 }
@@ -91,9 +92,15 @@ function render(anim) {
 	box.append(
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject }), q.tag ? el("span", { className: "tag", textContent: q.tag }) : "",
 			el("span", { className: "time", textContent: "🕒 推送 " + when(q.created_at) }),
+			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）
+			el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), textContent: marks[cur] ? "🔖 已标记" : "🔖 标记", onclick: (e) => {
+				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
+				b.classList.toggle("on", on); b.textContent = on ? "🔖 已标记" : "🔖 标记";
+				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});
+			} }),
 			el("button", { type: "button", className: "del", textContent: "🗑 删题", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
-				for (const a of [qs, ans, files, boards, want, secs, done, sig]) a.splice(cur, 1);
+				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks]) a.splice(cur, 1);
 				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
 				cur = Math.min(cur, qs.length - 1); render();
 			} })),
@@ -269,7 +276,7 @@ async function showResult(ids) {
 		const badge = r.status === "待批改" ? ["待批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
 		const card = el("div", { className: "card" },
 			el("span", { className: "badge " + badge[1], textContent: badge[0] }),
-			el("span", { className: "tag", textContent: " " + r.subject }),
+			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "🔖 已标记" }) : "",
 			el("p", { textContent: r.stem, style: "white-space:pre-wrap" }));
 		if (r.options.length) card.append(el("div", { className: "mute", textContent: r.options.join("\n"), style: "white-space:pre-wrap" }));
 		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
@@ -279,14 +286,16 @@ async function showResult(ids) {
 				el("a", { href: "/photo/" + k, target: "_blank" }, el("img", { src: "/photo/" + k })));
 			card.append(t);
 		}
-		card.append(el("div", { className: "ans", textContent: "参考答案：" + r.answer.join(" / ") }));
+		card.append(el("div", { className: "ans", textContent: (r.type === "short" ? "参考答案：" : "正确答案：") + r.answer.join(" / ") }));
 		if (r.explanation) card.append(el("div", { className: "ans", textContent: "解析：" + r.explanation }));
 		if (r.status === "已判" && r.type === "short" || r.comment) {
 			card.append(el("div", { className: "ans", textContent: `评语：${r.comment || ""}` + (r.error_reason ? `（${r.error_reason}）` : "") + (r.score != null ? ` 得分 ${r.score}` : "") }));
 		}
 		wrap.append(card);
 	}
-	if (pending) wrap.append(askClaude(CLAUDE_ASK.grade, "让 Claude 批改"), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
+	// 作图/写过程的题交给 Claude 批改；标记的题可以让 Claude 解析
+	if (pending) wrap.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改作图/过程题（${pending} 题）`), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
+	if (rows.some((r) => r.marked)) wrap.append(askClaude(CLAUDE_ASK.marked, "让 Claude 解析标记的题"));
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);

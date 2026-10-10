@@ -11,7 +11,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})；填空题对不上标准答案的也会送来，判断是否等价写法。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+批改：get_inbox → save({grades})（只有作图/写过程的题，选择填空网站已判）。学生说「解析标记的题」：get_data({kind:"marked"})。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
@@ -67,7 +67,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.5.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.6.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -184,11 +184,18 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"get_data",
 		{
-			description: "kind=tpl 出题模板（出题前取）；kind=records 作答记录 TSV（days 默认 7）；kind=bank 题库清单 TSV（默认只列复习中的题，all=true 列全部）。",
-			inputSchema: { kind: z.enum(["tpl", "records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
+			description: "kind=tpl 出题模板（出题前取）；kind=marked 学生标记的题（含作答、对错、答案、考点，用来解析）；kind=records 作答记录 TSV（days 默认 7）；kind=bank 题库清单 TSV（默认只列复习中的题，all=true 列全部）。",
+			inputSchema: { kind: z.enum(["tpl", "marked", "records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
 		},
 		async ({ kind, days, subject, all }) => {
 			if (kind === "tpl") return text(TEMPLATES);
+			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一段，紧凑文字
+				const { results } = await db.prepare(
+					`SELECT q.id, q.subject, q.topic, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status
+					 FROM marks m JOIN questions q ON q.id = m.question_id LEFT JOIN attempts a ON a.id = m.attempt_id
+					 WHERE m.attempt_id IS NOT NULL AND m.created_at > datetime('now','-1 day') ORDER BY m.created_at`).all<any>();
+				return text(results.length ? results.map((r) => `#${r.id} ${r.subject}${r.topic ? "·" + r.topic : ""}｜${r.stem}${r.options ? "｜选项：" + r.options : ""}｜答：${String(r.answer_text ?? "").replace(/\n?\[(作图|电路)\][^\n]*/g, "") || "（空）"}｜${r.status === "待批改" ? "待批改" : r.is_correct ? "对" : "错"}｜答案：${r.answer}${r.explanation ? "｜解析：" + r.explanation : ""}`).join("\n") : "没有标记的题（或已过 24 小时）");
+			}
 			const sql =
 				kind === "records"
 					? `SELECT substr(a.created_at, 6, 5) d, a.subject s, a.topic t, COALESCE(q.tag, q.type) ty,
