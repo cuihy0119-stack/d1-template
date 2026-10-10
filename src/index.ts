@@ -47,6 +47,12 @@ app.post("/login", async (c) => {
 // Claude 连接用的 OAuth 授权页（/mcp、/token、/register 由 OAuthProvider 处理）
 mountAuthorize(app);
 
+// 接口数据不缓存，保证每次拿到最新
+app.use("/api/*", async (c, next) => {
+	await next();
+	c.header("Cache-Control", "no-store");
+});
+
 app.use("*", async (c, next) => {
 	if (new URL(c.req.url).pathname === "/style.css") return next(); // 登录页要用
 	if (c.env.PASSCODE && (await getSignedCookie(c, c.env.PASSCODE, COOKIE)) === "ok") return next();

@@ -6,7 +6,7 @@ let qs = [], ans = [], files = [], boards = [], secs = [], cur = 0, shownAt = 0;
 async function start() {
 	const p = new URLSearchParams(location.search);
 	const m = location.hash.match(/^#r=([\d,]+)/);
-	if (m) return showResult(m[1]);
+	if (m) { autoRefresh(() => showResult(m[1])); return showResult(m[1]); }
 	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : ""));
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
@@ -123,8 +123,18 @@ async function submit() {
 	}
 }
 
+let poll = 0;
 async function showResult(ids) {
+	clearInterval(poll);
 	const rows = await api("/api/attempts?ids=" + ids);
+	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语
+	if (rows.some((r) => r.status === "待批改")) {
+		const last = JSON.stringify(rows);
+		poll = setInterval(async () => {
+			if (document.visibilityState !== "visible") return;
+			if (JSON.stringify(await api("/api/attempts?ids=" + ids)) !== last) showResult(ids);
+		}, 10000);
+	}
 	const objective = rows.filter((r) => r.status === "已判");
 	const right = objective.filter((r) => r.is_correct).length;
 	const pending = rows.filter((r) => r.status === "待批改").length;
@@ -151,7 +161,7 @@ async function showResult(ids) {
 		}
 		wrap.append(card);
 	}
-	if (pending) wrap.append(el("button", { className: "btn", textContent: "刷新批改结果", onclick: () => location.reload() }));
+	if (pending) wrap.append(el("p", { className: "mute", textContent: "让 Claude 批改后，评语会自动出现在这里" }));
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);

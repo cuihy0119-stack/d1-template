@@ -88,4 +88,5 @@ function row(q) {
 
 function load() { api(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank").then((d) => { data = d; render(); }); }
 load();
+autoRefresh(load); // 切回页面时更新（不定时刷新，免得收起正在看的题）
 window.addEventListener("load", () => math($("#list")));
