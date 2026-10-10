@@ -65,9 +65,30 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	return `${r.meta.last_row_id}${tag}`;
 }
 
+// ---------- 错题本定期推送 ----------
+// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：距上次推送满 7 天、或新增错题满 20 道，
+// 就附上这段时间新增的错题清单，请 Claude 问学生要不要整理归档进 Notion。每次推送后重新计时。
+const DIGEST_DAYS = 7, DIGEST_MAX = 20;
+async function wrongDigest(db: D1Database): Promise<string> {
+	const last = (await db.prepare("SELECT v FROM meta WHERE k = 'digest_at'").first<{ v: string }>())?.v ?? "1970-01-01 00:00:00";
+	const { results } = await db
+		.prepare(
+			`SELECT q.id, q.subject s, COALESCE(q.topic, q.category, '') t, substr(q.stem, 1, 40) stem, MAX(a.error_reason) why
+			 FROM attempts a JOIN questions q ON q.id = a.question_id
+			 WHERE a.is_correct = 0 AND a.created_at > ? AND q.status = 'active'
+			 GROUP BY q.id ORDER BY q.subject, t LIMIT 40`,
+		)
+		.bind(last)
+		.all<Record<string, unknown>>();
+	const due = Date.now() - Date.parse(last.replace(" ", "T") + "Z") >= DIGEST_DAYS * 864e5;
+	if (!results.length || (!due && results.length < DIGEST_MAX)) return "";
+	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('digest_at', datetime('now'))").run();
+	return `\n\n【错题本定期整理】上次之后新增错题 ${results.length} 道：\n${tsv(results)}\n→ 先回答完学生，再问一句：要不要把这些错题整理归档进 Notion？同意后用 Notion 连接器按 科目/章节/考点 归档（含错因），不用回网站写入。`;
+}
+
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.6.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "1.7.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -98,6 +119,8 @@ export function buildServer(env: Env) {
 			);
 		}
 		if (!out.length) out.push({ type: "text", text: "收件箱是空的" });
+		const dg = await wrongDigest(db);
+		if (dg) out.push({ type: "text", text: dg });
 		return { content: out };
 	});
 
@@ -177,7 +200,7 @@ export function buildServer(env: Env) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作");
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await wrongDigest(db)));
 		},
 	);
 
