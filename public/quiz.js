@@ -1,4 +1,5 @@
 const app = $("#app");
+const FROM_WRONG = new URLSearchParams(location.search).get("from") === "wrong";
 const CHEM = ["₂", "₃", "₄", "↑", "△", "="];
 let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [], sig = [], marks = [], cur = 0, shownAt = 0; // done[i]：已提交的 attempt id；sig[i]：提交时的答案，改了再交会更新
 
@@ -92,8 +93,8 @@ function render(anim) {
 	box.append(
 		// 专注：题头只留科目/题型和两个小图标（标记、删题）
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
-			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）
-			el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "🔖", onclick: (e) => {
+			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（攒够 20 道会整包发给 Claude）
+			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "🔖", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
 				b.classList.toggle("on", on);
 				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});

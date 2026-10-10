@@ -12,7 +12,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})：待批改的打分；「错题待讲解」写讲解和错因（score:0）。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+批改：get_inbox → save({grades})；返回里出现【错题本打包】就照附言讲解并问是否归档 Notion。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
@@ -66,31 +66,36 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	return `${r.meta.last_row_id}${tag}`;
 }
 
-// ---------- 错题本定期推送 ----------
-// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：距上次推送满 7 天、或新增错题满 20 道，
-// 就附上这段时间新增的错题清单，请 Claude 问学生要不要整理归档进 Notion。每次推送后重新计时。
-const DIGEST_DAYS = 7, DIGEST_MAX = 20;
-async function wrongDigest(db: D1Database): Promise<string> {
-	const last = (await db.prepare("SELECT v FROM meta WHERE k = 'digest_at'").first<{ v: string }>())?.v ?? "1970-01-01 00:00:00";
-	// 每道题取最近一次做错的作答：错答、错因、评语都带上
+// ---------- 错题本打包推送 ----------
+// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：错题本里还没发过的错题攒到 20 道，
+// 或距上次发送满 7 天且有新错题，就整包附上（后端整理好题干、选项、错答、正确答案、错因、解析），
+// 请 Claude 讲解并问是否归档进 Notion。发过的标记 sent_at；其中已重做做对的随即隐藏。
+const PACK_DAYS = 7, PACK_SIZE = 20;
+async function wrongPack(db: D1Database): Promise<string> {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
-			        a.answer_text, a.error_reason, a.comment, a.time_spent_sec
+			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec,
+			        (SELECT is_correct FROM attempts WHERE question_id = q.id ORDER BY id DESC LIMIT 1) last
 			 FROM questions q JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
-			 WHERE a.created_at > ? AND q.status = 'active' ORDER BY q.subject, topic LIMIT 40`,
+			 WHERE q.status = 'active' AND q.sent_at IS NULL ORDER BY q.subject, topic LIMIT 40`,
 		)
-		.bind(last)
 		.all<any>();
-	const due = Date.now() - Date.parse(last.replace(" ", "T") + "Z") >= DIGEST_DAYS * 864e5;
-	if (!results.length || (!due && results.length < DIGEST_MAX)) return "";
-	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('digest_at', datetime('now'))").run();
-	return `\n\n【错题本定期整理】上次之后新增错题 ${results.length} 道（题干、选项、错答、正确答案、错因、解析都已整理好）：\n${results.map(wrongLine).join("\n")}\n→ 先回答完学生，再问一句：要不要把这些错题整理归档进 Notion？同意后用 Notion 连接器按 科目/章节/考点 归档，每题照抄上面的 题干、选项、错答、正确答案、错因、解析，不用回网站写入。`;
+	if (!results.length) return "";
+	const last = (await db.prepare("SELECT v FROM meta WHERE k = 'digest_at'").first<{ v: string }>())?.v ?? "1970-01-01 00:00:00";
+	if (results.length < PACK_SIZE && Date.now() - Date.parse(last.replace(" ", "T") + "Z") < PACK_DAYS * 864e5) return "";
+	const ids = results.map((r) => r.id), list = ids.join(",");
+	await db.batch([
+		db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('digest_at', datetime('now'))"),
+		db.prepare(`UPDATE questions SET sent_at = datetime('now') WHERE id IN (${list})`),
+		db.prepare(`UPDATE questions SET status = 'mastered', status_at = datetime('now') WHERE id IN (${list}) AND id NOT IN (SELECT question_id FROM review_queue)`), // 已重做做对的：发完就隐藏
+	]);
+	return `\n\n【错题本打包】${results.length} 道错题（后端已整理题干、选项、错答、正确答案、错因、解析）：\n${results.map((r) => `作答#${r.aid}${r.last === 1 ? "（已重做做对）" : ""} ` + wrongLine(r)).join("\n")}\n→ 先回答完学生，再：①每题简要讲解并写错因 save({grades:[{id:作答#,score:0,comment,reason}]})（重做已对的可略）；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
 }
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "1.9.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "错题练习站", version: "2.0.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（#id）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -120,20 +125,7 @@ export function buildServer(env: Env) {
 				...(await images(db, keys)),
 			);
 		}
-		const explain = (
-			await db
-				.prepare(
-					`SELECT a.id aid, q.id, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
-					        a.answer_text, a.error_reason, a.comment, a.time_spent_sec
-					 FROM attempts a JOIN questions q ON q.id = a.question_id
-					 WHERE a.status = '已判' AND a.is_correct = 0 AND a.comment IS NULL
-					   AND a.id = (SELECT MAX(id) FROM attempts WHERE question_id = a.question_id) ORDER BY a.id LIMIT 15`,
-				)
-				.all<any>()
-		).results;
-		if (explain.length) out.push({ type: "text", text: `错题待讲解（网站已判错，写讲解和错因：grades {id:作答#, score:0, comment:讲解, reason}）：\n` + explain.map((r) => `作答#${r.aid} ` + wrongLine(r)).join("\n") });
-		if (!out.length) out.push({ type: "text", text: "收件箱是空的" });
-		const dg = await wrongDigest(db);
+		const dg = await wrongPack(db);
 		if (dg) out.push({ type: "text", text: dg });
 		return { content: out };
 	});
@@ -219,7 +211,7 @@ export function buildServer(env: Env) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await wrongDigest(db)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await wrongPack(db)));
 		},
 	);
 

@@ -161,7 +161,7 @@ app.get("/api/home", async (c) => {
 			)
 			.bind(today())
 			.all(),
-		db.prepare(`SELECT COUNT(*) n FROM attempts a WHERE a.status = '待批改' OR (a.is_correct = 0 AND a.comment IS NULL AND a.id = (SELECT MAX(id) FROM attempts WHERE question_id = a.question_id))`).first<{ n: number }>(), // 待批改 + 错题待讲解
+		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
 		db.prepare("SELECT id, subject, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
@@ -312,7 +312,7 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
 			        (SELECT is_correct FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) last
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 ${wrong ? "WHERE " + WRONG_SQL[wrong] : ""}
+			 WHERE ${wrong ? WRONG_SQL[wrong] : "q.status = 'active'"}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
 		.all();

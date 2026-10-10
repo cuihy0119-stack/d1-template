@@ -1,6 +1,4 @@
-// 复习间隔（天）：做对后按 1、2、4、7、15 推进，做错退回第 1 天
-const INTERVALS = [1, 2, 4, 7, 15];
-
+// 错题本规则：做错 → 进错题本，明天重做；重做做对 → 发过给 Claude 的隐藏（30 天后删），没发过的留在错题本等打包发送
 /** 今天的日期（北京时间）YYYY-MM-DD */
 export function today(): string {
 	return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -15,33 +13,22 @@ export function addDays(date: string, n: number): string {
 const setStatus = (db: D1Database, id: number, status: "active" | "mastered" | "done") =>
 	db.prepare("UPDATE questions SET status = ?, status_at = CASE WHEN ? = 'active' THEN NULL ELSE datetime('now') END WHERE id = ?").bind(status, status, id).run();
 
-/** 一次作答有结果后：更新复习队列和题目状态。 */
+/** 一次作答有结果后：更新错题本和题目状态。 */
 export async function updateQueue(db: D1Database, questionId: number, correct: boolean) {
-	const row = await db.prepare("SELECT stage FROM review_queue WHERE question_id = ?").bind(questionId).first<{ stage: number }>();
-	const t = today();
 	if (!correct) {
 		await db
-			.prepare(
-				"INSERT INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0) ON CONFLICT(question_id) DO UPDATE SET next_date = excluded.next_date, stage = 0",
-			)
-			.bind(questionId, addDays(t, INTERVALS[0]))
+			.prepare("INSERT INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0) ON CONFLICT(question_id) DO UPDATE SET next_date = excluded.next_date, stage = 0")
+			.bind(questionId, addDays(today(), 1))
 			.run();
 		await setStatus(db, questionId, "active");
 		return;
 	}
-	if (!row) {
-		// 同类题第一次就做对：done，不进复习，不再出现在练习里
-		await db.prepare("UPDATE questions SET status = 'done', status_at = datetime('now') WHERE id = ? AND source = '同类题' AND status = 'active'").bind(questionId).run();
-		return;
-	}
-	const next = row.stage + 1;
-	if (next >= INTERVALS.length) {
-		// 15 天关也通过：已掌握
-		await db.prepare("DELETE FROM review_queue WHERE question_id = ?").bind(questionId).run();
-		await setStatus(db, questionId, "mastered");
-	} else {
-		await db.prepare("UPDATE review_queue SET stage = ?, next_date = ? WHERE question_id = ?").bind(next, addDays(t, INTERVALS[next]), questionId).run();
-	}
+	const q = await db.prepare("SELECT q.source, q.sent_at, EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrong FROM questions q WHERE q.id = ?").bind(questionId).first<{ source: string; sent_at: string | null; wrong: number }>();
+	if (!q) return;
+	await db.prepare("DELETE FROM review_queue WHERE question_id = ?").bind(questionId).run(); // 做对了就不用再重做
+	if (!q.wrong) return setStatus(db, questionId, "done"); // 一次就做对：隐藏，30 天后删
+	if (q.sent_at) await setStatus(db, questionId, "mastered"); // 错题重做对、且已发给 Claude：隐藏
+	// 没发过：留在错题本（显示「重做已对」），等打包发给 Claude 后再隐藏
 }
 
 /** 手动：删除题目（作答记录保留，待批改的一并删掉）/ 标为已掌握 */
