@@ -20,6 +20,7 @@ type Q = {
 	created_at: string;
 	type: "single" | "multi" | "fill" | "short";
 	stem: string;
+	no?: number | null;
 	options: string | null;
 	answer: string;
 	explanation: string | null;
@@ -73,13 +74,15 @@ const parse = <T>(s: string | null, d: T): T => {
 		return d;
 	}
 };
+/** 题号：每科各自编号，放在题干前，如「数学1：」 */
+export const label = (q: { subject: string; no?: number | null }) => (q.no ? `${q.subject}${q.no}：` : "");
 const clientQ = (q: Q) => ({
 	id: q.id,
 	subject: q.subject,
 	category: q.category,
 	topic: q.topic,
 	type: q.type,
-	stem: q.stem,
+	stem: label(q) + q.stem,
 	options: parse<string[]>(q.options, []),
 	...pick({ ...q, opts: !!q.options }), // tag、board：旧题按题干补判
 	created_at: q.created_at,
@@ -163,7 +166,7 @@ app.get("/api/home", async (c) => {
 			.all(),
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
-		db.prepare("SELECT id, subject, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
+		db.prepare("SELECT id, subject, no, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
 		// 打卡：按北京时间统计每天有没有做题，近 7 天做对多少
 		db.prepare("SELECT DISTINCT date(created_at, '+8 hours') d FROM attempts ORDER BY d DESC LIMIT 400").all<{ d: string }>(),
@@ -185,7 +188,7 @@ app.get("/api/home", async (c) => {
 		streak,
 		done_today: days.has(today()),
 		right7: right7?.n ?? 0,
-		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: q.stem.slice(0, 60), created_at: q.created_at })),
+		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: (label(q) + q.stem).slice(0, 60), created_at: q.created_at })),
 	});
 });
 
@@ -280,7 +283,7 @@ app.get("/api/attempts", async (c) => {
 	const { results } = await c.env.DB
 		.prepare(
 			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status,
-			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.options, q.answer, q.explanation
+			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
@@ -289,6 +292,7 @@ app.get("/api/attempts", async (c) => {
 	return c.json(
 		results.map((r) => ({
 			...r,
+			stem: label(r as Q) + r.stem,
 			options: parse<string[]>(r.options, []),
 			answer: parse<string[]>(r.answer, []),
 			photos: r.photo_key ? String(r.photo_key).split(",") : [],
@@ -306,7 +310,7 @@ const WRONG_SQL = {
 async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.stem, q.source, q.created_at, r.next_date, r.stage,
+			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
