@@ -12,7 +12,7 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
 批改：get_inbox → save({grades})。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
-作答标记：[计算]逐步公式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；以文字为准，有手绘才附图。`;
+作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
 const Q = z.object({
@@ -88,8 +88,8 @@ export function buildServer(env: Env) {
 		).results;
 		for (const a of atts) {
 			const ans = String(a.answer_text ?? "");
-			// 拍的照片都给；画板小图（约 500 token/张）只在有手绘时给，其余靠文字描述就够
-				const keys = String(a.photo_key ?? "").split(",").filter((k) => k && (!k.startsWith("boards/") || /手绘|手写/.test(ans)));
+			// 作答照片 + 手绘/草纸小图（已裁剪压缩）；views/ 是只给学生自己看的整板图，文字描述已经够
+			const keys = String(a.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/"));
 			if (keys.length > budget) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
 			budget -= keys.length;
 			out.push(

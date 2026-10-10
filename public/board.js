@@ -515,12 +515,28 @@ class Board {
 		if (pens) parts.push(`手绘${pens}笔`);
 		return (this.axes ? "坐标轴；" : "") + parts.join("；");
 	}
-	toFile() {
-		this.draw(); // 先重绘一遍，确保导出清楚
-		const s = Math.min(2, 600 / Math.max(this.W, this.H)), out = document.createElement("canvas");
-		out.width = Math.round(this.W * s); out.height = Math.round(this.H * s);
-		const c = out.getContext("2d"); c.scale(s, s);
-		this.paint(c, false);
-		return new Promise((res) => out.toBlob((b) => res(new File([b], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.85));
+	toFile() { return snapshot(this); }
+}
+
+// 画板导出给 Claude 的小图：只裁出画了东西的区域，最长边 ≤512px、JPEG 0.7。
+// 图片用量按像素算（≈宽×高/750 token），裁掉空白比整板 600px 省一半以上，字也更大更清楚。
+function snapshot(b) {
+	const W = Math.round(b.W), H = Math.round(b.H), full = document.createElement("canvas");
+	full.width = W; full.height = H;
+	const fc = full.getContext("2d");
+	b.paint(fc, false);
+	// 找「墨迹」：深色或彩色像素（浅色格线、纸色不算）
+	const d = fc.getImageData(0, 0, W, H).data;
+	let x0 = W, y0 = H, x1 = -1, y1 = -1;
+	for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) {
+		const i = (y * W + x) * 4, r = d[i], g = d[i + 1], bl = d[i + 2];
+		if (r + g + bl < 540 || Math.max(r, g, bl) - Math.min(r, g, bl) > 60) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
 	}
+	if (x1 < 0) { x0 = 0; y0 = 0; x1 = W - 1; y1 = H - 1; }
+	const m = 14; x0 = Math.max(0, x0 - m); y0 = Math.max(0, y0 - m); x1 = Math.min(W, x1 + m); y1 = Math.min(H, y1 + m);
+	const cw = x1 - x0, ch = y1 - y0, s = Math.min(2, 512 / Math.max(cw, ch)), out = document.createElement("canvas");
+	out.width = Math.round(cw * s); out.height = Math.round(ch * s);
+	const c = out.getContext("2d");
+	c.drawImage(full, x0, y0, cw, ch, 0, 0, out.width, out.height);
+	return new Promise((res) => out.toBlob((bb) => res(new File([bb], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.7));
 }

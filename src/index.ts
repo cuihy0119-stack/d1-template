@@ -189,7 +189,7 @@ app.post("/api/attempt-photo", async (c) => {
 	const f = form.get("file");
 	if (!f || typeof f === "string") return c.json({ error: "没有文件" }, 400);
 	// kind=board：作图板导出的图（只有含手绘时才发给 Claude）
-	return c.json({ key: await savePhoto(c.env, f, form.get("kind") === "board" ? "boards" : "attempts") });
+	return c.json({ key: await savePhoto(c.env, f, ({ board: "boards", view: "views" } as Record<string, string>)[String(form.get("kind"))] ?? "attempts") }); // boards 发给 Claude；views 只给自己看
 });
 
 app.get("/photo/*", async (c) => {
@@ -229,7 +229,7 @@ app.post("/api/submit", async (c) => {
 		if (!q) continue;
 		const ans = Array.isArray(it.answer) ? [...it.answer].sort().join("") : String(it.answer ?? "");
 		const text = it.work ? (ans ? ans + "\n" : "") + it.work : ans; // 画板过程附在答案后，给 Claude 看
-		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards)\/[\w.-]+$/.test(k)).join(",") || null;
+		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards|views)\/[\w.-]+$/.test(k)).join(",") || null;
 		const secs = Math.max(0, Math.min(Math.round(Number(it.time_spent_sec) || 0), 86400));
 		// 改答案：更新原来那条作答（不新增），简答重新待批改，客观题重新判分
 		const old = it.attempt_id
