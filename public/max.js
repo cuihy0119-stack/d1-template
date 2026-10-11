@@ -52,6 +52,8 @@ const Max = (() => {
 		if (pendingTip) tip(pendingTip);
 	}
 	idle(makeBall);
+	// ⌘K / Ctrl+K 随时呼出或收起 Max（iPad 外接键盘、电脑）
+	addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); ui?.island.classList.contains("open") ? close() : open(); } });
 
 	// ---------- 灵动岛 ----------
 	function build() {

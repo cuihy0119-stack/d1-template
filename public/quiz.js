@@ -41,6 +41,18 @@ async function start() {
 	cur = 0;
 	render("enter");
 }
+// 外接键盘（iPad）：← → 上/下一题，A-D 或 1-4 选选项；在输入框里打字时不管
+addEventListener("keydown", (e) => {
+	if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input,textarea,[contenteditable],math-field") || !qs.length || location.hash) return;
+	const nav = [...document.querySelectorAll(".nav .btn")];
+	if (e.key === "ArrowRight" && nav[1] && !nav[1].disabled && nav[1].id !== "submit") { e.preventDefault(); nav[1].click(); }
+	else if (e.key === "ArrowLeft" && nav[0] && !nav[0].disabled) { e.preventDefault(); nav[0].click(); }
+	else {
+		const i = "abcd".indexOf(e.key.toLowerCase()), j = "1234".indexOf(e.key), opts = document.querySelectorAll(".card .opt");
+		const o = opts[i >= 0 ? i : j];
+		if (o) { e.preventDefault(); o.click(); }
+	}
+});
 // 从「返回」缓存回到做题页：状态可能已过期（离开时已用 sendBeacon 提交），直接重新加载
 addEventListener("pageshow", (e) => e.persisted && !location.hash && location.reload());
 
@@ -269,7 +281,7 @@ async function submit() {
 }
 
 let poll = 0, seq = 0;
-let burstDone = false;
+let burstDone = false, resultShown = false;
 async function showResult(ids) {
 	isle.hide();
 	const my = ++seq;
@@ -296,6 +308,7 @@ async function showResult(ids) {
 	for (const r of rows) {
 		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : "待 Claude 批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
 		const card = el("details", { className: "card rcard", open: !fold || open.has(String(r.id)) });
+		if (resultShown) card.style.animation = "none"; else card.style.setProperty("--i", Math.min(rows.indexOf(r), 12)); // 只在第一次显示时依次浮现，轮询刷新不重播
 		card.dataset.id = r.id;
 		card.append(el("summary", {},
 			el("span", { className: "badge " + badge[1], textContent: badge[0] }),
@@ -328,6 +341,7 @@ async function showResult(ids) {
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);
+	resultShown = true;
 	// 结算特效（只放一次）：客观题全对 🥳 + 彩纸；全错 😭
 	if (!burstDone && objective.length) {
 		burstDone = true;

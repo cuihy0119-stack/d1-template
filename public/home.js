@@ -7,9 +7,18 @@ const now = new Date();
 $("#date").textContent = now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }) + " · " + LINES[Math.floor(now / 864e5) % LINES.length];
 
 // 坚持打卡 + 考试倒计时
+// 数字从 0 滚到目标值（只在第一次显示时；精简模式/减少动态时直接显示）
+let counted = false;
+const calm = () => document.documentElement.classList.contains("lite") || matchMedia("(prefers-reduced-motion: reduce)").matches;
+function countUp(b, n) {
+	if (counted || calm() || !(n > 0)) return void (b.textContent = n);
+	const t0 = performance.now(), f = (t) => { const k = Math.min(1, (t - t0) / 700); b.textContent = Math.round(n * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(f); };
+	b.textContent = 0; requestAnimationFrame(f);
+}
 function renderHero(h) {
-	const chip = (n, label) => el("div", { className: "stat" }, el("b", { textContent: n }), el("span", { textContent: label }));
+	const chip = (n, label) => { const b = el("b"); countUp(b, n); return el("div", { className: "stat" }, b, el("span", { textContent: label })); };
 	$("#stats").replaceChildren(chip(h.streak, h.done_today ? "连续练习天数" : "连续天数 · 今天还没练"), chip(h.today_count, "今日待练"), chip(h.right7, "近 7 天做对"));
+	counted = true;
 	const box = $("#exams");
 	if (!h.exams.length) return box.replaceChildren(askClaude(CLAUDE_ASK.exams, "📅 让 Claude 写上临近的考试，首页倒计时"));
 	box.replaceChildren(...h.exams.slice(0, 3).map((e, i) => {
