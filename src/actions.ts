@@ -1,6 +1,6 @@
 // Max 的网站动作：学生让 Max 做事（清空标记、清空错题文件夹、设考试…）时，Max 给一个 [[做:动作]] 按钮。
 // 点了先 dry=1 数一数、弹确认，确认后才真做。作答记录是统计数据，不删；整站清空不做（要删题用「清理题库」按科目/考点）。
-import { cleanBank, classify, organize, unorganized, MaxErr } from "./max";
+import { cleanBank, organize, startClassify, unorganized, MaxErr } from "./max";
 import { wrongSql } from "./live";
 
 type Res = { msg: string; n: number; empty?: boolean; done?: boolean };
@@ -13,7 +13,7 @@ const delQuestions = (sub: string) => [
 	`DELETE FROM questions WHERE id IN (${sub})`,
 ];
 
-export async function runAction(env: Env, name: string, arg: string, dry: boolean): Promise<Res> {
+export async function runAction(env: Env, ctx: ExecutionContext, name: string, arg: string, dry: boolean): Promise<Res> {
 	const db = env.DB;
 	// 清空类：dry 时报数量并提醒；真做时执行 run
 	const clear = (n: number, what: string, note: string, run: () => Promise<unknown>): Res | Promise<Res> => {
@@ -47,7 +47,8 @@ export async function runAction(env: Env, name: string, arg: string, dry: boolea
 		}
 		case "整理分类":
 			if (dry) return { msg: "让 Max 重新整理分类（用额度，会合并同义考点、归章节）", n: 0 };
-			return { msg: `整理好 ${await classify(env, true)} 个考点`, n: 0, done: true };
+			await startClassify(env, ctx);
+			return { msg: "已在后台整理分类，稍后刷新题库看结果", n: 0, done: true };
 		case "清理题库": { // 按「科目/考点」删（可加 |未做 或 |已做）；先数、确认才删
 			const { n, sample } = await cleanBank(db, arg, !dry);
 			if (!n) return { msg: "题库里没有符合的题", n, empty: true };

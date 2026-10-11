@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classify, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classifyState, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, wrongSql } from "./live";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
@@ -407,10 +407,9 @@ app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
 });
-app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（合并同义考点、归章节）
-	try { return c.json({ done: await classify(c.env, true) }); }
-	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
-});
+// 手动整理分类：后台进行，网页轮询 GET 看进度（见 startClassify）
+app.post("/api/max/classify", async (c) => c.json(await startClassify(c.env, c.executionCtx)));
+app.get("/api/max/classify", async (c) => c.json(await classifyState(c.env.DB)));
 // 考点 → Notion 笔记链接（没设 NOTION_TOKEN 返回 setup:true，网页就不显示按钮）
 app.get("/api/notion", async (c) => {
 	try { return c.json(await findNote(c.env, String(c.req.query("subject") ?? ""), String(c.req.query("topic") ?? ""))); }
@@ -434,7 +433,7 @@ app.post("/api/max/gen", async (c) => {
 // Max 的网站动作：dry=1 只数一数（给确认框用），否则真做
 app.post("/api/max/do", async (c) => {
 	const b = await c.req.json<{ name?: string; arg?: string; dry?: boolean }>().catch(() => ({}) as { name?: string; arg?: string; dry?: boolean });
-	try { return c.json(await runAction(c.env, String(b.name ?? "").slice(0, 10), String(b.arg ?? "").slice(0, 80), !!b.dry)); }
+	try { return c.json(await runAction(c.env, c.executionCtx, String(b.name ?? "").slice(0, 10), String(b.arg ?? "").slice(0, 80), !!b.dry)); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "失败：" + (e as Error).message }, e instanceof MaxErr ? 400 : 500); }
 });
 app.post("/api/max/chat", async (c) => {

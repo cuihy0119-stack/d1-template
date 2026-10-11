@@ -626,6 +626,25 @@ const CLASSIFY_SYS = `整理初三某科的考点：同义的合并成一个规�
 只输出 JSON 数组：[{"from":"原考点","topic":"规范考点","cat":"章节"}]`;
 const topicRows = (db: D1Database, subject: string) =>
 	db.prepare("SELECT topic, COALESCE(category, '') cat, COUNT(*) c FROM questions WHERE subject = ? AND topic IS NOT NULL GROUP BY 1, 2 ORDER BY c DESC LIMIT 80").bind(subject).all<{ topic: string; cat: string; c: number }>();
+// 后台整理：网页只发起，结果和进度存在库里（meta.cls_state），整理完才告诉网页；每科整理完就写库，中途失败也不丢已完成的部分
+type ClsState = { status: "idle" | "running" | "done" | "error"; at?: number; n?: number; msg?: string };
+export async function classifyState(db: D1Database): Promise<ClsState> {
+	try { return JSON.parse((await db.prepare("SELECT v FROM meta WHERE k = 'cls_state'").first<{ v: string }>())?.v ?? "null") ?? { status: "idle" }; }
+	catch { return { status: "idle" }; }
+}
+export async function startClassify(env: Env, ctx: ExecutionContext): Promise<ClsState> {
+	const db = env.DB, cur = await classifyState(db);
+	if (cur.status === "running" && Date.now() - (cur.at ?? 0) < 300000) return cur; // 已经在整理：不重复开
+	const put = (v: ClsState) => db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('cls_state', ?)").bind(JSON.stringify(v)).run();
+	const run = { status: "running", at: Date.now() } as ClsState;
+	await put(run);
+	ctx.waitUntil((async () => {
+		try { const n = await classify(env); await put({ status: "done", n, at: Date.now() }); } // 不 force：只整理有新考点的科目，没变化的不花额度
+		catch (e) { await put({ status: "error", msg: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message, at: Date.now() }); }
+	})());
+	return run;
+}
+
 export async function classify(env: Env, force = false): Promise<number> {
 	const db = env.DB;
 	const { results: subs } = await db.prepare("SELECT DISTINCT subject FROM questions WHERE topic IS NOT NULL").all<{ subject: string }>();
