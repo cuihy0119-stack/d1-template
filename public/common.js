@@ -138,7 +138,7 @@ function plain(t) {
 const noteMemo = {};
 function noteLink(subject, topic, cls = "btn small") {
 	const a = el("a", { className: cls, hidden: true, target: "_blank", rel: "noopener", style: "text-decoration:none;margin-top:8px" });
-	if (topic) (noteMemo[subject + "/" + topic] ||= api("/api/notion?subject=" + encodeURIComponent(subject || "") + "&topic=" + encodeURIComponent(topic)).catch(() => null)).then((r) => { if (r?.note) { a.href = r.note.url; a.textContent = "Notion 笔记：" + r.note.title; a.hidden = false; } });
+	if (topic) (noteMemo[subject + "/" + topic] = noteMemo[subject + "/" + topic] || api("/api/notion?subject=" + encodeURIComponent(subject || "") + "&topic=" + encodeURIComponent(topic)).catch(() => null)).then((r) => { if (r?.note) { a.href = r.note.url; a.textContent = "Notion 笔记：" + r.note.title; a.hidden = false; } });
 	return a;
 }
 // 推送时间：库里是 UTC，显示北京时间「10-10 10:35」

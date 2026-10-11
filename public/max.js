@@ -195,14 +195,14 @@ const Max = (() => {
 		const vv = window.visualViewport;
 		if (vv) { const fit = () => { if (island.classList.contains("open")) layout(); }; vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
 		// 动作按钮：整理错题（事件委托，只挂一次）
-		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); const d = e.target.closest("button[data-do]"); if (d) doNow(d); });
+		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const d = e.target.closest("button[data-do]"); if (d) act(d); });
 		document.body.append(island);
 		shield(island); // 窗口里的按钮（快捷问题、标签、发送）都挡住误触
 		ui = { island, log, input, sendB, chips, gear, attBox };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
-			const show = (ui.show = (s) => { ui.dsOn = !!s.ds.on; sub.textContent = `Cloudflare ${s.cfu?.pct ?? s.cf}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
+			const show = (ui.show = (s) => { ui.dsOn = !!s.ds.on; sub.textContent = `Cloudflare ${s.cfu.pct}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
 			let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
 			if (st && Date.now() - st.at < 600000) show(st.s);
 			else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
@@ -248,7 +248,6 @@ const Max = (() => {
 			el("div", { className: "mtools" },
 				tool("🗂 整理错题本", async () => { const r = await api("/api/max/organize", { method: "POST" }); window.dispatchEvent(new Event("max:changed")); return r.done ? `整理好 ${r.done} 道` : "都整理过了"; }),
 				tool("🏷 整理分类", async () => { const r = await api("/api/max/classify", { method: "POST" }); return r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"; }),
-				tool("↻ 重想今天的建议", async () => { await api("/api/max/brief?force=1"); dropCache(); return "已更新，回首页看"; }),
 				tool("🔌 检查 DeepSeek", async () => { settings(box, true); return ""; }),
 				tool("📍 悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
 				tool("🧹 清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
@@ -273,12 +272,12 @@ const Max = (() => {
 	// Max 画的图：[[图:{JSON}]] → 用题图画板画出来（和 Claude 推题的画板同一套）。
 	// 画图组件（board/circuit/fig.js）平时不加载；回答里一出现「[[图」就提前加载，写完时直接画；同一条回答只画一次
 	const FIG = /\[\[图[:：]\s*(\{[\s\S]*?\})\s*\]\]/g;
-	let figReady;
-	const need = (src, ok) => (ok() ? null : new Promise((res, rej) => document.head.append(el("script", { src, onload: res, onerror: rej }))));
-	const needFig = () => (figReady ||= ["/board.js", "/circuit.js", "/fig.js"].reduce((p, src) => p.then(() => need(src, () =>
-		src === "/board.js" ? typeof Board !== "undefined" : src === "/circuit.js" ? typeof CircuitBoard !== "undefined" : typeof Fig !== "undefined")), Promise.resolve())
-		.catch((e) => { figReady = null; throw e; }));
+	// 画图组件按需加载（同一个脚本只加载一次）
+	const loaded = {};
+	const need = (src, ok) => (ok() ? Promise.resolve() : (loaded[src] = loaded[src] || new Promise((res, rej) => document.head.append(el("script", { src, onload: res, onerror: () => { delete loaded[src]; rej(new Error(src)); } })))));
+	const needFig = () => need("/board.js", () => typeof Board !== "undefined").then(() => need("/circuit.js", () => typeof CircuitBoard !== "undefined")).then(() => need("/fig.js", () => typeof Fig !== "undefined"));
 	function paint(div, text, final) {
+		text = text.replace(/\[\[清理[:：]([^\]]+)\]\]/g, "[[做:清理题库|$1]]"); // 旧历史里的写法
 		const figs = [];
 		text = text.replace(FIG, (_, j) => `\u0001${figs.push(j) - 1}\u0001`);
 		const k = text.search(/\[\[图/); // 还没写完的图
@@ -286,7 +285,6 @@ const Max = (() => {
 		if (figs.length || k >= 0) needFig().catch(() => {}); // 提前加载，写完就能马上画
 		const h = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*/gm, "")
 			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
-			.replace(/\[\[清理[:：]([^\]]+)\]\]/g, (_, t) => `<button type="button" class="mgo" data-act="clean" data-spec="${t.trim()}">清理题库：${t.trim().replace("|", " · ")}</button>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
 			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">⚡ ${n.trim()}${a.trim() ? "：" + a.trim().replace(/\|/g, " ") : ""}</button>`)
@@ -353,6 +351,7 @@ const Max = (() => {
 		wake();
 	}
 	// 当前页面内容：Max 的「眼睛」（只取主区域文字，最多 1500 字；只在发问时读一次）
+	const PAGE_RE = /页|这|总结|分析|看看|上面|屏幕|错题|列表|哪/;
 	const page = () => ({ path: location.pathname, title: document.title, text: (document.querySelector("main")?.innerText || "").replace(/\n{2,}/g, "\n").slice(0, 1500) });
 
 	function stop() { if (job) job.abort(); }
@@ -378,7 +377,7 @@ const Max = (() => {
 	}
 
 	// Max 给的网站动作（[[做:…]]）：先数一数、弹确认，确认才做；做完刷新题库/错题本/首页
-	async function doNow(b) {
+	async function act(b) {
 		if (b.disabled) return;
 		b.disabled = true;
 		const post = (dry) => api("/api/max/do", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: b.dataset.do, arg: b.dataset.arg, dry }) });
@@ -392,21 +391,6 @@ const Max = (() => {
 		} catch (e) { toast(e.message); }
 		finally { if (!b.classList.contains("done")) b.disabled = false; }
 	}
-	// Max 提议清理题库：先数一数、让学生确认，才真删（做题记录保留）
-	async function cleanNow(b) {
-		const spec = b.dataset.spec, post = (dry) => api("/api/max/clean", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ spec, dry }) });
-		b.disabled = true;
-		try {
-			const r = await post(true);
-			if (!r.n) return toast("题库里没有符合的题");
-			if (!confirm(`删除题库里「${spec.replace("|", " · ")}」的 ${r.n} 道题？\n例如：${r.sample.join("；")}\n做题记录会保留，删了不能恢复。`)) return;
-			await post(false);
-			b.textContent = `已清理 ${r.n} 道`; b.classList.add("done");
-			window.dispatchEvent(new Event("max:changed"));
-		} catch (e) { toast(e.message); }
-		finally { if (!b.classList.contains("done")) b.disabled = false; }
-	}
-
 	// 选好的图片：压缩后显示在输入框上方（可删）
 	async function attach(file) {
 		build();
@@ -450,7 +434,7 @@ const Max = (() => {
 			}
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
-				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one ? undefined : page() } }) });
+				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one || !PAGE_RE.test(text) ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
 			eng = r.headers.get("x-max-engine") || "";

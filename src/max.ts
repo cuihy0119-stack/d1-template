@@ -109,7 +109,6 @@ export async function status(env: Env, fresh = false) {
 	]);
 	const FREE = 10000;
 	return {
-		cf: Math.min(100, Math.round((cf / FREE) * 100)), // 旧字段（顶部小字用）
 		cfu: { used: Math.min(cf, FREE), cap: FREE, pct: Math.min(100, Math.round((cf / FREE) * 1000) / 10), calls: cfn, out: cf >= DAILY },
 		ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY, pct: Math.round((ds / DS_DAILY) * 1000) / 10, calls: dsn, balance: bal || null },
 		chats: { used: chats, cap: 300 }, sec: sec?.n ?? 0,
@@ -345,9 +344,10 @@ export async function brief(env: Env, force = false) {
 const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学法语。中文、简洁（≤150字），公式 $..$，化学式 $\\ce{..}$。
 只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
 需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]
-学生想练某类题就给 [[练:科目/考点]]（题库有同类题就直接跳过去，没有网站会让你现场出题，不用你出）。
-讲解学生做错的题时，末尾加一行 [[笔记:科目/考点]]（网站会去学生的 Notion 找同考点笔记，没有就不显示）。
-学生想删/清理题库里的题时给 [[清理:科目/考点]]（可加 |未做 或 |已做，如 [[清理:数学/集合|已做]]；科目/考点用题库概况里的写法）；点按钮学生还要再确认，你别说“已删除”。`;
+学生想练某类题就给 [[练:科目/考点]]（题库有同类题就直接跳过去，没有网站会让你现场出题，不用你出）。`;
+const NOTE_RE = /错|讲|解析|为什么|看不懂|没懂/;
+const NOTE_DOC = "讲解学生做错的题时，末尾加一行 [[笔记:科目/考点]]（网站去学生的 Notion 找同考点笔记，没有就不显示）。";
+const BANK_RE = /题|练|考点|科目|错|薄弱|复习|今天|推荐/; // 这些问题才附上题库概况
 // 画图说明：只在问题和图有关时才附上（平时不发，省 token）。写法尽量短：点用 P 一次定义，pts 可写成 "ABC"
 const DRAW_RE = /画|图|几何|三角形|四边形|多边形|圆|角|线段|射线|垂直|平行|函数|抛物线|坐标|电路|串联|并联|电流|电压|受力|光路|示意/;
 const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受力/光路、电路），单独一行写 [[图:JSON]]，网站会画出来；一次一张，越简单越好，坐标用整数。
@@ -357,8 +357,8 @@ const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受�
  元件 t：cell 电源/sw 开关/lamp 灯/res 电阻/rheo 滑动变阻器/am 电流表/vm 电压表/motor/bell/led/fuse；横放或竖放；导线把各端连成回路。`;
 // 网站动作：学生明确要 Max 做事（清空、设考试、整理）时才附上；按钮点了先确认
 const ACT_RE = /清|删|标记|文件夹|收件箱|照片|总结|整理|分类|考试|倒计时/;
-const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]]，网站会先弹确认再执行：[[做:清空标记]] 标记的题 · [[做:清空错题本]] 复习中的错题 · [[做:清空错题文件夹]] 重做做对、还没发给Claude的题 · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]]。
-作答记录是统计，不删；整站清空不做，删题用 [[清理:科目/考点]]。`;
+const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]]，网站会先弹确认再执行：[[做:清空标记]] 标记的题 · [[做:清空错题本]] 复习中的错题 · [[做:清空错题文件夹]] 重做做对、还没发给Claude的题 · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]] · [[做:清理题库|科目/考点]]（可加 |未做 或 |已做）。
+作答记录是统计，不删；整站清空不做。`;
 const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结尾写“来源：网站名”；结果不相关或没搜到就如实说，不编造。";
 
 // len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
@@ -427,18 +427,19 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		if (hit) return { cached: hit };
 	}
 	// 省额度：历史里 Max 的旧回答只留开头；页面内容只在问到「这页/总结/分析…」时才带；带了页面就不再带题库概况
-	const hist = messages.slice(-6).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
+	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
+	const hist = messages.slice(hard ? -6 : -4).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
 	const q = messages[messages.length - 1]?.content ?? "";
 	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
 	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
-	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : "") + (ACT_RE.test(q) ? "\n" + ACT_DOC : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
+	const bankText = c.text || page || !BANK_RE.test(q) ? "" : bank || (await bankIndex(db)); // 题库概况只在问题和题目有关时才附
+	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : "") + (NOTE_RE.test(q) ? "\n" + NOTE_DOC : "") + (ACT_RE.test(q) ? "\n" + ACT_DOC : ""), c.text || bankText, page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
-	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
 	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来"); // 只有真要问模型才算一次（缓存命中不算）
 	let web = 0;
 	if (ctx.web && !oneShot) { // 联网搜索：拿学生最近一句有内容的话去搜（太短的追问往前找）
