@@ -35,7 +35,7 @@ let uploading = false, lastHome = "";
 async function loadHome() {
 	if (uploading) return;
 	const h = await cachedApi("/api/home?brief=1", 60000), sig = JSON.stringify(h); // 1 分钟内刷新直接用缓存，不发请求
-	if (h.brief) showBrief(h.brief);
+	if (h.brief) { showBrief(h.brief); if (h.brief.thinking) setTimeout(() => { dropCache(); loadHome(); }, 15000); } // Max 还在后台想：过一会儿再看
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);

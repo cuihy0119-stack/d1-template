@@ -7,7 +7,7 @@ import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
-import { folderSummary, refine } from "./max";
+import { bgRun, refine } from "./max";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -84,7 +84,8 @@ async function wrongPack(env: Env): Promise<string> {
 		)
 		.all<any>();
 	if (!results.length) return "";
-	const sum = await Promise.race([folderSummary(env).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 20000))]);
+	// 文件夹总结只用已经写好的（每天定时任务会写）：现场等模型会让 Claude 的调用卡 20 秒
+	const sum = await db.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>().then((r) => (r ? JSON.parse(r.v) : null)).catch(() => null) as { text: string } | null;
 	const list = results.map((r) => r.id).join(",");
 	await db.batch([ // 发出即清
 		db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
@@ -96,7 +97,7 @@ async function wrongPack(env: Env): Promise<string> {
 	return `\n\n【错题文件夹·Max 已整理】${results.length} 道错题已重做做对，已从题库清掉。${sum ? "\nMax 总结：" + sum.text : ""}\n原题和学生当初的错答（含 Max 分析的错因）：\n${results.map((r) => wrongLine(r) + (r.aid ? `｜作答id=${r.aid}` : "｜照片录入的原错题")).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄上面原题归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
 }
 
-export function buildServer(env: Env) {
+export function buildServer(env: Env, ctx?: ExecutionContext) {
 	const db = env.DB;
 	const s = new McpServer({ name: "MAX NOTE", version: "2.0.0" }, { instructions: INSTRUCTIONS });
 
@@ -243,7 +244,7 @@ export function buildServer(env: Env) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await refine(env, fresh)) + (await wrongPack(env)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (ctx && fresh.length ? (bgRun(env, ctx, "refine:" + fresh.join(","), () => refine(env, fresh)), "（Max 后台复核中，几十秒后题目会自动补全）") : await refine(env, fresh)) + (await wrongPack(env)));
 		},
 	);
 
@@ -315,8 +316,8 @@ async function upgradeLegacy(request: Request): Promise<Request> {
 
 // 无状态：每个请求新建 server + transport
 export const mcpHandler = {
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const server = buildServer(env);
+	async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+		const server = buildServer(env, ctx);
 		const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
 		await server.connect(transport);
 		return transport.handleRequest(await upgradeLegacy(request));

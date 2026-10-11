@@ -6,7 +6,7 @@
 // ctx：{ q: 正在做的题 } { a: 已交的作答 } { explain: 作答id（一键讲解，有缓存）} { marked: true（解析标记的题）} { tmp: 临时练习题（不在题库）}
 // 输入框上面两个标签：深度思考（只用 DeepSeek 的思考模型）、联网搜索（先搜网页再回答），点一下开、再点关；状态记在本标签页
 const Max = (() => {
-	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 60000, IDLE = 3000, M = 10; // M：离屏幕边的距离
+	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 90000, IDLE = 3000, M = 10; // M：离屏幕边的距离
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
 	const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
 	let att = null; // 待发的图片（dataURL，已压缩）
