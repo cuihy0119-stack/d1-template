@@ -261,10 +261,13 @@ const Max = (() => {
 			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
 			.replace(/\[\[清理[:：]([^\]]+)\]\]/g, (_, t) => `<button type="button" class="mgo" data-act="clean" data-spec="${t.trim()}">清理题库：${t.trim().replace("|", " · ")}</button>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
+			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim().split("/").pop()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
 			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
 			.replace(/\[\[[^\]]*$/, ""); // 流式输出时半截的 [[…：先不显示
 		div.innerHTML = h;
 		if (final) try { math(div); } catch {}
+		if (final) for (const a of div.querySelectorAll("a[data-note]")) // 去 Notion 找同考点笔记，找到才显示
+			api("/api/notion?topic=" + encodeURIComponent(a.dataset.note)).then((r) => { if (r?.note) { a.href = r.note.url; a.textContent = "Notion 笔记：" + r.note.title; a.hidden = false; } }).catch(() => {});
 	}
 	const scroll = () => { ui.log.scrollTop = ui.log.scrollHeight; };
 	function bubble(role, text) {

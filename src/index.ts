@@ -11,6 +11,7 @@ import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classify, cleanBank, gen, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 import { live } from "./live";
+import { findNote } from "./notion";
 
 type Q = {
 	id: number;
@@ -405,6 +406,11 @@ app.post("/api/max/organize", async (c) => {
 app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（合并同义考点、归章节）
 	try { return c.json({ done: await classify(c.env, true) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
+});
+// 考点 → Notion 笔记链接（没设 NOTION_TOKEN 返回 setup:true，网页就不显示按钮）
+app.get("/api/notion", async (c) => {
+	try { return c.json(await findNote(c.env, String(c.req.query("topic") ?? ""))); }
+	catch (e) { return c.json({ note: null, error: (e as Error).message }); }
 });
 // 现场出题（题库没有同类题时）：临时题不进题库，答案一起发给网页当场判
 app.post("/api/max/gen", async (c) => {

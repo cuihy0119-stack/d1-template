@@ -134,6 +134,13 @@ function plain(t) {
 	return (t + (hid ? " （见画板图）" : "")).trim();
 }
 
+// 错题 → Notion 同考点笔记：后端按考点名搜 Notion 页面标题，找到才显示按钮（没连 Notion 或没这篇笔记就不出现）
+const noteMemo = {};
+function noteLink(topic, cls = "btn small") {
+	const a = el("a", { className: cls, hidden: true, target: "_blank", rel: "noopener", style: "text-decoration:none;margin-top:8px" });
+	if (topic) (noteMemo[topic] ||= api("/api/notion?topic=" + encodeURIComponent(topic)).catch(() => null)).then((r) => { if (r?.note) { a.href = r.note.url; a.textContent = "Notion 笔记：" + r.note.title; a.hidden = false; } });
+	return a;
+}
 // 推送时间：库里是 UTC，显示北京时间「10-10 10:35」
 const when = (t) => (t ? new Date(t.replace(" ", "T") + "Z").toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(/\//g, "-") : "");
 // 删题（做题记录保留）
