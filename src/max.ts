@@ -8,6 +8,7 @@ import { pick } from "./tags";
 import { wrongLine } from "./cause";
 import { alive, live } from "./live";
 import { webSearch } from "./search";
+import { figText } from "./fig";
 
 const CF = ["@cf/qwen/qwen3.8-27b", "@cf/zai-org/glm-4.7-flash"]; // 总管 + 总管忙时的替补
 const DAILY = 9800, SOFT = 8500; // Cloudflare 估算神经元：超过 SOFT 只留批改，超过 DAILY 不再用
@@ -23,7 +24,8 @@ export class MaxErr extends Error {}
 // ---------- 用量 ----------
 const day = () => new Date().toISOString().slice(0, 10);
 // 每个模型每百万 token 的神经元数（Cloudflare 价格表）：[输入, 输出（含思考）, 缓存命中的输入]
-const RATE: Record<string, [number, number, number]> = { "@cf/qwen/qwen3.8-27b": [40909, 290909, 4545], "@cf/zai-org/glm-4.7-flash": [5500, 36400, 5500] };
+const RATE: Record<string, [number, number, number]> = { "@cf/qwen/qwen3.8-27b": [40909, 290909, 4545], "@cf/zai-org/glm-4.7-flash": [5500, 36400, 5500],
+	"@cf/meta/llama-4-scout-17b-16e-instruct": [24545, 77273, 24545], "@cf/mistralai/mistral-small-3.1-24b-instruct": [31876, 50488, 31876] }; // 后两个是看图模型
 /** 按模型返回的真实 token 数算神经元；模型没给用量时按字数估 */
 function neurons(model: string, u: any, inEst: number, outEst: number) {
 	const [ri, ro, rc] = RATE[model] ?? RATE[CF[0]];
@@ -205,12 +207,12 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 	const db = env.DB;
 	if (!(await db.prepare("UPDATE attempts SET grader = 'maxing' WHERE id = ? AND grader = 'max' AND status = '待批改'").bind(id).run()).meta.changes) return;
 	const a = await db.prepare(
-		`SELECT a.question_id, a.answer_text, q.subject, q.type, q.tag, q.board, q.stem, q.options, q.answer, q.explanation
+		`SELECT a.question_id, a.answer_text, q.subject, q.type, q.tag, q.board, q.stem, q.fig, q.options, q.answer, q.explanation
 		 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?`).bind(id).first<any>();
 	try {
 		if (!a) throw new Error("题目不在了");
 		const draw = DRAW.has(pick({ ...a, opts: !!a.options }).tag) || /\[(作图|电路)\]/.test(String(a.answer_text ?? ""));
-		const user = [`题（${a.subject}·${a.type === "fill" ? "填空" : "解答"}）：${a.stem}`, a.options ? "选项：" + arr(a.options).join(" ") : "",
+		const user = [`题（${a.subject}·${a.type === "fill" ? "填空" : "解答"}）：${a.stem}`, figText(a.fig), a.options ? "选项：" + arr(a.options).join(" ") : "",
 			"参考答案：" + arr(a.answer).join(" / "), a.explanation ? "评分要点：" + a.explanation : "", "学生作答：" + (a.answer_text || "（空）")].filter(Boolean).join("\n");
 		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS + (draw ? DRAW_NOTE : "") }, { role: "user", content: user }];
 		const valid = (t: string) => typeof json<any>(t)?.score === "number";
@@ -371,13 +373,13 @@ async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: 
 	const aid = ctx.explain ?? ctx.a;
 	if (aid) {
 		const r = await db.prepare(
-			`SELECT a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.score, a.time_spent_sec, q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation
+			`SELECT a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.score, a.time_spent_sec, q.id, q.no, q.subject, q.topic, q.type, q.stem, q.fig, q.options, q.answer, q.explanation
 			 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?`).bind(aid).first<any>();
-		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
+		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}${r.fig ? "｜" + figText(r.fig) : ""}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
 	}
 	if (ctx.q) {
-		const q = await db.prepare("SELECT subject, no, stem, options, topic FROM questions WHERE id = ?").bind(ctx.q).first<any>();
-		if (q) return { text: `学生正在做这题（还没交，只给提示和思路，不要直接说答案）：${q.subject}${q.no ?? ""}（${q.topic || ""}）：${q.stem}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}` };
+		const q = await db.prepare("SELECT subject, no, stem, fig, options, topic FROM questions WHERE id = ?").bind(ctx.q).first<any>();
+		if (q) return { text: `学生正在做这题（还没交，只给提示和思路，不要直接说答案）：${q.subject}${q.no ?? ""}（${q.topic || ""}）：${q.stem}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}${q.fig ? "｜" + figText(q.fig) : ""}` };
 	}
 	return { text: "" };
 }
@@ -439,6 +441,24 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		route: ctx.deep || ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
 		done: !ctx.web && oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream, engine, web: ctx.web ? web : undefined };
+}
+
+// ---------- 看图：学生在 Max 里发的照片，先用 Cloudflare 的看图模型转写成文字，再交给平常的问答（DeepSeek 深度思考也能用） ----------
+const VISION = ["@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/mistralai/mistral-small-3.1-24b-instruct"];
+export async function see(env: Env, image: string, q: string, allow?: () => Promise<boolean>): Promise<string> {
+	if ((await used(env.DB)) >= DAILY) throw new MaxErr("今天 Cloudflare 额度用完了，Max 暂时看不了图");
+	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来");
+	const prompt = `初三学生发来一张图（多半是题目、作答或笔记）${q ? `，并问：「${q.slice(0, 200)}」` : ""}。把图里的内容完整转写成文字：题目原文、选项、数据、学生写的过程；公式用 $..$；有几何图/函数图/电路图/实验装置/表格就描述清楚（点、线、标注、数值）。只输出转写，不要解题。`;
+	let last: unknown;
+	for (const model of VISION) {
+		try {
+			const r: any = await within(env.AI.run(model as any, { messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 800, temperature: 0.1 } as any), 45000);
+			const text = clean(String(r?.choices?.[0]?.message?.content ?? r?.response ?? ""));
+			await Promise.all([add(env.DB, "max:", neurons(model, r?.usage, 1600, text.length)), add(env.DB, "maxn:", 1)]);
+			if (text) return text.slice(0, 1800);
+		} catch (e) { last = e; }
+	}
+	throw new MaxErr("Max 没看清这张图，换一张清楚点的试试" + (last ? `（${String(last).slice(0, 50)}）` : ""));
 }
 
 // ---------- 现场出题：题库里没有同类题时，Max 出 10 道以内的临时题（不进题库、不进错题本；答案发给网页当场判，做完就没了） ----------

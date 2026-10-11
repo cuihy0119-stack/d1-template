@@ -88,6 +88,7 @@ function row(q) {
 		const d = await api("/api/question/" + q.id);
 		detail.dataset.loaded = "1"; // 加载成功才记，失败了再点还能重试
 		item.querySelector(".stem").textContent = d.stem;
+		if (d.fig && window.Fig) detail.append(Fig.view(d.fig, "small"));
 		if (d.options.length) detail.append(el("div", { className: "mute", textContent: d.options.join("\n"), style: "white-space:pre-wrap" }));
 		const wrong = d.attempts.find((a) => a.is_correct === 0);
 		if (wrong && !/作图|函数|电路|光路|受力|证明/.test(d.tag || "")) detail.append(el("button", { type: "button", className: "btn small", textContent: "🤖 问 Max 这题", style: "margin:6px 0", onclick: () => Max.open({ explain: wrong.id }, "讲讲这道题") }));
