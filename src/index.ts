@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { cause } from "./cause";
 import { loginPage } from "./login";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, bucket, byMax, chat, folderSummary, gradeAll, MaxErr, maxDaily, organize, unorganized, used, wrongSummary } from "./max";
+import { brief, bucket, byMax, chat, folderSummary, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
 type Q = {
 	id: number;
@@ -394,6 +394,7 @@ app.get("/api/question/:id", async (c) => {
 
 // ---------- Max 助手 ----------
 app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1")), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
+app.get("/api/max/status", async (c) => c.json(await status(c.env)));
 app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env)));
 app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
@@ -408,7 +409,7 @@ app.post("/api/max/chat", async (c) => {
 	const pg = ctx.page && typeof ctx.page === "object" ? { path: String(ctx.page.path ?? "").slice(0, 60), title: String(ctx.page.title ?? "").slice(0, 60), text: String(ctx.page.text ?? "").slice(0, 1500) } : undefined;
 	try {
 		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg });
-		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "" } });
 	} catch (e) {
 		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
 	}

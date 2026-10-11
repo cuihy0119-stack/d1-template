@@ -350,3 +350,4 @@ body.drawing .maxball{opacity:0;pointer-events:none}
 .maxball.drag{transition:none}
 .msend.stop{background:#3a3733;font-size:14px}
 @media(prefers-reduced-motion:reduce){.mlogo svg g,.mlogo line{animation:none!important}}
+.meng{margin-top:4px;font-size:11px;color:#8d857b}
