@@ -355,6 +355,10 @@ const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受�
  其它 t：seg/line/ray（a,b 写点名，"d":1 虚线，"c":"red"）、circle（o,r）、angle（at,a,b,s 角弧标注）、fn（expr:"y=x^2-2x"，配 "axes":1）、force（a,b,n）。
 电路（格点，y 向下）：{"circuit":1,"items":[{"t":"cell","a":[0,0],"b":[2,0]},{"t":"sw","a":[4,0],"b":[6,0],"on":1},{"t":"lamp","a":[6,2],"b":[6,4],"n":"L1"},{"t":"wire","pts":[[2,0],[4,0]]},{"t":"wire","pts":[[6,0],[6,2]]},{"t":"wire","pts":[[6,4],[0,4],[0,0]]}]}
  元件 t：cell 电源/sw 开关/lamp 灯/res 电阻/rheo 滑动变阻器/am 电流表/vm 电压表/motor/bell/led/fuse；横放或竖放；导线把各端连成回路。`;
+// 网站动作：学生明确要 Max 做事（清空、设考试、整理）时才附上；按钮点了先确认
+const ACT_RE = /清|删|标记|文件夹|收件箱|照片|总结|整理|分类|考试|倒计时/;
+const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]]，网站会先弹确认再执行：[[做:清空标记]] 标记的题 · [[做:清空错题本]] 复习中的错题 · [[做:清空错题文件夹]] 重做做对、还没发给Claude的题 · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]]。
+作答记录是统计，不删；整站清空不做，删题用 [[清理:科目/考点]]。`;
 const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结尾写“来源：网站名”；结果不相关或没搜到就如实说，不编造。";
 
 // len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
@@ -428,7 +432,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
 	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
-	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
+	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : "") + (ACT_RE.test(q) ? "\n" + ACT_DOC : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }

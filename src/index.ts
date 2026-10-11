@@ -12,6 +12,7 @@ import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQue
 import { brief, byMax, chat, classify, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 import { live } from "./live";
 import { findNote } from "./notion";
+import { runAction } from "./actions";
 
 type Q = {
 	id: number;
@@ -430,6 +431,12 @@ app.post("/api/max/gen", async (c) => {
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "出题失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
 });
 // 清理题库：dry=1 只数一数；否则真删（网页确认后才会调）
+// Max 的网站动作：dry=1 只数一数（给确认框用），否则真做
+app.post("/api/max/do", async (c) => {
+	const b = await c.req.json<{ name?: string; arg?: string; dry?: boolean }>().catch(() => ({}) as { name?: string; arg?: string; dry?: boolean });
+	try { return c.json(await runAction(c.env, String(b.name ?? "").slice(0, 10), String(b.arg ?? "").slice(0, 80), !!b.dry)); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "失败：" + (e as Error).message }, e instanceof MaxErr ? 400 : 500); }
+});
 app.post("/api/max/clean", async (c) => {
 	const b = await c.req.json<{ spec?: string; dry?: boolean }>().catch(() => ({}) as { spec?: string; dry?: boolean });
 	try { return c.json(await cleanBank(c.env.DB, String(b.spec ?? "").slice(0, 60), !b.dry)); }
