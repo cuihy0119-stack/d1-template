@@ -7,7 +7,7 @@ const Fig = (() => {
 
 	// 描述 → 作图板对象
 	function objs(spec) {
-		const named = {}, items = [...spec.items];
+		const named = {}, items = [...(Array.isArray(spec.items) ? spec.items : [])];
 		for (const [n, p] of Object.entries(spec.P || {})) if (isP(p)) { named[n] = num2(p); if (!items.some((o) => o.t === "pt" && o.n === n)) items.unshift({ t: "pt", p, n }); } // P 里定义的点自动画出来
 		for (const o of items) if (o.t === "pt" && o.n && isP(o.p)) named[o.n] = num2(o.p);
 		const P = (v) => (typeof v === "string" ? named[v.trim()] : isP(v) ? num2(v) : null);
@@ -83,7 +83,7 @@ const Fig = (() => {
 	function circuit(spec, maxW, maxH, sMax) {
 		if (typeof CircuitBoard === "undefined") return null;
 		const P = (v) => (isP(v) ? num2(v) : null), os = [];
-		for (const o of spec.items) {
+		for (const o of Array.isArray(spec.items) ? spec.items : []) {
 			if (o.t === "wire") {
 				const pts = (o.pts || [o.a, o.b]).map(P).filter(Boolean), w = [];
 				pts.forEach((q, i) => { if (i && pts[i - 1][0] !== q[0] && pts[i - 1][1] !== q[1]) w.push([q[0], pts[i - 1][1]]); w.push(q); });
@@ -124,7 +124,8 @@ const Fig = (() => {
 	/** 题图元素（spec 为空返回 ""，可直接 append）。where：main 题目卡片 / side 平板左栏和题干浮窗 / small 结果页、错题本 / chat Max 回答里 */
 	const memo = new WeakMap(); // 同一道题重绘（点选项、开画板）时复用画好的图，不重画
 	function view(spec, where = "main") {
-		if (!spec || (!spec.svg && !spec.items?.length)) return "";
+		// 只在 P 里定义了点、没有 items 的图（后端允许这样存）也要画出来
+		if (!spec || typeof spec !== "object" || (!spec.svg && !spec.items?.length && !(spec.P && typeof spec.P === "object" && Object.keys(spec.P).length))) return "";
 		const key = memo.get(spec) || {};
 		if (key[where]) return key[where];
 		memo.set(spec, key);

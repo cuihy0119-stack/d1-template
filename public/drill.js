@@ -62,7 +62,7 @@ const Drill = (() => {
 					el("span", { className: "ol", textContent: letter }), el("span", { textContent: o.replace(/^\s*[A-Za-z][.．、:：]?\s*/, "") })));
 			}
 		} else {
-			const input = el("input", { type: "text", placeholder: "答案", onkeydown: (e) => e.key === "Enter" && !e.isComposing && input.value.trim() && finish(input.value) });
+			const input = el("input", { type: "text", placeholder: "答案", onkeydown: (e) => e.key === "Enter" && !composing(e) && input.value.trim() && finish(input.value) });
 			box.append(input, el("button", { type: "button", className: "btn small fsub", style: "margin-top:8px", textContent: "提交", onclick: () => input.value.trim() && finish(input.value) }));
 		}
 		box.append(res);

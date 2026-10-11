@@ -23,13 +23,20 @@ const DRAWN = new Set(["作图", "函数", "电路", "光路", "受力", "证明
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
 const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : ["geo"]);
 
+// 题目接口在脚本一执行就发出去（不用等图片、字体都加载完的 load 事件），load 时直接用结果，打开更快
+const practiceUrl = () => {
+	const p = new URLSearchParams(location.search), topic = p.get("topic");
+	return "/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : topic ? "?topic=" + encodeURIComponent(topic) : "");
+};
+let early = /^#r=[\d,]+/.test(location.hash) ? null : api(practiceUrl());
+early?.catch(() => {}); // 出错留到 start 里处理
 async function start() {
 	const p = new URLSearchParams(location.search);
 	const m = location.hash.match(/^#r=([\d,]+)/);
-	if (m) { autoRefresh(() => showResult(m[1])); return showResult(m[1]); }
+	if (m) { autoRefresh(() => showResult(m[1]).catch(() => {})); return showResult(m[1]).catch(loadFail); }
 	// topic=科目/考点（Max 推荐的「练」按钮）：题库有同类题就直接练；没有就让 Max 现场出临时题（drill.js，不进题库）
 	const topic = p.get("topic");
-	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : topic ? "?topic=" + encodeURIComponent(topic) : ""));
+	try { qs = await (early || api(practiceUrl())); } catch (e) { return loadFail(e); } finally { early = null; }
 	if (topic && !qs.length) return Drill.start(topic, Math.min(10, +p.get("n") || 0));
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
@@ -44,6 +51,11 @@ async function start() {
 	cur = 0;
 	render("enter");
 }
+// 题目/结果没拿到（断网、服务器出错）：别留一页空白，给个重试
+function loadFail(e) {
+	app.replaceChildren(el("p", { className: "mute", textContent: "加载失败：" + (e?.message || e) }),
+		el("button", { type: "button", className: "btn", textContent: "重试", onclick: () => location.reload() }));
+}
 // 外接键盘（iPad）：← → 上/下一题，A-D 或 1-4 选选项；在输入框里打字时不管
 addEventListener("keydown", (e) => {
 	if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input,textarea,[contenteditable],math-field,.island") || !qs.length || location.hash) return;
@@ -51,7 +63,7 @@ addEventListener("keydown", (e) => {
 	if (e.key === "ArrowRight" && nav[1] && !nav[1].disabled && nav[1].id !== "submit") { e.preventDefault(); nav[1].click(); }
 	else if (e.key === "ArrowLeft" && nav[0] && !nav[0].disabled) { e.preventDefault(); nav[0].click(); }
 	else {
-		const i = "abcd".indexOf(e.key.toLowerCase()), j = "1234".indexOf(e.key), opts = document.querySelectorAll(".card .opt");
+		const k = String(e.key || ""), i = k.length === 1 ? "abcd".indexOf(k.toLowerCase()) : -1, j = k.length === 1 ? "1234".indexOf(k) : -1, opts = document.querySelectorAll(".card .opt");
 		const o = opts[i >= 0 ? i : j];
 		if (o) { e.preventDefault(); o.click(); }
 	}

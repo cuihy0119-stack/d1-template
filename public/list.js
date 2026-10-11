@@ -92,8 +92,10 @@ function row(q) {
 	const detail = el("div", { className: "detail hide" });
 	item.onclick = async () => {
 		detail.classList.toggle("hide");
-		if (detail.dataset.loaded) return;
-		const d = await api("/api/question/" + q.id);
+		if (detail.dataset.loaded || detail.dataset.loading) return;
+		detail.dataset.loading = "1"; // 连点两下别重复加载、重复追加内容
+		let d;
+		try { d = await api("/api/question/" + q.id); } catch (e) { detail.classList.add("hide"); return toast("加载失败：" + e.message); } finally { delete detail.dataset.loading; }
 		detail.dataset.loaded = "1"; // 加载成功才记，失败了再点还能重试
 		item.querySelector(".stem").textContent = d.stem;
 		if (d.fig && typeof Fig !== "undefined") detail.append(Fig.view(d.fig, "small"));
@@ -157,7 +159,7 @@ function load() {
 		const sig = url + JSON.stringify(d);
 		if (sig === lastSig) return; // 数据没变就不重画（不收起正在看的题）
 		lastSig = sig; data = d; render();
-	});
+	}).catch((e) => { if (my === loadSeq && !lastSig) toast("加载失败：" + e.message); }); // 还没显示过东西才提示（切回页面的自动刷新失败不打扰）
 }
 load();
 autoRefresh(load); // 切回页面时更新（数据没变不重画，展开的题不会收起）
