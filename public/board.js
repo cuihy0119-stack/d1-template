@@ -178,15 +178,15 @@ class Board {
 	px(q) { return [this.ox + q[0] * CELL, this.oy - q[1] * CELL]; }
 	at(e) { // 返回 [吸附后的点, 原始点]
 		const r = this.cv.getBoundingClientRect();
-		const raw = [(e.clientX - r.left - this.ox) / CELL, (this.oy - (e.clientY - r.top)) / CELL];
+		const raw = [Math.round((e.clientX - r.left - this.ox) / CELL * 100) / 100, Math.round((this.oy - (e.clientY - r.top)) / CELL * 100) / 100]; // 两位小数（1/100 格）够用，存撤销历史省内存
 		return [this.snap && this.tool !== "pen" ? raw.map(Math.round) : raw, raw];
 	}
 
 	// ---------- 历史 ----------
-	change(fn) { this.hist.push(JSON.stringify(this.objs)); this.fut = []; fn(); this.draw(); }
+	change(fn) { this.hist.push(JSON.stringify(this.objs)); if (this.hist.length > 50) this.hist.shift(); this.fut = []; fn(); this.ver = (this.ver || 0) + 1; this.draw(); } // 撤销最多 50 步，免得长时间书写占满内存
 	sty() { return { c: this.color, w: this.width, d: this.dash }; }
 	add(o) { this.change(() => this.objs.push({ ...this.sty(), ...o })); }
-	step(from, to) { if (this.pend) return this.reset(); if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.draw(); }
+	step(from, to) { if (this.pend) return this.reset(); if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.ver = (this.ver || 0) + 1; this.draw(); }
 	reset() { this.pend = null; this.build(); this.draw(); }
 
 	// ---------- 交互：拖动类按住拖；点选类抬手时才落点（可边按边调整位置） ----------
@@ -532,7 +532,7 @@ function snapshot(b, hd) {
 	if (hd) {
 		full.width = W * 2; full.height = H * 2;
 		const c = full.getContext("2d"); c.scale(2, 2); b.paint(c, false);
-		return new Promise((res) => full.toBlob((bb) => res(new File([bb], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.92));
+		return blobOf(full, 0.92);
 	}
 	full.width = W; full.height = H;
 	const fc = full.getContext("2d");
@@ -550,5 +550,11 @@ function snapshot(b, hd) {
 	out.width = Math.round(cw * s); out.height = Math.round(ch * s);
 	const c = out.getContext("2d");
 	c.drawImage(full, x0, y0, cw, ch, 0, 0, out.width, out.height);
-	return new Promise((res) => out.toBlob((bb) => res(new File([bb], "board.jpg", { type: "image/jpeg" })), "image/jpeg", 0.7));
+	full.width = full.height = 0;
+	return blobOf(out, 0.7);
 }
+// 画布转 JPEG；iOS 内存不够时 toBlob 给 null：报错让这题稍后重交。用完把画布清零，及时释放内存
+const blobOf = (cv, q) => new Promise((res, rej) => cv.toBlob((bb) => {
+	cv.width = cv.height = 0;
+	bb ? res(new File([bb], "board.jpg", { type: "image/jpeg" })) : rej(new Error("画板图导出失败，稍后再试"));
+}, "image/jpeg", q));
