@@ -141,7 +141,7 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"save",
 		{
-			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结。",
+			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结；notes 考点→Notion 笔记对照表。",
 			inputSchema: {
 				def: z.object({ subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() }).optional().describe("本批题共用的科目/章节/考点"),
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
@@ -155,9 +155,10 @@ export function buildServer(env: Env) {
 				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
 				exams: z.array(z.object({ name: z.string(), date: z.string().describe("YYYY-MM-DD") })).optional().describe("临近考试（整表替换），首页显示倒计时"),
 				summary: z.string().optional(),
+				notes: z.array(z.object({ s: z.array(z.string()).describe("科目（可带别名，如 道法、道德与法治）"), t: z.string().describe("笔记标题"), u: z.string().describe("Notion 链接"), k: z.array(z.string()).optional().describe("考点关键词；省略 = 这一科的兜底页") })).max(80).optional().describe("考点→Notion 笔记对照表（整表替换），答错后网站按它给「Notion 笔记」按钮"),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary, notes }) => {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (agree.length) { // 同意 Max 初评：直接照初评打分
@@ -228,6 +229,11 @@ export function buildServer(env: Env) {
 				const ok = exams.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date));
 				await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('exams', ?)").bind(JSON.stringify(ok)).run();
 				out.push(`考试 ${ok.length} 场`);
+			}
+			if (notes) {
+				const ok = notes.filter((n) => /^https:\/\/([\w-]+\.)?notion\.(so|com|site)\//.test(n.u));
+				await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('notes', ?)").bind(JSON.stringify(ok)).run();
+				out.push(`笔记对照 ${ok.length} 条`);
 			}
 			if (summary) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();

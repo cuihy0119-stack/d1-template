@@ -56,11 +56,11 @@ OAuth 的令牌存在 KV（绑定名 `OAUTH_KV`）。`wrangler.json` 里没写 K
 
 ## 错题 → Notion 笔记（不用 AI）
 
-做错题后，结果页、错题本详情、Max 临时练习里会出现「Notion 笔记：xx」按钮，Max 讲错题时也会给。后端用 Notion 官方接口按**考点名**搜页面标题（完全一样 > 标题含考点 > 考点含标题），找到才显示；结果缓存（找到 7 天、没找到 1 天）。设置：
-1. https://www.notion.so/my-integrations 新建「内部集成」，复制密钥
-2. Cloudflare Worker → Settings → Variables and Secrets 加密钥 `NOTION_TOKEN`
-3. Notion 里打开存笔记的页面 → 右上角 ⋯ → 连接 → 选这个集成（子页面自动包含）
-4. 反过来：Notion 考点页放链接 `https://你的域名/quiz?topic=科目/考点`，直达站内同标签题（没有就让 Max 出临时题）
+做错题后，结果页、错题本详情、Max 临时练习里会出现「Notion 笔记：xx」按钮，Max 讲错题时也会给。网站按「科目 + 考点关键词」查一张**对照表**（存在 `meta.notes`，源文件 `seed/notes.json`），越长的关键词越准；没有具体命中就给这一科的资料页。**不需要任何配置**：表由 Claude 读 Notion 后写入，以后新增笔记页，对 Claude 说「更新 Notion 笔记链接」，它会重读 Notion 并 `save({notes})` 整表替换（`s` 科目、`k` 考点关键词、`t/u` 标题和链接，不写 `k` = 这一科的兜底页）。
+
+可选：Cloudflare 加密钥 `NOTION_TOKEN`（Notion 内部集成密钥，并把笔记页「连接」给它），对照表没命中时会再按考点名搜 Notion 页面标题。
+
+反过来：Notion 考点页放链接 `https://你的域名/quiz?topic=科目/考点`，直达站内同标签题（没有就让 Max 出临时题）。
 
 # 本地开发
 

@@ -409,7 +409,7 @@ app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（
 });
 // 考点 → Notion 笔记链接（没设 NOTION_TOKEN 返回 setup:true，网页就不显示按钮）
 app.get("/api/notion", async (c) => {
-	try { return c.json(await findNote(c.env, String(c.req.query("topic") ?? ""))); }
+	try { return c.json(await findNote(c.env, String(c.req.query("subject") ?? ""), String(c.req.query("topic") ?? ""))); }
 	catch (e) { return c.json({ note: null, error: (e as Error).message }); }
 });
 // 现场出题（题库没有同类题时）：临时题不进题库，答案一起发给网页当场判
