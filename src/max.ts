@@ -20,7 +20,14 @@ export class MaxErr extends Error {}
 
 // ---------- 用量 ----------
 const day = () => new Date().toISOString().slice(0, 10);
-const neurons = (inTok: number, outTok: number) => Math.ceil((inTok * 0.45 + outTok * 3.2) / 11); // 按单价折算（$0.011/千神经元）
+// 每个模型每百万 token 的神经元数（Cloudflare 价格表）：[输入, 输出（含思考）, 缓存命中的输入]
+const RATE: Record<string, [number, number, number]> = { "@cf/qwen/qwen3.8-27b": [40909, 290909, 4545], "@cf/zai-org/glm-4.7-flash": [5500, 36400, 5500] };
+/** 按模型返回的真实 token 数算神经元；模型没给用量时按字数估 */
+function neurons(model: string, u: any, inEst: number, outEst: number) {
+	const [ri, ro, rc] = RATE[model] ?? RATE[CF[0]];
+	const inTok = u?.prompt_tokens ?? inEst, cached = u?.prompt_tokens_details?.cached_tokens ?? 0, outTok = u?.completion_tokens ?? outEst;
+	return Math.ceil(((inTok - cached) * ri + cached * rc + outTok * ro) / 1e6);
+}
 const meter = async (db: D1Database, k: string) => Number((await db.prepare("SELECT v FROM meta WHERE k = ?").bind(k + day()).first<{ v: string }>())?.v ?? 0);
 const add = (db: D1Database, k: string, n: number) =>
 	db.prepare("INSERT INTO meta (k, v) VALUES (?1, ?2) ON CONFLICT(k) DO UPDATE SET v = CAST(v AS INTEGER) + ?2").bind(k + day(), Math.round(n)).run();
@@ -28,7 +35,7 @@ export const used = (db: D1Database) => meter(db, "max:"); // Cloudflare 神经�
 const est = (m: Msg[]) => Math.ceil(m.reduce((n, x) => n + x.content.length, 0) * 1.1); // 中文约 1 字 1 token
 const clean = (t: string) => t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
-type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (inTok: number, outTok: number) => Promise<unknown> };
+type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
 const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
@@ -46,7 +53,7 @@ async function providers(env: Env, route: Route, must = false, only?: string): P
 			if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
 			throw e;
 		}), stream ? 25000 : 40000),
-		bill: (i, o) => add(db, "max:", neurons(i, o)),
+		bill: (u, i, o) => Promise.all([add(db, "max:", neurons(model, u, i, o)), add(db, "maxn:", 1)]), // 神经元 + 调用次数
 	})) : [];
 	const ds: Prov[] = key && dsUsed < DS_DAILY ? [{
 		name: "ds",
@@ -60,7 +67,7 @@ async function providers(env: Env, route: Route, must = false, only?: string): P
 			if (stream) { clearTimeout(t); return r.body; } // 开始输出就不再计时
 			try { return await r.json(); } finally { clearTimeout(t); }
 		},
-		bill: (i, o) => add(db, "ds:", i + o),
+		bill: (u, i, o) => Promise.all([add(db, "ds:", (u?.prompt_tokens ?? i) + (u?.completion_tokens ?? o)), add(db, "dsn:", 1)]),
 	}] : [];
 	const list = (route === "hard" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
 	if (!list.length) throw new MaxErr("Max 今天的额度用完了，明天再来" + (key ? "" : "（可以接 DeepSeek 备用）"));
@@ -68,21 +75,41 @@ async function providers(env: Env, route: Route, must = false, only?: string): P
 }
 
 /** 两个引擎的状态（灵动岛顶部显示；DeepSeek 用一句极短的话试通，结果缓存 12 小时） */
-export async function status(env: Env) {
+export async function status(env: Env, fresh = false) {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
-	const [cf, ds] = await Promise.all([used(db), meter(db, "ds:")]);
-	let dsOk: string | null = key ? await cacheGet(db, "dsping", 12) : "未设置密钥"; // 12 小时试一次密钥
-	if (key && !dsOk) {
-		try {
-			const r = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", signal: AbortSignal.timeout(10000),
-				headers: { "content-type": "application/json", authorization: "Bearer " + key },
-				body: JSON.stringify({ model: (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages: [{ role: "user", content: "回复ok" }], max_tokens: 3 }) });
-			dsOk = r.ok ? "ok" : r.status === 401 ? "密钥不对" : r.status === 402 ? "余额不足" : `出错 ${r.status}`;
-		} catch { dsOk = "连不上"; }
-		await cachePut(db, "dsping", dsOk);
+	const [cf, ds, cfn, dsn] = await Promise.all([used(db), meter(db, "ds:"), meter(db, "maxn:"), meter(db, "dsn:")]);
+	let dsOk: string | null = key ? (fresh ? null : await cacheGet(db, "dsping", 12)) : "未设置密钥"; // 12 小时试一次密钥（设置页可手动重试）
+	let bal: string | null = key ? (fresh ? null : await cacheGet(db, "dsbal", 0.5)) : null;
+	if (key && (!dsOk || !bal)) {
+		const H = { authorization: "Bearer " + key, "content-type": "application/json" };
+		if (!dsOk) {
+			try {
+				const r = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", signal: AbortSignal.timeout(10000), headers: H,
+					body: JSON.stringify({ model: (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages: [{ role: "user", content: "回复ok" }], max_tokens: 3 }) });
+				dsOk = r.ok ? "ok" : r.status === 401 ? "密钥不对" : r.status === 402 ? "余额不足" : `出错 ${r.status}`;
+			} catch { dsOk = "连不上"; }
+			await cachePut(db, "dsping", dsOk);
+		}
+		if (!bal) { // 余额（DeepSeek 官方接口，不花 token）
+			try {
+				const r = await fetch("https://api.deepseek.com/user/balance", { signal: AbortSignal.timeout(8000), headers: H });
+				const j: any = r.ok ? await r.json() : null, b = j?.balance_infos?.[0];
+				bal = b ? `${b.currency === "CNY" ? "¥" : b.currency + " "}${b.total_balance}` : "";
+			} catch { bal = ""; }
+			await cachePut(db, "dsbal", bal);
+		}
 	}
-	const sec = (await db.prepare("SELECT COALESCE(SUM(CAST(v AS INTEGER)), 0) n FROM meta WHERE k LIKE ?").bind(`sec:${day()}:%`).first<{ n: number }>())?.n ?? 0; // 今天拦下的可疑访问
-	return { cf: Math.min(100, Math.round((cf / DAILY) * 100)), ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY }, sec };
+	const [sec, chats] = await Promise.all([
+		db.prepare("SELECT COALESCE(SUM(CAST(v AS INTEGER)), 0) n FROM meta WHERE k LIKE ?").bind(`sec:${day()}:%`).first<{ n: number }>(), // 今天拦下的可疑访问
+		meter(db, "chat:"),
+	]);
+	const FREE = 10000;
+	return {
+		cf: Math.min(100, Math.round((cf / FREE) * 100)), // 旧字段（顶部小字用）
+		cfu: { used: Math.min(cf, FREE), cap: FREE, pct: Math.min(100, Math.round((cf / FREE) * 1000) / 10), calls: cfn, out: cf >= DAILY },
+		ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY, pct: Math.round((ds / DS_DAILY) * 1000) / 10, calls: dsn, balance: bal || null },
+		chats: { used: chats, cap: 300 }, sec: sec?.n ?? 0,
+	};
 }
 export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (await meter(env.DB, "ds:")) < DS_DAILY;
 
@@ -97,7 +124,7 @@ export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: b
 		try {
 			const r: any = await p.call(messages, o.max ?? 500, false);
 			const text = clean(String(r?.choices?.[0]?.message?.content ?? r?.response ?? ""));
-			await p.bill(r?.usage?.prompt_tokens ?? est(messages), r?.usage?.completion_tokens ?? text.length);
+			await p.bill(r?.usage, est(messages), text.length);
 			if (text && (!o.ok || o.ok(text))) { o.engine?.(p.name); return text; } // 答得不像样（如该给 JSON 没给）：换下一个模型
 			last = new Error("回答格式不对");
 		} catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
@@ -106,9 +133,9 @@ export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: b
 }
 
 /** 流式问答：边生成边显示；结束后记用量、可选写缓存 */
-export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; done?: (t: string) => Promise<unknown>; engine?: (n: string) => void } = {}): Promise<ReadableStream<Uint8Array>> {
+export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; only?: "cf" | "ds"; done?: (t: string) => Promise<unknown>; engine?: (n: string) => void } = {}): Promise<ReadableStream<Uint8Array>> {
 	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown, skipCf = false;
-	for (const p of await providers(env, o.route ?? "work")) {
+	for (const p of await providers(env, o.route ?? "work", false, o.only)) {
 		if (skipCf && p.name === "cf") continue;
 		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
@@ -137,7 +164,7 @@ export async function askStream(env: Env, messages: Msg[], o: { max?: number; ro
 			}
 		},
 		async flush() { // 记账/缓存失败不影响已经发出去的回答
-			try { await p.bill(usage?.prompt_tokens ?? est(messages), usage?.completion_tokens ?? all.length); } catch {}
+			try { await p.bill(usage, est(messages), all.length); } catch {}
 			try { if (all && o.done) await o.done(all.trim()); } catch {}
 		},
 	}));
@@ -315,7 +342,9 @@ const CHAT_SYS = `你是 Max，错题练习站的学习助手；学生初三，�
 只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
 需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]`;
 
-type Ctx = { q?: number; a?: number; explain?: number; marked?: boolean; page?: { path?: string; title?: string; text?: string } };
+// len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
+type Ctx = { q?: number; a?: number; explain?: number; marked?: boolean; page?: { path?: string; title?: string; text?: string }; len?: "s" | "m" | "l"; pref?: "auto" | "ds" | "cf" };
+const LEN = { s: ["回答≤80字，只说要点。", 350], m: ["", 600], l: ["可以讲详细些（≤400字）。", 1000] } as const;
 
 async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: string; hard?: boolean }> {
 	if (ctx.marked) {
@@ -373,7 +402,8 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const hist = messages.slice(-6).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
 	const q = messages[messages.length - 1]?.content ?? "";
 	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
-	const sys = [CHAT_SYS, c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
+	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
+	const sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
@@ -382,7 +412,9 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
 	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来"); // 只有真要问模型才算一次（缓存命中不算）
 	let engine = "";
-	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : hard ? 800 : 600, route: hard ? "hard" : "work",
+	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], {
+		max: ctx.marked ? Math.max(900, len[1]) : hard ? Math.max(len[1], 800) : len[1],
+		route: ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.pref === "cf" ? "cf" : undefined,
 		done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream, engine };
 }
