@@ -158,11 +158,15 @@ const json = <T>(t: string): T | null => {
 const arr = (s?: string | null): string[] => { try { return s ? JSON.parse(s) : []; } catch { return []; } };
 
 // ---------- 批改：非作图、没照片、没手写的题交给 Max ----------
-export function byMax(q: { subject: string; stem: string; tag?: string | null; board?: string | null; type: string; options?: string | null }, work: string, photoKeys: string[], hand: boolean) {
-	if (hand || photoKeys.some((k) => !k.startsWith("views/"))) return false; // 照片、手写、发给 Claude 的草纸图：要看图
-	if (/\[(作图|电路)\]/.test(work)) return false;
-	return !DRAW.has(pick({ ...q, opts: !!q.options }).tag);
+// 谁来批：普通文字题 → Max；作图题有画板文字描述（方程/交点/网表）→ Max 先批，拿不准交给 Claude；照片、手写、手绘笔迹 → Claude（要看图）
+export function byMax(q: { subject: string; stem: string; tag?: string | null; board?: string | null; type: string; options?: string | null }, work: string, photoKeys: string[], hand: boolean): false | "max" | "draw" {
+	if (hand || photoKeys.some((k) => !k.startsWith("views/"))) return false;
+	const desc = /\[(作图|电路)\]/.test(work);
+	if (DRAW.has(pick({ ...q, opts: !!q.options }).tag) || desc) return desc ? "draw" : false;
+	return "max";
 }
+const DRAW_NOTE = "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好；电路是网表+通电结果），按它批。";
+const SURE_DRAW = 0.75; // 作图题 Max 把握低于这个：不定分，交给 Claude
 
 const GRADE_SYS = `给初三作答打分 0-100（≥80 算对），依据参考答案和要点，等价写法算对。
 只输出 JSON：{"score":0,"comment":"≤30字","reason":"错因≤6字，对则空","sure":0-1 把握}`;
@@ -172,18 +176,24 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 	const db = env.DB;
 	if (!(await db.prepare("UPDATE attempts SET grader = 'maxing' WHERE id = ? AND grader = 'max' AND status = '待批改'").bind(id).run()).meta.changes) return;
 	const a = await db.prepare(
-		`SELECT a.question_id, a.answer_text, q.subject, q.type, q.stem, q.options, q.answer, q.explanation
+		`SELECT a.question_id, a.answer_text, q.subject, q.type, q.tag, q.board, q.stem, q.options, q.answer, q.explanation
 		 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?`).bind(id).first<any>();
 	try {
 		if (!a) throw new Error("题目不在了");
+		const draw = DRAW.has(pick({ ...a, opts: !!a.options }).tag) || /\[(作图|电路)\]/.test(String(a.answer_text ?? ""));
 		const user = [`题（${a.subject}·${a.type === "fill" ? "填空" : "解答"}）：${a.stem}`, a.options ? "选项：" + arr(a.options).join(" ") : "",
 			"参考答案：" + arr(a.answer).join(" / "), a.explanation ? "评分要点：" + a.explanation : "", "学生作答：" + (a.answer_text || "（空）")].filter(Boolean).join("\n");
-		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS }, { role: "user", content: user }];
+		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS + (draw ? DRAW_NOTE : "") }, { role: "user", content: user }];
 		const valid = (t: string) => typeof json<any>(t)?.score === "number";
 		let by = "";
 		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, ok: valid, engine: (n) => (by = n) }));
 		// 难题：总管拿不准（sure<0.6）或分数在及格线附近 → 交给 DeepSeek 复核一次（已经是 DeepSeek 批的就不再问）
-		if (r && by === "cf" && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
+		if (r && draw && (r.sure ?? 0) < SURE_DRAW) { // 作图拿不准：只留初评，交给 Claude（学生在结果页一键转）
+			await db.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ?, grader = NULL WHERE id = ?")
+				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), r.sure ?? 0, id).run();
+			return;
+		}
+		if (r && !draw && by === "cf" && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
 			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "hard", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
 		if (!r || typeof r.score !== "number") throw new Error("Max 没给出分数");
 		const score = Math.max(0, Math.min(100, Math.round(r.score))), ok = score >= PASS;
@@ -205,21 +215,22 @@ export async function gradeAll(env: Env, ids: { id: number; fallback: number | n
 }
 
 // ---------- Claude 推题后：Max 扫一遍，补等价答案/考点/简短解析，发现答案可疑就提醒 ----------
-const REFINE_SYS = `检查新录入的初三题，每题给：topic 考点≤8字（已有同义的照抄已有）；alt 填空题的等价答案≤3个；exp 原题无解析才写≤40字；warn 答案有错/缺条件才写≤20字。
-只输出 JSON 数组：[{"i":0,"topic":"","alt":[],"exp":"","warn":""}]`;
+const TAG_LIST = "选择|填空|计算|解答|证明|作图|函数|电路|光路|受力|简答";
+const REFINE_SYS = `检查新录入的初三题，每题给：tag 题型（${TAG_LIST}，按作答方式选最准的）；cat 章节≤8字、topic 考点≤8字（已有同义的照抄已有）；alt 填空题的等价答案≤3个；exp 原题无解析才写≤40字；warn 答案有错/缺条件才写≤20字。
+只输出 JSON 数组：[{"i":0,"tag":"","cat":"","topic":"","alt":[],"exp":"","warn":""}]`;
 
 export async function refine(env: Env, ids: number[]): Promise<string> {
 	if (!ids.length) return "";
 	const db = env.DB;
 	try {
-		const { results: qs } = await db.prepare(`SELECT id, no, subject, type, tag, stem, options, answer, explanation, topic FROM questions WHERE id IN (${ids.map(() => "?")})`).bind(...ids).all<any>();
+		const { results: qs } = await db.prepare(`SELECT id, no, subject, type, tag, stem, options, answer, explanation, topic, category FROM questions WHERE id IN (${ids.map(() => "?")})`).bind(...ids).all<any>();
 		const subjects = [...new Set(qs.map((q) => q.subject))];
-		const { results: tops } = await db.prepare(`SELECT subject, topic FROM questions WHERE topic IS NOT NULL AND subject IN (${subjects.map(() => "?")}) GROUP BY subject, topic LIMIT 80`).bind(...subjects).all<{ subject: string; topic: string }>();
-		const list = qs.map((q, i) => `${i}. [${q.subject}·${q.tag || q.type}] ${q.stem.slice(0, 300)}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}｜答：${arr(q.answer).join(" / ")}｜考点：${q.topic || "无"}｜解析：${q.explanation ? "有" : "无"}`).join("\n");
+		const { results: tops } = await db.prepare(`SELECT subject, COALESCE(category, '') || '›' || topic topic FROM questions WHERE topic IS NOT NULL AND id NOT IN (${ids.map(() => "?")}) AND subject IN (${subjects.map(() => "?")}) GROUP BY 1, 2 LIMIT 80`).bind(...ids, ...subjects).all<{ subject: string; topic: string }>();
+		const list = qs.map((q, i) => `${i}. [${q.subject}·${q.tag || q.type}] ${q.stem.slice(0, 300)}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}｜答：${arr(q.answer).join(" / ")}｜章节›考点：${q.category || "?"}›${q.topic || "?"}｜解析：${q.explanation ? "有" : "无"}`).join("\n");
 		const known = subjects.map((s) => `${s}：${tops.filter((t) => t.subject === s).map((t) => t.topic).join("、") || "无"}`).join("\n");
-		const out = json<{ i: number; topic?: string; alt?: string[]; exp?: string; warn?: string }[]>(
+		const out = json<{ i: number; tag?: string; cat?: string; topic?: string; alt?: string[]; exp?: string; warn?: string }[]>(
 			await Promise.race([
-				ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100, ok: isArr }),
+				ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有 章节›考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100, ok: isArr }),
 				new Promise<string>((_, rej) => setTimeout(() => rej(new MaxErr("超时")), 25000)),
 			]));
 		if (!Array.isArray(out)) return "";
@@ -231,8 +242,15 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 			const alt = q.type === "fill" ? (r.alt ?? []).map(String).filter((x) => x && !ans.includes(x)).slice(0, 3) : [];
 			const topic = r.topic && r.topic.length <= 12 ? r.topic : null;
 			const exp = !q.explanation && r.exp ? r.exp.slice(0, 120) : null;
-			if (alt.length || (topic && topic !== q.topic) || exp)
-				stmts.push(db.prepare("UPDATE questions SET answer = ?, topic = COALESCE(?, topic), explanation = COALESCE(explanation, ?) WHERE id = ?").bind(JSON.stringify([...ans, ...alt]), topic, exp, q.id));
+			const cat = r.cat && r.cat.length <= 12 ? r.cat : null;
+			// 题型标签：Max 看题再定一次（有选项必须是选择，没选项不能是选择；填空/计算等随之改题型）
+			const t = r.tag ? pick({ subject: q.subject, stem: q.stem, tag: r.tag, opts: !!q.options }).tag : null;
+			const tag = t && t !== q.tag ? t : null;
+			// 填空题标成「计算」仍保留填空（网站能直接判、配计算草稿板），不变成要批改的解答题
+			const type = tag && !(q.type === "fill" && tag === "计算") ? (tag === "选择" ? (ans.length > 1 ? "multi" : "single") : tag === "填空" ? "fill" : "short") : null;
+			if (alt.length || (topic && topic !== q.topic) || exp || (cat && cat !== q.category) || tag)
+				stmts.push(db.prepare("UPDATE questions SET answer = ?, topic = COALESCE(?, topic), explanation = COALESCE(explanation, ?), category = COALESCE(?, category), tag = COALESCE(?, tag), type = COALESCE(?, type) WHERE id = ?")
+					.bind(JSON.stringify([...ans, ...alt]), topic, exp, cat, tag, type, q.id));
 			if (r.warn) warns.push(`${q.subject}${q.no ?? ""}：${r.warn}`);
 		}
 		if (stmts.length) await db.batch(stmts);
@@ -431,9 +449,6 @@ export async function folderSummary(env: Env, force = false): Promise<{ ids: num
 	if (still) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run(); // 写之前题已经发给 Claude 清掉了就不写
 	return v;
 }
-/** 发给 Claude 的一行（短）：题号、考点、题干开头、错因、诊断 */
-export const shortLine = (r: any) =>
-	`${r.subject}${r.no ?? ""}（${r.topic || "?"}）：${String(r.stem).slice(0, 60)}${r.stem.length > 60 ? "…" : ""}｜正确：${arr(r.answer).join(" / ").slice(0, 40)}${r.max_reason ? "｜错因：" + r.max_reason : ""}${r.max_note ? "｜" + r.max_note : ""}${r.aid ? "｜作答id=" + r.aid : ""}`;
 
 /** 每天定时：用掉总管当天剩下的额度做整理（UTC 19 点后，额度 0 点重置） */
 export async function maxDaily(env: Env) { // 北京时间凌晨 3 点：Max 把当天要用的都先想好，白天刷新页面不再花额度
@@ -441,6 +456,7 @@ export async function maxDaily(env: Env) { // 北京时间凌晨 3 点：Max 把
 	try { await folderSummary(env); } catch {}
 	try { await wrongSummary(env, true); } catch {}
 	try { await brief(env, true); } catch {}
+	try { await classify(env); } catch {} // 有新考点才整理
 }
 
 // ---------- 给 Claude 减负：交给 Claude 的题（作图/电路等有文字描述的），Max 先写初评 ----------
@@ -457,4 +473,32 @@ export async function pregrade(env: Env, ids: number[]) {
 				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), Math.max(0, Math.min(1, r.sure ?? 0.5)), id).run();
 		} catch (e) { if (e instanceof MaxErr && /额度/.test(e.message)) return; } // 额度没了就停；单题出错跳过
 	}
+}
+
+// ---------- 分类整理：每科一次调用，合并同义考点、给考点归到章节（数据没变就不调用） ----------
+const CLASSIFY_SYS = `整理初三某科的考点：同义的合并成一个规范名（≤8字），每个考点归到教材章节（≤8字）。不要改变知识点含义。
+只输出 JSON 数组：[{"from":"原考点","topic":"规范考点","cat":"章节"}]`;
+const topicRows = (db: D1Database, subject: string) =>
+	db.prepare("SELECT topic, COALESCE(category, '') cat, COUNT(*) c FROM questions WHERE subject = ? AND topic IS NOT NULL GROUP BY 1, 2 ORDER BY c DESC LIMIT 80").bind(subject).all<{ topic: string; cat: string; c: number }>();
+export async function classify(env: Env, force = false): Promise<number> {
+	const db = env.DB;
+	const { results: subs } = await db.prepare("SELECT DISTINCT subject FROM questions WHERE topic IS NOT NULL").all<{ subject: string }>();
+	let n = 0;
+	for (const { subject } of subs) {
+		const { results: rows } = await topicRows(db, subject);
+		const sig = JSON.stringify(rows.map((r) => [r.topic, r.cat]));
+		if (!force && (await db.prepare("SELECT v FROM meta WHERE k = ?").bind("cls:" + subject).first<{ v: string }>())?.v === sig) continue; // 没新考点：不花额度
+		const out = json<{ from: string; topic?: string; cat?: string }[]>(await ask(env, [{ role: "system", content: CLASSIFY_SYS },
+			{ role: "user", content: `${subject}（考点｜现章节｜题数）：\n${rows.map((r) => `${r.topic}｜${r.cat || "?"}｜${r.c}`).join("\n")}` }], { max: 40 * rows.length + 80, ok: isArr }));
+		if (!Array.isArray(out)) continue;
+		const known = new Set(rows.map((r) => r.topic));
+		const stmts = out.filter((x) => known.has(x.from) && (x.topic || x.cat)).map((x) =>
+			db.prepare("UPDATE questions SET topic = COALESCE(?, topic), category = COALESCE(?, category) WHERE subject = ? AND topic = ?")
+				.bind(x.topic && x.topic.length <= 12 ? x.topic : null, x.cat && x.cat.length <= 12 ? x.cat : null, subject, x.from));
+		for (let i = 0; i < stmts.length; i += 40) await db.batch(stmts.slice(i, i + 40));
+		n += stmts.length;
+		const { results: after } = await topicRows(db, subject);
+		await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)").bind("cls:" + subject, JSON.stringify(after.map((r) => [r.topic, r.cat]))).run();
+	}
+	return n;
 }

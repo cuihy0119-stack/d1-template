@@ -5,7 +5,7 @@ import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
-import { folderSummary, refine, shortLine } from "./max";
+import { folderSummary, refine } from "./max";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -13,7 +13,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短；和学生说题用题号（如 数学1）。
-分工：网站助手 Max 批选择/填空/文字题、整理错题和错因；你只批作图/照片/手写题，处理照片收件箱，做错题文件夹后续。
+分工：网站助手 Max 批选择/填空/文字题和有把握的作图题，整理错题、错因、题型标签和章节考点分类；你批 Max 拿不准的作图题和照片/手写题，处理照片收件箱，做错题文件夹后续。
 批改：get_inbox → save({grades})；有「Max初评」且同意就 save({ok:[作答id]})，要看图 get_data({kind:"img",id})。
 出题：get_data({kind:"tpl"})（每对话一次）；复习旧题 save({review:[id]})；考试 save({exams:[{name,date}]})。
 返回里有【错题文件夹·Max 已整理】就照附言做。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
@@ -89,7 +89,7 @@ async function wrongPack(env: Env): Promise<string> {
 		db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
 		db.prepare("DELETE FROM meta WHERE k = 'folder_sum'"),
 	]);
-	return `\n\n【错题文件夹·Max 已整理】${results.length} 道错题已重做做对，已从题库清掉。${sum ? "\nMax 总结：" + sum.text : ""}\n明细：\n${results.map(shortLine).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄明细归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
+	return `\n\n【错题文件夹·Max 已整理】${results.length} 道错题已重做做对，已从题库清掉。${sum ? "\nMax 总结：" + sum.text : ""}\n原题和学生当初的错答（含 Max 分析的错因）：\n${results.map((r) => wrongLine(r) + (r.aid ? `｜作答id=${r.aid}` : "｜照片录入的原错题")).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄上面原题归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
 }
 
 export function buildServer(env: Env) {

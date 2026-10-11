@@ -395,3 +395,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 @keyframes mspin{to{transform:rotate(360deg)}}
 @keyframes mray{from{transform:scale(.45)}to{transform:scale(1)}}
 @media(hover:hover) and (pointer:fine){.maxball:hover{opacity:1}.mchips button:hover,.mhead button:hover,.mgo:hover{filter:brightness(1.1)}}
+/* 分类：章节二级筛选、题型/考点标签 */
+.chips2{display:flex;flex-wrap:wrap;gap:6px;width:100%;margin-top:4px}.chip.small{font-size:13px;padding:3px 11px}
+.tag.ty{background:rgba(120,140,200,.14);color:#6b7fb8}.tag.tp{background:none;padding-left:0;color:var(--mute)}
+@media(prefers-color-scheme:dark){.tag.ty{color:#9fb1e6}}
