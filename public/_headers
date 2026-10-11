@@ -8,8 +8,11 @@
 /*.css
   Cache-Control: no-cache
 /fonts/*
+  ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 /katex/*
+  ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 /mathlive/*
+  ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
