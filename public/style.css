@@ -299,3 +299,28 @@ body.drawing .rail.show{opacity:.3}
 .board input,.calcpad input,.bwrap input{-webkit-user-select:text;user-select:text}
 /* 落笔时浮岛不再实时模糊画布，写字更跟手 */
 body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+/* ---------- Max 助手 ---------- */
+.maxfab{position:fixed;z-index:40;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));width:46px;height:46px;border-radius:50%;border:0;
+  background:linear-gradient(135deg,var(--pri2),var(--pri));color:#fff;font:600 20px/1 var(--serif);box-shadow:0 6px 18px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
+.maxfab.on{transform:scale(.9)}
+body:not(.has-tabs) .maxfab{bottom:auto;top:calc(12px + env(safe-area-inset-top));width:38px;height:38px;font-size:17px} /* 做题页：右上角，不挡翻页按钮 */
+.maxpan{position:fixed;z-index:41;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-height:72vh;display:flex;flex-direction:column;
+  background:var(--solid);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden;animation:rise .25s var(--ease) both}
+.maxpan[hidden]{display:none}
+@media(min-width:744px){.maxpan{left:auto;width:400px;right:14px;max-height:80vh}}
+.maxhead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.maxhead b{font:600 18px var(--serif);color:var(--pri)}.maxhead .mute{flex:1;font-size:12px}
+.maxhead button{border:0;background:none;color:var(--mute);font-size:15px;padding:4px 6px}
+.maxlog{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:120px}
+.mb{max-width:88%;padding:8px 12px;border-radius:14px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
+.mb.user{align-self:flex-end;background:var(--pri);color:#fff;border-bottom-right-radius:4px}
+.mb.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+.mb.thinking{color:var(--mute)}
+.mb .maxgo{display:inline-block;margin-top:6px;text-decoration:none;white-space:normal}
+.maxchips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 6px;scrollbar-width:none}.maxchips .chip{flex:none;font-size:13px;padding:4px 10px}
+.maxin{display:flex;gap:8px;padding:8px 12px 12px;border-top:1px solid var(--line)}
+.maxin textarea{flex:1;min-height:40px;max-height:120px;resize:none;margin:0;font-size:16px}
+.maxin .btn{flex:none;margin:0}
+.maxcard .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.maxcard .row .btn{margin:0;text-decoration:none}
+.maxcard p{margin:6px 0}.maxcard .weak{font-size:14px}.maxcard .weak span{display:inline-block;margin:2px 6px 2px 0}
+.maxtag{font-size:12px;color:var(--pri);margin-left:4px}

@@ -36,7 +36,9 @@ async function loadHome() {
 	ask.replaceChildren();
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
 	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
-	if (h.marked) ask.append(askClaude(CLAUDE_ASK.marked, `让 Claude 解析标记的题（${h.marked} 题）`));
+	if (h.marked) ask.append(
+		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: `🤖 让 Max 解析标记的题（${h.marked} 题）`, onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
+		askClaude(CLAUDE_ASK.marked, `让 Claude 解析标记的题（${h.marked} 题）`));
 	const rec = $("#recent");
 	if (!h.recent.length) rec.replaceChildren("还没有题");
 	else rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
@@ -78,5 +80,29 @@ $("#pick").onchange = async (e) => {
 	e.target.value = "";
 };
 
+// Max：今天先做什么 + 薄弱点 + 考前冲刺（服务器按天缓存，做题有变化才重算，不怎么花额度）
+let lastBrief = "";
+async function loadBrief(force) {
+	const b = await api("/api/max/brief" + (force ? "?force=1" : "")).catch(() => null), box = $("#maxcard");
+	if (!b || JSON.stringify(b) === lastBrief) return;
+	lastBrief = JSON.stringify(b);
+	const go = (ids, label) => (ids.length ? el("a", { className: "btn primary small", href: "/quiz?ids=" + ids.join(","), textContent: label }) : "");
+	box.replaceChildren(
+		el("h2", {}, "🤖 Max 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
+		el("p", { textContent: b.say || "" }),
+		b.soon.length && b.sprint ? el("p", {}, el("b", { textContent: `⏳ ${b.soon[0].name} 冲刺：` }), b.sprint) : "",
+		b.topics.length ? el("div", { className: "weak mute" }, "薄弱点：", ...b.topics.map((w) => el("span", { className: "tag", textContent: `${w.subject}·${w.topic} 错${w.wrong}/${w.n}` }))) : "",
+		b.weakTip ? el("p", { className: "mute", textContent: b.weakTip }) : "",
+		el("div", { className: "row" },
+			go(b.order, `按 Max 推荐做（${b.order.length} 题）`),
+			go(b.weakIds, b.soon.length ? `冲刺薄弱点（${b.weakIds.length} 题）` : `练薄弱点（${b.weakIds.length} 题）`),
+			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}) }),
+			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: () => loadBrief(true) })));
+	box.hidden = false;
+	math(box);
+}
+
 loadHome();
-autoRefresh(loadHome, 30000); // Claude 推了新题、写了总结，首页自动更新
+loadBrief();
+autoRefresh(loadHome, 30000);
+autoRefresh(() => loadBrief()); // Claude 推了新题、写了总结，首页自动更新

@@ -9,6 +9,7 @@ import { pick } from "./tags";
 import { cause } from "./cause";
 import { loginPage } from "./login";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
+import { brief, byMax, chat, gradeAll, MaxErr, used } from "./max";
 
 type Q = {
 	id: number;
@@ -164,7 +165,7 @@ app.get("/api/home", async (c) => {
 			)
 			.bind(today())
 			.all(),
-		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改'").first<{ n: number }>(),
+		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改' AND grader IS NULL").first<{ n: number }>(), // Max 在批的不算
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
 		db.prepare("SELECT id, subject, no, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
@@ -227,6 +228,14 @@ app.get("/api/practice", async (c) => {
 	const ids = idsParam(c.req.query("ids"));
 	const subject = c.req.query("subject");
 	if (subject) return c.json((await subjectQuestions(c.env.DB, subject)).map(clientQ));
+	const topic = c.req.query("topic"); // Max 推荐的「科目/考点」：错过的优先
+	if (topic) {
+		const [s, t] = topic.split("/");
+		const { results } = await c.env.DB.prepare(
+			`SELECT q.* FROM questions q WHERE q.status = 'active' AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%')
+			 ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 20`).bind(s, t || null).all<Q>();
+		return c.json(results.map(clientQ));
+	}
 	if (!ids.length) return c.json((await todayQuestions(c.env.DB)).map(clientQ));
 	const { results } = await c.env.DB
 		.prepare(`SELECT * FROM questions WHERE id IN (${inList(ids)})`)
@@ -242,7 +251,7 @@ app.post("/api/submit", async (c) => {
 	const { items } = await c.req.json<{ items: Item[] }>();
 	if (!Array.isArray(items) || !items.length) return c.json({ error: "没有作答" }, 400);
 	const db = c.env.DB;
-	const attemptIds: number[] = [];
+	const attemptIds: number[] = [], toMax: { id: number; fallback: number | null }[] = [];
 	for (const it of items) {
 		const q = await db.prepare("SELECT * FROM questions WHERE id = ?").bind(it.question_id).first<Q>();
 		if (!q) continue;
@@ -254,25 +263,29 @@ app.post("/api/submit", async (c) => {
 		const old = it.attempt_id
 			? await db.prepare("SELECT id, is_correct FROM attempts WHERE id = ? AND question_id = ?").bind(it.attempt_id, q.id).first<{ id: number; is_correct: number | null }>()
 			: null;
-		// 判分：选择、填空网站直接判（Claude 出题时已给答案）；简答（作图、写过程）交给 Claude
-		const ok = q.type === "short" || it.hand ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0; // 用了手写答案：交给 Claude 看图
-		const status = ok == null ? "待批改" : "已判";
+		// 判分：选择题网站直接判；填空先比对答案，对不上再让 Max 看是不是等价写法；文字解答 Max 批；作图、照片、手写交给 Claude
+		const site = q.type === "short" || it.hand ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
+		const mx = !it.hand && (q.type === "short" || (q.type === "fill" && site === 0 && ans.trim() !== "")) && byMax(q, it.work ?? "", it.photo_keys ?? [], !!it.hand);
+		const ok = mx ? null : site;
+		const status = ok == null ? "待批改" : "已判", grader = mx ? "max" : null;
 		let id = old?.id;
 		if (old) {
 			await db
-				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ? WHERE id = ?")
-				.bind(text, photo, ok, ok == null ? null : ok * 100, status, secs, old.id)
+				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ?, grader = ? WHERE id = ?")
+				.bind(text, photo, ok, ok == null ? null : ok * 100, status, secs, grader, old.id)
 				.run();
 		} else {
 			id = (await db
-				.prepare("INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, is_correct, score, status, time_spent_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-				.bind(q.id, q.subject, q.topic, text, photo, ok, ok == null ? null : ok * 100, status, secs)
+				.prepare("INSERT INTO attempts (question_id, subject, topic, answer_text, photo_key, is_correct, score, status, time_spent_sec, grader) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+				.bind(q.id, q.subject, q.topic, text, photo, ok, ok == null ? null : ok * 100, status, secs, grader)
 				.run()).meta.last_row_id;
 		}
 		if (ok != null && ok !== old?.is_correct) await updateQueue(db, q.id, !!ok);
 		attemptIds.push(id!);
+		if (mx) toMax.push({ id: id!, fallback: q.type === "fill" ? site : null });
 		await db.prepare("UPDATE marks SET attempt_id = ? WHERE question_id = ?").bind(id!, q.id).run(); // 标记过的题：交卷后进临时文件夹
 	}
+	if (toMax.length) c.executionCtx.waitUntil(gradeAll(c.env, toMax)); // Max 在后台批，结果页轮询会显示
 	return c.json({ attempt_ids: attemptIds });
 });
 
@@ -282,16 +295,20 @@ app.get("/api/attempts", async (c) => {
 	if (!ids.length) return c.json([]);
 	const { results } = await c.env.DB
 		.prepare(
-			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status,
+			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, q.tag, q.board,
 			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
 		.bind(...ids)
 		.all<Record<string, any>>();
+	const stuck = results.filter((r) => r.status === "待批改" && r.grader === "max"); // 交卷时后台没批完（如断网）：这里补批
+	if (stuck.length) c.executionCtx.waitUntil(gradeAll(c.env, stuck.map((r) => ({ id: r.id, fallback: r.type === "fill" ? 0 : null }))));
 	return c.json(
 		results.map((r) => ({
 			...r,
+			tag: r.stem ? pick({ ...r, opts: !!r.options } as any).tag : null,
+			board: undefined,
 			stem: label(r as Q) + r.stem,
 			options: parse<string[]>(r.options, []),
 			answer: parse<string[]>(r.answer, []),
@@ -355,6 +372,18 @@ app.get("/api/question/:id", async (c) => {
 		explanation: q.explanation,
 		attempts: results.map((r) => ({ ...r, error_reason: r.is_correct === 0 ? cause({ ...q, ...r, id: q.id }) : r.error_reason, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
 	});
+});
+
+// ---------- Max 助手 ----------
+app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1")), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
+app.post("/api/max/chat", async (c) => {
+	const { messages = [], ctx = {} } = await c.req.json<{ messages?: { role: "user" | "assistant"; content: string }[]; ctx?: any }>();
+	try {
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked });
+		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+	} catch (e) {
+		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
+	}
 });
 
 // 其余请求：已登录后交给静态页面
