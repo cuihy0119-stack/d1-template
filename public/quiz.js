@@ -27,7 +27,10 @@ async function start() {
 	const p = new URLSearchParams(location.search);
 	const m = location.hash.match(/^#r=([\d,]+)/);
 	if (m) { autoRefresh(() => showResult(m[1])); return showResult(m[1]); }
-	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : ""));
+	// topic=科目/考点（Max 推荐的「练」按钮）：题库有同类题就直接练；没有就让 Max 现场出临时题（drill.js，不进题库）
+	const topic = p.get("topic");
+	qs = await api("/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : topic ? "?topic=" + encodeURIComponent(topic) : ""));
+	if (topic && !qs.length) return Drill.start(topic, Math.min(10, +p.get("n") || 0));
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);

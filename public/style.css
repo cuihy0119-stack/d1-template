@@ -98,7 +98,8 @@ body.has-tabs main{padding-bottom:110px}
 .tabbar::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgba(255,255,255,.45),transparent 50%);opacity:.6}
 @keyframes dock{from{opacity:0;transform:translate(-50%,30px)}to{opacity:1;transform:translate(-50%,0)}}
 .tabbar a{flex:1;position:relative;text-align:center;padding:7px 0 5px;color:var(--mute);text-decoration:none;font:13px/1.3 var(--serif);border-radius:24px;transition:color .25s,background .3s var(--ease)}
-.tabbar a b{display:block;font-size:21px;font-weight:400;line-height:1.25;transition:transform .35s var(--ease)}
+.tabbar a b{display:block;font-weight:400;line-height:0;padding:3px 0 4px;transition:transform .35s var(--ease)}
+.tabbar a b svg{display:block;width:23px;height:23px;margin:0 auto;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .tabbar a.on{color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,transparent)}
 .tabbar a.on b{transform:translateY(-1px) scale(1.12)}
 /* 各科概览 */
@@ -368,7 +369,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
   background:linear-gradient(170deg,rgba(255,255,255,.32),rgba(255,255,255,0) 60%)}          /* 玻璃上沿的高光 */
 .island.open{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition:transform .5s var(--spring),opacity .18s,visibility 0s}
 .island.open>*{animation:mdrop .34s var(--ease) both}
-.island.open>.mlog{animation-delay:.06s}.island.open>.mchips,.island.open>.min{animation-delay:.1s}
+.island.open>.mlog{animation-delay:.06s}.island.open>.mchips,.island.open>.mtog,.island.open>.min{animation-delay:.1s}
 @keyframes mdrop{from{opacity:0;transform:translateY(6px)}}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.island,.mpeek{background:var(--solid)}}
 .lite .island,.lite .mpeek{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
@@ -409,7 +410,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mset{position:absolute;left:0;right:0;top:52px;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px 16px 16px;
   background:var(--mg-bg);opacity:0;transform:translateX(16px);pointer-events:none;transition:opacity .22s,transform .3s var(--ease)}
 .island.setting .mset{opacity:1;transform:none;pointer-events:auto}
-.island.setting>.mlog,.island.setting>.mchips,.island.setting>.min{visibility:hidden}
+.island.setting>.mlog,.island.setting>.mchips,.island.setting>.mtog,.island.setting>.min{visibility:hidden}
 .mset h3{margin:14px 0 6px;font:600 14px var(--serif);color:var(--mute)}
 .mline{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:14px}.mline span{font-variant-numeric:tabular-nums;color:var(--pri)}
 .mbar{height:8px;border-radius:4px;background:var(--mg-btn);overflow:hidden;margin:6px 0 2px}.mbar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--pri2),var(--pri));transform-origin:left;animation:grow .6s var(--ease) both}
@@ -424,3 +425,21 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mtool:disabled{opacity:.6}
 .mnote{margin-top:14px!important}
 .maxball.idle{opacity:var(--ball-idle,.2)}
+
+/* ================= MAX NOTE 艺术字：Playfair Display 粗斜体，全大写、字距拉开、暖色渐变 ================= */
+@font-face{font-family:'MaxBrand';font-style:italic;font-weight:900;font-display:swap;src:url(/fonts/playfair-display-latin-900-italic.woff2) format("woff2")}
+.brand{font:italic 900 42px/1.15 'MaxBrand','Playfair Display','Didot','Times New Roman',serif;letter-spacing:.12em;text-transform:uppercase;margin:4px 0 2px;padding-right:.12em;
+  background:linear-gradient(100deg,var(--pri) 5%,#e3a857 52%,var(--pri) 95%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 2px 0 color-mix(in srgb,var(--pri) 22%,transparent))}
+.login .brand{font-size:46px;margin-bottom:6px}
+
+/* Max 输入框上面的两个开关标签：线条图标 + 文字，点一下开（橙色实心），再点关 */
+.mtog{position:relative;display:flex;gap:8px;padding:2px 14px 0}
+.mtag{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--mg-edge);background:var(--mg-btn);color:var(--mute);font-size:13px;line-height:1;padding:6px 11px;border-radius:14px;transition:background .2s,color .2s,border-color .2s}
+.mtag svg{flex:none}
+.mtag.on{background:#D97757;border-color:#D97757;color:#fff}
+.mgo.done{opacity:.6}
+/* Max 临时练习：答完选项变色（对 = 绿，错 = 红），不能再改 */
+.opt:disabled{cursor:default}
+.opt.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--card))}.opt.ok .ol{background:var(--ok);color:#fff}
+.opt.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--card))}.opt.bad .ol{background:var(--bad);color:#fff}

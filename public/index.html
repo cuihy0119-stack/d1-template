@@ -1,7 +1,11 @@
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>错题练习站</title>
+<link rel="icon" href="/icon.png" type="image/png">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="apple-mobile-web-app-title" content="MAX NOTE">
+<meta name="application-name" content="MAX NOTE">
+<title>MAX NOTE</title>
 <script>(function(n,d){var p;try{p=localStorage.perf2}catch(e){}if(p==="lite"||(!p&&((n.deviceMemory||8)<4||(n.hardwareConcurrency||8)<4))||matchMedia("(prefers-reduced-transparency: reduce)").matches)d.classList.add("lite")})(navigator,document.documentElement)</script>
 <link rel="stylesheet" href="/fonts/fonts.css">
 <link rel="stylesheet" href="/style.css">
@@ -20,7 +24,7 @@
     <path class="flag" d="M160 8 L180 13 L160 19Z"/>
     <path class="star s1" d="M290 22l2 5 5 2-5 2-2 5-2-5-5-2 5-2z"/><path class="star s2" d="M28 70l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z"/><path class="star s3" d="M120 18l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z"/>
   </svg>
-  <h1>错题练习站</h1>
+  <h1 class="brand">MAX NOTE</h1>
   <p class="sub" id="date"></p>
   <div class="stats" id="stats"></div>
 </section>
@@ -42,11 +46,6 @@
   <label class="btn" for="pick">📷 拍照上传错题</label>
   <input id="pick" type="file" accept="image/*" multiple hidden>
   <p id="upmsg" class="mute" style="margin:8px 0 0"></p>
-</div>
-
-<div class="card" id="sumcard">
-  <h2>Claude 的总结</h2>
-  <div id="summary" class="mute" style="white-space:pre-wrap">还没有总结</div>
 </div>
 
 </main>
