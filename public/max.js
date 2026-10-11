@@ -188,7 +188,7 @@ const Max = (() => {
 		const vv = window.visualViewport;
 		if (vv) { const fit = () => { if (island.classList.contains("open")) layout(); }; vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
 		// 动作按钮：整理错题（事件委托，只挂一次）
-		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); });
+		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); const d = e.target.closest("button[data-do]"); if (d) doNow(d); });
 		document.body.append(island);
 		ui = { island, log, input, sendB, chips, gear, attBox };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
@@ -281,6 +281,7 @@ const Max = (() => {
 			.replace(/\[\[清理[:：]([^\]]+)\]\]/g, (_, t) => `<button type="button" class="mgo" data-act="clean" data-spec="${t.trim()}">清理题库：${t.trim().replace("|", " · ")}</button>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
+			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">⚡ ${n.trim()}${a.trim() ? "：" + a.trim().replace(/\|/g, " ") : ""}</button>`)
 			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
 			.replace(/\[\[[^\]]*$/, "") // 流式输出时半截的 [[…：先不显示
 			.replace(/\u0001(\d+)\u0001/g, '<span class="mfigslot" data-i="$1">画图中…</span>').replace(/\u0002/, `<span class="mfigslot">${final ? "（图没写完，换个问法再试）" : "画图中…"}</span>`);
@@ -366,6 +367,21 @@ const Max = (() => {
 		finally { out.classList.remove("thinking"); job = null; lock(false); }
 	}
 
+	// Max 给的网站动作（[[做:…]]）：先数一数、弹确认，确认才做；做完刷新题库/错题本/首页
+	async function doNow(b) {
+		if (b.disabled) return;
+		b.disabled = true;
+		const post = (dry) => api("/api/max/do", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: b.dataset.do, arg: b.dataset.arg, dry }) });
+		try {
+			const r = await post(true);
+			if (r.empty) return toast(r.msg);
+			if (!confirm(r.msg + "\n确定执行吗？")) return;
+			const f = await post(false);
+			b.textContent = "✓ " + f.msg; b.classList.add("done");
+			window.dispatchEvent(new Event("max:changed"));
+		} catch (e) { toast(e.message); }
+		finally { if (!b.classList.contains("done")) b.disabled = false; }
+	}
 	// Max 提议清理题库：先数一数、让学生确认，才真删（做题记录保留）
 	async function cleanNow(b) {
 		const spec = b.dataset.spec, post = (dry) => api("/api/max/clean", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ spec, dry }) });
