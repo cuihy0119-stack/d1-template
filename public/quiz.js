@@ -43,7 +43,7 @@ async function start() {
 }
 // 外接键盘（iPad）：← → 上/下一题，A-D 或 1-4 选选项；在输入框里打字时不管
 addEventListener("keydown", (e) => {
-	if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input,textarea,[contenteditable],math-field") || !qs.length || location.hash) return;
+	if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input,textarea,[contenteditable],math-field,.island") || !qs.length || location.hash) return;
 	const nav = [...document.querySelectorAll(".nav .btn")];
 	if (e.key === "ArrowRight" && nav[1] && !nav[1].disabled && nav[1].id !== "submit") { e.preventDefault(); nav[1].click(); }
 	else if (e.key === "ArrowLeft" && nav[0] && !nav[0].disabled) { e.preventDefault(); nav[0].click(); }
@@ -103,6 +103,7 @@ addEventListener("pagehide", () => {
 	if (!qs.length || !pending(cur)) return;
 	tick();
 	navigator.sendBeacon("/api/submit", new Blob([JSON.stringify({ items: [item(cur)] })], { type: "application/json" }));
+	dropCache(); // 交了题：错题本、首页的缓存作废
 	done[cur] = "…";
 });
 async function go(i) {
@@ -282,10 +283,10 @@ async function submit() {
 
 let poll = 0, seq = 0, pollFrom = 0;
 let burstDone = false, resultShown = false;
-async function showResult(ids) {
+async function showResult(ids, got) {
 	isle.hide();
 	const my = ++seq;
-	const rows = await api("/api/attempts?ids=" + ids);
+	const rows = got || (await api("/api/attempts?ids=" + ids));
 	if (my !== seq) return; // 同时触发了两次（返回缓存 + 切回页面）：只用最新那次
 	clearInterval(poll);
 	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语（只更新内容，展开状态保留）
@@ -294,7 +295,8 @@ async function showResult(ids) {
 		const last = JSON.stringify(rows);
 		poll = setInterval(async () => {
 			if (document.visibilityState !== "visible") return;
-			if (JSON.stringify(await api("/api/attempts?ids=" + ids)) !== last) showResult(ids);
+			const now = await api("/api/attempts?ids=" + ids).catch(() => null); // 断网就等下一次
+			if (now && JSON.stringify(now) !== last) { dropCache(); showResult(ids, now); } // 批完了：用这次拿到的，不再多要一次
 		}, rows.some((r) => r.status === "待批改" && r.grader) ? 4000 : 10000); // Max 批得快：4 秒看一次
 	}
 	const objective = rows.filter((r) => r.status === "已判");

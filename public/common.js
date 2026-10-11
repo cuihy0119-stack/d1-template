@@ -1,7 +1,9 @@
 // 公共小工具
 async function api(url, opts) {
-	if (opts?.method && opts.method !== "GET") dropCache(); // 改了数据（交题、删题、标记…）：本页缓存作废
+	const write = opts?.method && opts.method !== "GET";
+	if (write) dropCache(); // 改了数据（交题、删题、标记…）：本页缓存作废
 	const r = await fetch(url, opts);
+	if (write) dropCache(); // 请求期间别处可能又缓存了旧数据：完成后再清一次
 	if (r.status === 401) { location.href = "/login"; throw new Error("未登录"); }
 	if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
 	return r.json();
@@ -73,6 +75,7 @@ function tabbar(active) {
 	for (const [href, name, icon] of tabs) {
 		nav.append(el("a", { href, className: href === active ? "on" : "" }, el("b", { textContent: icon }), name));
 	}
+	try { if (sessionStorage.getItem("seen")) document.documentElement.classList.add("seen"); else sessionStorage.setItem("seen", "1"); } catch {} // 底栏只在第一次浮入
 	document.body.append(nav);
 	// 支持的浏览器手指按下链接时预取其它页面（只下载，不提前渲染，不占性能），切换更快
 	if (HTMLScriptElement.supports?.("speculationrules"))
@@ -99,7 +102,7 @@ const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoi
 const askClaude = (text, label) =>
 	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), textContent: label, style: "text-decoration:none;margin-top:10px",
 		...(IOS ? {} : { target: "_blank", rel: "noopener" }),
-		onclick: () => { navigator.clipboard?.writeText(text).then(() => toast("指令已复制，在 Claude 里粘贴发送即可"), () => {}); } });
+		onclick: () => { dropCache(); navigator.clipboard?.writeText(text).then(() => toast("指令已复制，在 Claude 里粘贴发送即可"), () => {}); } });
 function toast(msg) {
 	const t = el("div", { className: "toast", textContent: msg });
 	document.body.append(t);

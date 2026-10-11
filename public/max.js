@@ -7,7 +7,7 @@ const Max = (() => {
 	const KEY = "max_chat", POS = "max_y", TIMEOUT = 60000;
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
 	const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
-	let hist = [], ctx = {}, ui = null, ball = null, tipT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
+	let hist = [], ctx = {}, base = {}, ui = null, ball = null, tipT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
 	try { hist = JSON.parse(ss(KEY) || "[]"); if (!Array.isArray(hist)) hist = []; } catch { hist = []; }
 	const keep = () => ss(KEY, JSON.stringify(hist.slice(-12)));
 	const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
@@ -46,6 +46,7 @@ const Max = (() => {
 			else if (tap) open();
 		};
 		ball.addEventListener("pointerup", () => end(true));
+		ball.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }); // 外接键盘也能打开
 		ball.addEventListener("pointercancel", () => end(false));
 		addEventListener("resize", () => { if (ball.style.top) ball.style.top = clampY(parseFloat(ball.style.top)) + "px"; }, { passive: true });
 		document.body.append(ball);
@@ -65,7 +66,7 @@ const Max = (() => {
 		const pill = el("div", { className: "mpill" }, logo(), el("span", { className: "mtip" }));
 		const body = el("div", { className: "mbody" },
 			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), el("span", { className: "msub", textContent: "能看到当前页面 · 难题找 Claude" }),
-				el("button", { type: "button", textContent: "清空", onclick: () => { stop(); hist = []; keep(); log.replaceChildren(); hello(); } }),
+				el("button", { type: "button", textContent: "清空", onclick: () => { stop(); hist = []; keep(); oneOff(); log.replaceChildren(); hello(); quick(); } }),
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
 			log, chips, el("div", { className: "min" }, input, sendB));
 		const island = el("section", { className: "island" }, pill, body);
@@ -77,7 +78,13 @@ const Max = (() => {
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && island.classList.contains("open")) close(); });
 		// 弹出键盘时（iOS）窗口高度跟着可见区域缩，输入框不被挡
 		const vv = window.visualViewport;
-		vv?.addEventListener("resize", () => { if (island.classList.contains("open")) body.style.maxHeight = Math.max(220, vv.height - 24) + "px"; });
+		const fit = () => { // 键盘弹出：窗口缩到可见区域里（扣掉顶部位置）；键盘收起恢复
+			if (!island.classList.contains("open")) return;
+			const room = vv.height - island.getBoundingClientRect().top - 12;
+			body.style.maxHeight = vv.height < innerHeight - 80 ? Math.max(200, Math.min(room, 620)) + "px" : "";
+		};
+		vv?.addEventListener("resize", fit);
+		vv?.addEventListener("scroll", fit);
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
@@ -142,8 +149,10 @@ const Max = (() => {
 		requestAnimationFrame(scroll);
 		if (text) send(text, c || {});
 	}
+	const oneOff = () => { if (ctx.explain || ctx.marked) ctx = base; }; // 一键讲解/解析用完回到页面本来的上下文
 	function close() {
 		if (!ui) return;
+		oneOff();
 		ui.island.classList.remove("open");
 		ui.body.style.maxHeight = "";
 		ui.input.blur();
@@ -188,14 +197,15 @@ const Max = (() => {
 
 	async function send(text = ui.input.value.trim(), extra = {}) {
 		build();
-		if (!text || job) return;
+		if (!text) return;
+		if (job) return void toast("Max 还在回答，等它说完或点 ■ 停止");
 		ui.input.value = ""; ui.input.style.height = "";
 		hist.push({ role: "user", content: text });
-		bubble("user", text);
+		const ub = bubble("user", text);
 		const out = thinking();
-		let all = "", raf = 0, ok = false, eng = "";
+		let all = "", ok = false, eng = "", timedOut = false, last = 0, tm = 0;
 		job = new AbortController();
-		const ctl = job, t = setTimeout(() => ctl.abort("timeout"), TIMEOUT); // 一分钟没说完就停，免得卡住
+		const ctl = job, t = setTimeout(() => { timedOut = true; ctl.abort(); }, TIMEOUT); // 一分钟没说完就停，免得卡住
 		lock(true);
 		try {
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
@@ -204,23 +214,28 @@ const Max = (() => {
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
 			eng = r.headers.get("x-max-engine") || "";
-			const draw = () => { raf = 0; out.classList.remove("thinking"); paint(out, all, false); scroll(); };
-			if (r.body?.getReader) { // 边生成边显示（每帧最多画一次）
+			const draw = () => { // 边生成边显示：最多 80ms 画一次；你往上翻着看时不强行拉到底
+				tm = 0; last = Date.now();
+				const near = ui.log.scrollHeight - ui.log.scrollTop - ui.log.clientHeight < 60;
+				out.classList.remove("thinking"); paint(out, all, false);
+				if (near) scroll();
+			};
+			if (r.body?.getReader) {
 				const rd = r.body.getReader(), dec = new TextDecoder();
 				for (;;) {
 					const { done, value } = await rd.read();
 					if (done) break;
 					all += dec.decode(value, { stream: true });
-					if (!raf) raf = requestAnimationFrame(draw);
+					if (!tm) tm = setTimeout(draw, Math.max(0, 80 - (Date.now() - last)));
 				}
+				all += dec.decode(); // 收尾：别丢最后半个字
 			} else all = await r.text();
 			ok = true;
 		} catch (e) {
-			const why = ctl.signal.aborted ? (ctl.signal.reason === "timeout" ? "Max 太久没回应，已停止" : "已停止") : /fetch|network|load failed/i.test(e.message) ? "网络断了，检查一下再试" : e.message;
+			const why = ctl.signal.aborted ? (timedOut ? "Max 太久没回应，已停止" : "已停止") : /fetch|network|load failed/i.test(e.message) ? "网络断了，检查一下再试" : e.message;
 			all = all.trim() ? all + "\n\n⚠ " + why : "⚠ " + why;
 		} finally {
-			clearTimeout(t);
-			cancelAnimationFrame(raf);
+			clearTimeout(t); clearTimeout(tm);
 			out.classList.remove("thinking");
 			all = all.trim() || "（Max 没说话，换个问法试试）";
 			paint(out, all, true);
@@ -230,7 +245,10 @@ const Max = (() => {
 				if (by) out.append(el("div", { className: "meng", textContent: by }));
 				quick(); // 出现「没懂，再讲详细点」
 			}
-			else { hist.pop(); out.append(el("button", { type: "button", className: "mgo", textContent: "↻ 重试", onclick: () => send(text, extra) })); } // 失败的问题不留在上下文里
+			else { // 失败的问题不留在上下文里；重试时把这一问一答撤掉重来，不重复
+				hist.pop();
+				out.append(el("button", { type: "button", className: "mgo", textContent: "↻ 重试", onclick: () => { if (job) return; ub.remove(); out.remove(); send(text, extra); } }));
+			}
 			job = null;
 			lock(false);
 			scroll();
@@ -238,7 +256,7 @@ const Max = (() => {
 	}
 
 	return {
-		setCtx(c) { ctx = c || {}; if (ui?.island.classList.contains("open")) quick(); },
+		setCtx(c) { ctx = base = c || {}; if (ui?.island.classList.contains("open")) quick(); },
 		open,
 		tip,
 	};

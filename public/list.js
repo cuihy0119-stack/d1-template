@@ -97,11 +97,14 @@ function row(q) {
 }
 
 // 错题本顶部：错因统计（脚本归类 vs Max 归类）+ Max 总结 + 一键整理
+let lastSum = "";
 async function loadSum() {
 	if (MODE !== "wrong") return; // 题库页没有错因卡片
-	if (tab !== "active") return $("#maxsum").replaceChildren();
+	if (tab !== "active") { lastSum = ""; return $("#maxsum").replaceChildren(); }
 	const s = await cachedApi("/api/max/wrongsum", 120000).catch(() => null);
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
+	if (JSON.stringify(s) === lastSum) return; // 没变不重画、不再弹提示
+	lastSum = JSON.stringify(s);
 	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
 		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
 	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `🗂 让 Max 整理（${s.todo} 道没整理）` : "🗂 Max 已整理完", disabled: !s.todo, onclick: async () => {
@@ -120,10 +123,16 @@ async function loadSum() {
 }
 addEventListener("max:changed", () => load());
 
+let loadSeq = 0, lastSig = "";
 function load() {
 	loadSum();
-	cachedApi(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank", 60000).then((d) => { data = d; render(); });
+	const my = ++loadSeq, url = MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank";
+	cachedApi(url, 60000).then((d) => {
+		if (my !== loadSeq) return; // 快速切标签：只用最后一次
+		const sig = url + JSON.stringify(d);
+		if (sig === lastSig) return; // 数据没变就不重画（不收起正在看的题）
+		lastSig = sig; data = d; render();
+	});
 }
 load();
-autoRefresh(load); // 切回页面时更新（不定时刷新，免得收起正在看的题）
-window.addEventListener("load", () => math($("#list")));
+autoRefresh(load); // 切回页面时更新（数据没变不重画，展开的题不会收起）

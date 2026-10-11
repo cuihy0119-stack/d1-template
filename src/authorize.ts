@@ -71,7 +71,7 @@ export function mountAuthorize(app: Hono<{ Bindings: Env }>) {
 }
 
 function fail(e: unknown) {
-	if (e instanceof AuthorizationError && e.redirectTo) return Response.redirect(e.redirectTo, 302);
+	if (e instanceof AuthorizationError && e.redirectTo) return new Response(null, { status: 302, headers: { Location: e.redirectTo } }); // Response.redirect 的头不能改，加安全头会报错
 	if (e instanceof AuthorizationError || e instanceof CimdFetchError) {
 		const msg = e instanceof AuthorizationError ? e.description : "无法验证这个应用";
 		return page(`<h1>授权失败</h1><p class="err">${esc(String(msg))}</p>`, 400);
