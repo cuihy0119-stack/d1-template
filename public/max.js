@@ -21,6 +21,13 @@ const Max = (() => {
 		["web", "联网搜索", "先搜网页再回答（说明来源）", line('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9S9.4 5.7 12 3z"/>')],
 	];
 	const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
+	// 防误触：按下和抬起挪过 8px 的是滑动，不算点击；窗口或气泡刚弹出/收起的 450 毫秒内，抬手后的点击不算数
+	// （悬浮球一点，窗口就在手指下弹开，抬手的「穿透点击」会落到刚出现的「今天先做什么？」上，所以要挡住）
+	let downX = 0, downY = 0, quietUntil = 0;
+	addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; }, { capture: true, passive: true });
+	const quiet = () => { quietUntil = Date.now() + 450; };
+	const ghost = (e) => e.detail && (Date.now() < quietUntil || Math.hypot(e.clientX - downX, e.clientY - downY) > 8); // detail=0 是键盘触发，照常
+	const shield = (root) => root.addEventListener("click", (e) => { if (ghost(e)) { e.stopPropagation(); e.preventDefault(); } }, true);
 	// 设置（存在本机）：len 回答长短，pref 优先引擎，fade 悬浮球闲置时的不透明度（1 = 不变淡）
 	const prefs = (() => { try { return { len: "m", pref: "auto", fade: 0.2, ...JSON.parse(ls("max_prefs") || "{}") }; } catch { return { len: "m", pref: "auto", fade: 0.2 }; } })();
 	const savePrefs = () => { ls("max_prefs", JSON.stringify(prefs)); applyFade(); };
@@ -135,7 +142,7 @@ const Max = (() => {
 		if (!ball) return void (pendingTip = text); // 页面还在加载：等悬浮球出来再说
 		pendingTip = "";
 		if (ui?.island.classList.contains("open")) return;
-		if (!peek) { peek = el("div", { className: "mpeek" }, logo(), el("span")); peek.onclick = () => open(); document.body.append(peek); }
+		if (!peek) { peek = el("div", { className: "mpeek" }, logo(), el("span")); peek.onclick = (e) => { if (!ghost(e)) open(); }; document.body.append(peek); }
 		peek.lastChild.textContent = text;
 		const b = box(), w = Math.min(peek.offsetWidth || 240, innerWidth - 2 * M - b.width - 8);
 		const x = pos.side === "l" ? b.right + 8 : b.left - 8 - w, y = b.top + (b.height - (peek.offsetHeight || 36)) / 2;
@@ -190,6 +197,7 @@ const Max = (() => {
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); const d = e.target.closest("button[data-do]"); if (d) doNow(d); });
 		document.body.append(island);
+		shield(island); // 窗口里的按钮（快捷问题、标签、发送）都挡住误触
 		ui = { island, log, input, sendB, chips, gear, attBox };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
@@ -320,6 +328,7 @@ const Max = (() => {
 	}
 	function open(c, text) {
 		build();
+		quiet();
 		if (c) ctx = c;
 		hidePeek();
 		layout();
@@ -334,6 +343,7 @@ const Max = (() => {
 	const oneOff = () => { if (ctx.explain || ctx.marked) ctx = base; }; // 一键讲解/解析用完回到页面本来的上下文
 	function close() { // 窗口缩回球里，球重新出现
 		if (!ui) return;
+		quiet();
 		oneOff();
 		if (ball) layout(); // 球可能被拖过：缩回去的方向跟着球
 		ui.island.classList.remove("open", "setting");
