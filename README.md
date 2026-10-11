@@ -25,7 +25,7 @@ MCP 地址：`https://<你的 Worker 域名>/mcp`（例如 `https://d1-template.
 3. 点连接，会弹出授权页，输入网站的 `PASSCODE` 并点「允许」
 4. 对话里 Claude 只用 3 个工具：
    - `get_inbox`：新照片 + 待批改作答
-   - `save`：一次写入——`grades` 批改、`wrong` 原错题、`questions` 新题、`organize` 改分类、`summary` 总结；`def` 给本批题共用的科目/章节；`type` 可省（自动推断）
+   - `save`：一次写入——`grades` 批改、`wrong` 原错题、`questions` 新题、`organize` 改分类、`summary` 总结、`retract` 撤回已推送的题（题号如 `数学3`，或 `"last"` 撤上一批整批；有待批改作答的题不撤）；`def` 给本批题共用的科目/章节；`type` 可省（自动推断）
    - `get_data`：`kind=records` 作答记录 / `kind=bank` 题库清单（TSV）
 
 省用量设计：工具少且说明短；一轮通常只要 get_inbox + save 两次调用；作图答案转成文字描述（坐标单位=格），只有手绘才附图；照片压到 1280px。

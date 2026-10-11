@@ -145,7 +145,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 	s.registerTool(
 		"save",
 		{
-			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结；notes 考点→Notion 笔记对照表。",
+			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结；notes 考点→Notion 笔记对照表；retract 撤回已推送的题。",
 			inputSchema: {
 				def: z.object({ subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() }).optional().describe("本批题共用的科目/章节/考点"),
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
@@ -159,10 +159,11 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
 				exams: z.array(z.object({ name: z.string(), date: z.string().describe("YYYY-MM-DD") })).optional().describe("临近考试（整表替换），首页显示倒计时"),
 				summary: z.string().optional(),
+				retract: z.array(z.string()).max(30).optional().describe('撤回已推送的题：题号（如 数学3）或 "last"（撤回上一次推送的整批）。有待批改作答的题不撤'),
 				notes: z.array(z.object({ s: z.array(z.string()).describe("科目（可带别名，如 道法、道德与法治）"), t: z.string().describe("笔记标题"), u: z.string().describe("Notion 链接"), k: z.array(z.string()).optional().describe("考点关键词；省略 = 这一科的兜底页") })).max(80).optional().describe("考点→Notion 笔记对照表（整表替换），答错后网站按它给「Notion 笔记」按钮"),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary, notes }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary, notes, retract = [] }) => {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (agree.length) { // 同意 Max 初评：直接照初评打分
@@ -187,6 +188,25 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				}
 				out.push("批改 " + r.join(" "));
 			}
+			if (retract.length) { // 撤回已推送的题：先撤再推（同一次 save 里可以「撤旧、推新」）；待批改作答的题不动，免得丢掉没批的作答
+				let ids: number[] = [];
+				for (const t of retract) {
+					if (t === "last") { try { ids.push(...(JSON.parse((await db.prepare("SELECT v FROM meta WHERE k = 'last_push'").first<{ v: string }>())?.v ?? "[]") as number[])); } catch {} }
+					else {
+						const r = await db.prepare("SELECT id FROM questions WHERE subject || COALESCE(no, '') = ? AND status = 'active'").bind(t.trim()).first<{ id: number }>();
+						if (r) ids.push(r.id); else err.push(`撤回：找不到 ${t}`);
+					}
+				}
+				ids = [...new Set(ids.filter((n) => Number.isInteger(n)))].slice(0, 100);
+				if (ids.length) {
+					const { results } = await db.prepare(`SELECT q.id, q.subject || COALESCE(q.no, '') lab, EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') p FROM questions q WHERE q.id IN (${ids.join(",")})`).all<{ id: number; lab: string; p: number }>();
+					const go = results.filter((r) => !r.p), skip = results.filter((r) => r.p), list = go.map((r) => r.id).join(",");
+					if (go.length) await db.batch([db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`), db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`), db.prepare(`DELETE FROM questions WHERE id IN (${list})`)]);
+					if (retract.includes("last")) await db.prepare("DELETE FROM meta WHERE k = 'last_push'").run();
+					out.push(`撤回 ${go.map((r) => r.lab).join(",") || "无"}`);
+					if (skip.length) err.push(`有待批改作答没撤：${skip.map((r) => r.lab).join(",")}`);
+				}
+			}
 			const fresh: number[] = []; // 新录入的题：最后让 Max 扫一遍
 			const add = async (list: QIn[], source: "原错题" | "同类题") => {
 				const ids: { id: number; label: string }[] = [];
@@ -205,6 +225,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 			if (done.size) await db.prepare(`UPDATE uploads SET status = '已处理' WHERE id IN (${[...done].map(() => "?")})`).bind(...done).run();
 			if (done.size) out.push(`照片已处理 ${done.size}`);
 			if (questions.length) out.push(`新题 ${(await add(questions, "同类题")).map((q) => q.label).join(",")}`);
+			if (fresh.length) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('last_push', ?)").bind(JSON.stringify(fresh)).run(); // 记下这一批，retract:["last"] 可整批撤回
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
