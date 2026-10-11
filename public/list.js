@@ -2,7 +2,7 @@
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
 let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，满 20 道发给 Claude 整理后清掉）
-let subject = new URLSearchParams(location.search).get("subject") || "";
+let subject = new URLSearchParams(location.search).get("subject") || "", cat = ""; // cat：章节（选了科目后再细分）
 tabbar("/" + MODE);
 
 const quizHref = (ids) => "/quiz?ids=" + ids.join(",") + (MODE === "wrong" ? "&from=wrong" : ""); // 错题重做不需要标记按钮
@@ -29,10 +29,15 @@ function render() {
 	const chips = $("#chips");
 	chips.replaceChildren();
 	for (const s of ["", ...subjects]) {
-		chips.append(el("button", { className: "chip" + (s === subject ? " on" : ""), textContent: s || "全部", onclick: () => { subject = s; render(); } }));
+		chips.append(el("button", { className: "chip" + (s === subject ? " on" : ""), textContent: s || "全部", onclick: () => { subject = s; cat = ""; render(); } }));
 	}
+	// 选了科目：再按章节分（Max 整理分类后会更整齐）
+	const cats = subject ? [...new Set(data.items.filter((q) => q.subject === subject).map((q) => q.category || "未分章节"))] : [];
+	if (cat && !cats.includes(cat)) cat = "";
+	if (cats.length > 1) chips.append(el("div", { className: "chips2" }, ...["", ...cats].map((c) =>
+		el("button", { className: "chip small" + (c === cat ? " on" : ""), textContent: c || "全部章节", onclick: () => { cat = c; render(); } }))));
 
-	const shown = data.items.filter((q) => !subject || q.subject === subject);
+	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat));
 	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries));
 	const top = $("#redo");
 	top.replaceChildren();
@@ -40,8 +45,13 @@ function render() {
 		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length}/20。Max 会整理成总结，满 20 道时发给 Claude 做后续（讲评、归档、出巩固题），然后清掉` }));
 		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
+	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {
+		const b = e.currentTarget; b.disabled = true; b.textContent = "Max 整理中…";
+		try { const r = await api("/api/max/classify", { method: "POST" }); toast(r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"); load(); }
+		catch (err) { toast(err.message); b.disabled = false; b.textContent = "🗂 让 Max 整理分类"; }
+	} }));
 	if (todo.length) {
-		const href = MODE === "bank" && subject ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id));
+		const href = MODE === "bank" && subject && !cat ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id).slice(0, 50));
 		top.append(el("a", { className: "btn primary", href, style: "text-decoration:none",
 			textContent: MODE === "wrong" ? `重做错题（${todo.length}）` : `开始练习（${todo.length} 题未做）` }));
 	}
@@ -56,10 +66,11 @@ function render() {
 function row(q) {
 	const [label, cls] = state(q);
 	const del = el("button", { type: "button", className: "del", textContent: "🗑 删除", onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } });
-	const tag = subject ? q.category || q.subject : q.subject;
 	const item = el("div", { className: "item" },
 		el("div", { className: "body" },
-			el("span", { className: "tag", textContent: tag }),
+			el("span", { className: "tag", textContent: subject ? q.category || q.subject : q.subject }),
+			q.tag ? el("span", { className: "tag ty", textContent: q.tag }) : "",
+			q.topic ? el("span", { className: "tag tp", textContent: q.topic }) : "",
 			el("span", { className: "time", textContent: "🕒 " + when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) }),
 			MODE === "wrong" ? el("div", { className: "why" },

@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classify, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
 type Q = {
 	id: number;
@@ -275,7 +275,7 @@ app.post("/api/submit", async (c) => {
 			: null;
 		// 判分：选择题网站直接判；填空先比对答案，对不上再让 Max 看是不是等价写法；文字解答 Max 批；作图、照片、手写交给 Claude
 		const site = q.type === "short" || it.hand ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
-		const mx = !it.hand && (q.type === "short" || (q.type === "fill" && site === 0 && ans.trim() !== "")) && byMax(q, it.work ?? "", it.photo_keys ?? [], !!it.hand);
+		const mx = !it.hand && (q.type === "short" || (q.type === "fill" && site === 0 && ans.trim() !== "")) ? byMax(q, it.work ?? "", it.photo_keys ?? [], !!it.hand) : false; // 作图题有画板描述也先给 Max
 		const ok = mx ? null : site;
 		const status = ok == null ? "待批改" : "已判", grader = mx ? "max" : null;
 		let id = old?.id;
@@ -309,7 +309,7 @@ app.get("/api/attempts", async (c) => {
 	if (!ids.length) return c.json([]);
 	const { results } = await c.env.DB
 		.prepare(
-			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, q.tag, q.board,
+			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, a.max_score, a.max_comment, a.max_sure, q.tag, q.board,
 			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
@@ -342,7 +342,7 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
-			        q.max_reason, q.max_note,
+			        q.max_reason, q.max_note, q.tag,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
@@ -401,6 +401,10 @@ app.get("/api/max/status", async (c) => c.json(await status(c.env)));
 app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1")));
 app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
+});
+app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（合并同义考点、归章节）
+	try { return c.json({ done: await classify(c.env, true) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
 });
 app.post("/api/max/chat", async (c) => {

@@ -309,7 +309,7 @@ async function showResult(ids, got) {
 	const wrap = el("div", {}, el("h1", { textContent: "结果" }), score);
 	if (fold) wrap.append(el("p", { className: "mute", textContent: "点题目展开看答案和解析" }));
 	for (const r of rows) {
-		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : "待 Claude 批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
+		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : r.max_sure != null ? "Max 拿不准 · 转 Claude" : "待 Claude 批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
 		const card = el("details", { className: "card rcard", open: !fold || open.has(String(r.id)) });
 		if (resultShown) card.style.animation = "none"; else card.style.setProperty("--i", Math.min(rows.indexOf(r), 12)); // 只在第一次显示时依次浮现，轮询刷新不重播
 		card.dataset.id = r.id;
@@ -330,14 +330,18 @@ async function showResult(ids, got) {
 		if (r.status === "已判" && r.type === "short" || r.comment) {
 			card.append(el("div", { className: "ans", textContent: (r.grader === "max" ? "Max 评语：" : "评语：") + (r.comment || "") + (r.error_reason ? `（${r.error_reason}）` : "") + (r.score != null ? ` 得分 ${r.score}` : "") }));
 		}
-		if (r.status === "已判" && !DRAWN.has(r.tag)) // 作图题 Max 不碰
+		if (r.status === "待批改" && !r.grader && r.max_score != null) // Max 的初评（作图题拿不准时给 Claude 参考）
+			card.append(el("div", { className: "ans", textContent: `Max 初评：${r.max_score} 分，${r.max_comment || ""}（把握不大，已交给 Claude 定）` }));
+		if (r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max")) // 作图题 Max 批过的也能问
 			card.append(el("button", { type: "button", className: "btn small", style: "margin-top:8px", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }));
 		wrap.append(card);
 	}
 	// 作图/写过程的题交给 Claude 批改；标记的题可以让 Claude 解析
 	const forClaude = rows.filter((r) => r.status === "待批改" && !r.grader).length;
 	if (pending > forClaude) wrap.append(el("p", { className: "mute", textContent: `Max 正在批改 ${pending - forClaude} 题，几秒后自动显示` }));
-	if (forClaude) wrap.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改作图/照片/手写题（${forClaude} 题）`), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
+	const unsure = rows.filter((r) => r.status === "待批改" && !r.grader && r.max_sure != null).length;
+	if (forClaude) wrap.append(askClaude(CLAUDE_ASK.grade, unsure ? `转给 Claude 批改（Max 拿不准 ${unsure} 题${forClaude > unsure ? `，照片/手写 ${forClaude - unsure} 题` : ""}）` : `让 Claude 批改照片/手写题（${forClaude} 题）`),
+		el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
 	if (rows.some((r) => r.marked)) wrap.append(
 		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: "🤖 让 Max 解析标记的题", onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
 		askClaude(CLAUDE_ASK.marked, "让 Claude 解析标记的题"));
