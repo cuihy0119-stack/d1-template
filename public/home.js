@@ -34,7 +34,8 @@ let uploading = false, lastHome = "";
 
 async function loadHome() {
 	if (uploading) return;
-	const h = await api("/api/home"), sig = JSON.stringify(h);
+	const h = await cachedApi("/api/home?brief=1", 60000), sig = JSON.stringify(h); // 1 分钟内刷新直接用缓存，不发请求
+	if (h.brief) showBrief(h.brief);
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);
@@ -92,11 +93,13 @@ $("#pick").onchange = async (e) => {
 
 // Max：今天先做什么 + 薄弱点 + 考前冲刺（服务器按天缓存，做题有变化才重算，不怎么花额度）
 let lastBrief = "";
-let briefAt = 0;
-async function loadBrief(force) {
-	if (!force && Date.now() - briefAt < 120000) return; // 2 分钟内切回页面不重复要
-	briefAt = Date.now();
-	const b = await api("/api/max/brief" + (force ? "?force=1" : "")).catch(() => null), box = $("#maxcard");
+// 手动「重新看看」才让 Max 重想（服务器 10 分钟内最多一次）；平时的建议跟着首页数据一起来，一天只想一次
+async function rethink() {
+	const b = await api("/api/max/brief?force=1").catch(() => null);
+	if (b) { dropCache(); showBrief(b); }
+}
+function showBrief(b) {
+	const box = $("#maxcard");
 	if (!b || JSON.stringify(b) === lastBrief) return;
 	lastBrief = JSON.stringify(b);
 	const go = (ids, label) => (ids.length ? el("a", { className: "btn primary small", href: "/quiz?ids=" + ids.join(","), textContent: label }) : "");
@@ -110,12 +113,10 @@ async function loadBrief(force) {
 			go(b.order, `按 Max 推荐做（${b.order.length} 题）`),
 			go(b.weakIds, b.soon.length ? `冲刺薄弱点（${b.weakIds.length} 题）` : `练薄弱点（${b.weakIds.length} 题）`),
 			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}) }),
-			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: () => loadBrief(true) })));
+			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: rethink })));
 	box.hidden = false;
 	math(box);
 }
 
 loadHome();
-loadBrief();
-autoRefresh(loadHome, 60000); // 1 分钟一次（只在页面可见时），省请求
-autoRefresh(() => loadBrief()); // Claude 推了新题、写了总结，首页自动更新
+autoRefresh(loadHome, 120000); // 页面开着时 2 分钟看一次（Claude 推了新题会更新）；有缓存时不发请求

@@ -1,11 +1,20 @@
 // 公共小工具
 async function api(url, opts) {
+	if (opts?.method && opts.method !== "GET") dropCache(); // 改了数据（交题、删题、标记…）：本页缓存作废
 	const r = await fetch(url, opts);
 	if (r.status === 401) { location.href = "/login"; throw new Error("未登录"); }
 	if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
 	return r.json();
 }
 const $ = (s) => document.querySelector(s);
+// 接口结果在本标签页缓存 ttl 毫秒：刷新页面、来回切换都不重复请求（一改数据就清掉）
+async function cachedApi(url, ttl) {
+	try { const c = JSON.parse(sessionStorage.getItem("c:" + url) || "null"); if (c && Date.now() - c.at < ttl) return c.d; } catch {}
+	const d = await api(url);
+	try { sessionStorage.setItem("c:" + url, JSON.stringify({ at: Date.now(), d })); } catch {}
+	return d;
+}
+function dropCache() { try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("c:")) sessionStorage.removeItem(k); } catch {} }
 // 第一次打开时测一下帧率（页面加载完再测，取中位数，避免把加载时的忙碌误判成卡）：明显掉帧就记住用精简模式
 try {
 	if (!localStorage.perf2) addEventListener("load", () => setTimeout(() => {
