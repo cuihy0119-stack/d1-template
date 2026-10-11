@@ -48,7 +48,7 @@ const Drill = (() => {
 				: el("div", {}, el("div", { className: "ans bad", textContent: "✗ 这题没对，点下面让 Max 帮你分析错在哪" }),
 					el("div", { className: "row", style: "margin-top:8px" },
 						el("button", { type: "button", className: "btn", textContent: "让 Max 分析", onclick: () => Max.open({ tmp: tmpOf(q, mine, true) }, "这题我做错了，帮我分析错在哪、怎么避免") }),
-						noteLink(q.topic, "btn"),
+						noteLink(q.subject, q.topic, "btn"),
 						el("button", { type: "button", className: "btn", textContent: "看答案", onclick: (e) => { e.currentTarget.replaceWith(el("div", { className: "ans", textContent: "正确答案：" + shown(q) + (q.explanation ? "　解析：" + q.explanation : "") })); math(res); } }))));
 			math(res);
 			nav.hidden = false;

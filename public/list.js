@@ -96,7 +96,7 @@ function row(q) {
 			if (wrong.comment) detail.append(el("div", { className: "ans", textContent: "评语：" + wrong.comment }));
 		}
 		detail.append(el("div", { className: "ans", textContent: "正确答案：" + d.answer.join(" / ") }));
-		if (d.topic) detail.append(noteLink(d.topic));
+		if (d.topic) detail.append(noteLink(d.subject, d.topic));
 		if (d.explanation) detail.append(el("div", { className: "ans", textContent: "解析：" + d.explanation }));
 		const act = (path) => async () => { await api(`/api/question/${q.id}/${path}`, { method: "POST" }); load(); };
 		detail.append(el("div", { className: "row", style: "margin-top:8px" },
