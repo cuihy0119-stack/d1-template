@@ -403,3 +403,24 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .chips2{display:flex;flex-wrap:wrap;gap:6px;width:100%;margin-top:4px}.chip.small{font-size:13px;padding:3px 11px}
 .tag.ty{background:rgba(120,140,200,.14);color:#6b7fb8}.tag.tp{background:none;padding-left:0;color:var(--mute)}
 @media(prefers-color-scheme:dark){.tag.ty{color:#9fb1e6}}
+/* Max 设置页（齿轮）：盖在对话上，从右边滑进来 */
+.mgear{display:grid;place-items:center;width:30px;height:28px;padding:0!important;transition:transform .35s var(--ease)}
+.mgear.on{transform:rotate(90deg);background:rgba(217,119,87,.18)!important;color:var(--pri)!important}
+.mset{position:absolute;left:0;right:0;top:52px;bottom:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:4px 16px 16px;
+  background:var(--mg-bg);opacity:0;transform:translateX(16px);pointer-events:none;transition:opacity .22s,transform .3s var(--ease)}
+.island.setting .mset{opacity:1;transform:none;pointer-events:auto}
+.island.setting>.mlog,.island.setting>.mchips,.island.setting>.min{visibility:hidden}
+.mset h3{margin:14px 0 6px;font:600 14px var(--serif);color:var(--mute)}
+.mline{display:flex;justify-content:space-between;align-items:baseline;margin-top:10px;font-size:14px}.mline span{font-variant-numeric:tabular-nums;color:var(--pri)}
+.mbar{height:8px;border-radius:4px;background:var(--mg-btn);overflow:hidden;margin:6px 0 2px}.mbar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--pri2),var(--pri));transform-origin:left;animation:grow .6s var(--ease) both}
+.mbar.warn i{background:linear-gradient(90deg,#e0a040,#c9502f)}
+.musage .mute,.mnote{font-size:12px;margin:2px 0}
+.mrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;font-size:14px}
+.mseg{display:flex;background:var(--mg-btn);border-radius:12px;padding:2px}
+.mseg button{border:0;background:none;color:var(--fg);font-size:12px;padding:5px 9px;border-radius:10px;white-space:nowrap}
+.mseg button.on{background:var(--mg-field);box-shadow:0 1px 4px rgba(0,0,0,.12);color:var(--pri);font-weight:600}
+.mtools{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mtool{border:1px solid var(--mg-edge);background:var(--mg-btn);color:var(--fg);font-size:13px;padding:9px 6px;border-radius:12px;text-align:center}
+.mtool:disabled{opacity:.6}
+.mnote{margin-top:14px!important}
+.maxball.idle{opacity:var(--ball-idle,.2)}

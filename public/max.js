@@ -12,6 +12,10 @@ const Max = (() => {
 	try { hist = JSON.parse(ss(KEY) || "[]"); if (!Array.isArray(hist)) hist = []; } catch { hist = []; }
 	const keep = () => ss(KEY, JSON.stringify(hist.slice(-12)));
 	const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
+	// 设置（存在本机）：len 回答长短，pref 优先引擎，fade 悬浮球闲置时的不透明度（1 = 不变淡）
+	const prefs = (() => { try { return { len: "m", pref: "auto", fade: 0.2, ...JSON.parse(ls("max_prefs") || "{}") }; } catch { return { len: "m", pref: "auto", fade: 0.2 }; } })();
+	const savePrefs = () => { ls("max_prefs", JSON.stringify(prefs)); applyFade(); };
+	const applyFade = () => document.documentElement.style.setProperty("--ball-idle", String(prefs.fade));
 
 	// Claude 风格的橙色放射状标志；每根光芒带不同的动画延迟，思考时错落伸缩
 	const LOGO = `<svg viewBox="-12 -12 24 24" width="26" height="26" aria-hidden="true"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round">${
@@ -43,13 +47,14 @@ const Max = (() => {
 		if (!ball) return;
 		ball.classList.remove("idle");
 		clearTimeout(idleT);
-		idleT = setTimeout(() => { if (!document.body.classList.contains("max-busy")) ball.classList.add("idle"); }, IDLE);
+		if (prefs.fade < 1) idleT = setTimeout(() => { if (!document.body.classList.contains("max-busy")) ball.classList.add("idle"); }, IDLE);
 	}
 
 	// ---------- 悬浮球 ----------
 	// 拖动：按住时记下手指和球左上角的距离，之后球始终跟着手指走（每帧最多挪一次）；
 	// 松手按位置和甩动速度贴到左/右边，竖直方向顺着速度多滑一点；贴边用轻弹的动画
 	function makeBall() {
+		applyFade();
 		ball = el("button", { type: "button", className: "maxball", title: "Max 助手（可拖动）" }, logo());
 		ball.style.visibility = "hidden";
 		document.body.append(ball);
@@ -140,11 +145,13 @@ const Max = (() => {
 		const sendB = el("button", { type: "button", className: "msend", textContent: "↑", title: "发送" });
 		const chips = el("div", { className: "mchips" });
 		const sub = el("span", { className: "msub", textContent: "能看到当前页面 · 难题找 Claude" });
+		const gear = el("button", { type: "button", className: "mgear", title: "用量和设置", innerHTML: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>' });
+		const set = el("div", { className: "mset" });
+		gear.onclick = () => { const on = !island.classList.contains("setting"); island.classList.toggle("setting", on); gear.classList.toggle("on", on); if (on) settings(set, false); };
 		const island = el("section", { className: "island" },
-			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub,
-				el("button", { type: "button", textContent: "清空", onclick: () => { stop(); hist = []; keep(); oneOff(); log.replaceChildren(); hello(); quick(); } }),
+			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub, gear,
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
-			log, chips, el("div", { className: "min" }, input, sendB));
+			log, chips, el("div", { className: "min" }, input, sendB), set);
 		sendB.onclick = () => (job ? stop() : send());
 		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
@@ -156,11 +163,11 @@ const Max = (() => {
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
-		ui = { island, log, input, sendB, chips };
+		ui = { island, log, input, sendB, chips, gear };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
-			const show = (s) => { sub.textContent = `Cloudflare 额度 ${s.cf}% · DeepSeek ${s.ds.on ? "✓" : "未接上（" + s.ds.msg + "）"}${s.sec ? ` · 今天拦截 ${s.sec} 次可疑访问` : ""}`; };
+			const show = (ui.show = (s) => { sub.textContent = `Cloudflare ${s.cfu?.pct ?? s.cf}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
 			let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
 			if (st && Date.now() - st.at < 600000) show(st.s);
 			else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
@@ -183,7 +190,49 @@ const Max = (() => {
 		st.left = x + "px"; st.top = y + "px";
 		st.transformOrigin = `${b.left + b.width / 2 - x}px ${b.top + b.height / 2 - y}px`;
 	}
-// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
+// ---------- 设置页（齿轮）：两个引擎今天的用量 + 几个常用开关和工具 ----------
+	function settings(box, fresh) {
+		const bar = (pct, warn) => el("div", { className: "mbar" + (warn ? " warn" : "") }, el("i", { style: `width:${Math.min(100, pct)}%` }));
+		const n = (x) => Number(x).toLocaleString("zh-CN");
+		const seg = (label, key, opts) => el("div", { className: "mrow" }, el("span", { textContent: label }),
+			el("div", { className: "mseg" }, ...opts.map(([v, t]) => el("button", { type: "button", className: prefs[key] === v ? "on" : "", textContent: t,
+				onclick: (e) => { prefs[key] = v; savePrefs(); for (const b of e.currentTarget.parentNode.children) b.classList.toggle("on", b === e.currentTarget); } }))));
+		const tool = (t, f) => el("button", { type: "button", className: "mtool", textContent: t, onclick: async (e) => {
+			const b = e.currentTarget, old = b.textContent; b.disabled = true; b.textContent = "…";
+			try { const m = await f(); if (m) toast(m); } catch (err) { toast(err.message); }
+			b.disabled = false; b.textContent = old;
+		} });
+		const usage = el("div", { className: "musage" }, el("p", { className: "mute", textContent: "正在读取用量…" }));
+		box.replaceChildren(
+			el("h3", { textContent: "今日用量" }), usage,
+			el("h3", { textContent: "设置" }),
+			seg("回答长短", "len", [["s", "简洁省额度"], ["m", "标准"], ["l", "详细"]]),
+			seg("优先用", "pref", [["auto", "自动"], ["ds", "DeepSeek"], ["cf", "只用 Cloudflare"]]),
+			seg("悬浮球闲置", "fade", [[0.2, "淡到 20%"], [0.5, "50%"], [1, "不变淡"]]),
+			el("h3", { textContent: "工具" }),
+			el("div", { className: "mtools" },
+				tool("🗂 整理错题本", async () => { const r = await api("/api/max/organize", { method: "POST" }); window.dispatchEvent(new Event("max:changed")); return r.done ? `整理好 ${r.done} 道` : "都整理过了"; }),
+				tool("🏷 整理分类", async () => { const r = await api("/api/max/classify", { method: "POST" }); return r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"; }),
+				tool("↻ 重想今天的建议", async () => { await api("/api/max/brief?force=1"); dropCache(); return "已更新，回首页看"; }),
+				tool("🔌 检查 DeepSeek", async () => { settings(box, true); return ""; }),
+				tool("📍 悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
+				tool("🧹 清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
+			el("p", { className: "mute mnote", textContent: "Cloudflare 免费额度每天北京时间 8 点重置；用量按模型返回的 token 数折算，和 Cloudflare 后台可能略有出入。DeepSeek 每天最多用 40 万 token（防止多花钱）。" }));
+		api("/api/max/status" + (fresh ? "?fresh=1" : "")).then((s) => {
+			ss("max_st", JSON.stringify({ at: Date.now(), s }));
+			ui.show?.(s); // 顶部小字也跟着更新
+			usage.replaceChildren(
+				el("div", { className: "mline" }, el("b", { textContent: "Cloudflare（主力）" }), el("span", { textContent: `${s.cfu.pct}%` })),
+				bar(s.cfu.pct, s.cfu.pct >= 85),
+				el("p", { className: "mute", textContent: `约 ${n(s.cfu.used)} / ${n(s.cfu.cap)} 神经元 · 调用 ${s.cfu.calls} 次${s.cfu.out ? " · 今天额度已用完" : ""}` }),
+				el("div", { className: "mline" }, el("b", { textContent: "DeepSeek（备用）" }), el("span", { textContent: s.ds.on ? `${s.ds.pct}%` : "未接上" })),
+				bar(s.ds.pct, s.ds.pct >= 85),
+				el("p", { className: "mute", textContent: s.ds.on ? `${n(s.ds.used)} / ${n(s.ds.cap)} token · 调用 ${s.ds.calls} 次${s.ds.balance ? " · 余额 " + s.ds.balance : ""}` : `状态：${s.ds.msg}` }),
+				el("p", { className: "mute", textContent: `今天和 Max 聊了 ${s.chats.used} / ${s.chats.cap} 次${s.sec ? ` · 拦截可疑访问 ${s.sec} 次` : ""}` }));
+		}).catch((e) => usage.replaceChildren(el("p", { className: "mute", textContent: "读取失败：" + e.message })));
+	}
+
+	// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
 	const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 	const PAGES = { "/": "首页", "/wrong": "错题本", "/bank": "题库" };
 	function paint(div, text, final) {
@@ -237,7 +286,8 @@ const Max = (() => {
 		if (!ui) return;
 		oneOff();
 		if (ball) layout(); // 球可能被拖过：缩回去的方向跟着球
-		ui.island.classList.remove("open");
+		ui.island.classList.remove("open", "setting");
+		ui.gear.classList.remove("on");
 		ui.input.blur();
 		ball?.classList.remove("hide");
 		wake();
@@ -282,7 +332,7 @@ const Max = (() => {
 		try {
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
-				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, page: one ? undefined : page() } }) });
+				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, page: one ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
 			eng = r.headers.get("x-max-engine") || "";
