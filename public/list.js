@@ -36,7 +36,10 @@ function render() {
 	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries));
 	const top = $("#redo");
 	top.replaceChildren();
-	if (MODE === "wrong" && tab === "mastered") top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length}/20，满 20 道下次和 Claude 交互时发去整理，然后清掉` }));
+	if (MODE === "wrong" && tab === "mastered") {
+		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length}/20。Max 会整理成总结，满 20 道时发给 Claude 做后续（讲评、归档、出巩固题），然后清掉` }));
+		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
+	}
 	if (todo.length) {
 		const href = MODE === "bank" && subject ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id));
 		top.append(el("a", { className: "btn primary", href, style: "text-decoration:none",
@@ -58,7 +61,10 @@ function row(q) {
 		el("div", { className: "body" },
 			el("span", { className: "tag", textContent: tag }),
 			el("span", { className: "time", textContent: "🕒 " + when(q.created_at) }),
-			el("div", { className: "stem", textContent: short(q.stem) })),
+			el("div", { className: "stem", textContent: short(q.stem) }),
+			MODE === "wrong" && (q.cause || q.max_reason) ? el("div", { className: "why" },
+				q.cause ? el("span", { textContent: "脚本：" + q.cause }) : "",
+				q.max_reason || q.max_note ? el("span", { className: "mx", textContent: "Max：" + [q.max_reason, q.max_note].filter(Boolean).join("，") }) : "") : ""),
 		el("div", { className: "side" }, el("span", { className: "st " + cls, textContent: label }), del));
 	if (MODE === "bank") {
 		item.onclick = () => (location.href = quizHref([q.id]));
@@ -91,7 +97,30 @@ function row(q) {
 	return el("div", { className: "wrapitem" }, item, detail);
 }
 
-function load() { api(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank").then((d) => { data = d; render(); }); }
+// 错题本顶部：错因统计（脚本归类 vs Max 归类）+ Max 总结 + 一键整理
+async function loadSum() {
+	if (MODE !== "wrong" || tab !== "active") return $("#maxsum").replaceChildren();
+	const s = await api("/api/max/wrongsum").catch(() => null);
+	if (!s || !s.total) return $("#maxsum").replaceChildren();
+	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
+		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
+	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `🗂 让 Max 整理（${s.todo} 道没整理）` : "🗂 Max 已整理完", disabled: !s.todo, onclick: async () => {
+		org.disabled = true; org.textContent = "整理中…";
+		try { await api("/api/max/organize", { method: "POST" }); load(); } catch (e) { toast(e.message); org.disabled = false; org.textContent = "🗂 让 Max 整理"; }
+	} });
+	$("#maxsum").replaceChildren(el("div", { className: "card maxcard" },
+		el("h2", { textContent: `错因分析（${s.total} 道错题）` }),
+		s.summary ? el("p", { textContent: "🤖 " + s.summary }) : "",
+		el("div", { className: "why2" }, el("div", {}, el("b", { textContent: "脚本按作答推断" }), bars(s.script)), Object.keys(s.max).length ? el("div", {}, el("b", { textContent: "Max 看题诊断" }), bars(s.max)) : ""),
+		el("div", { className: "row" }, org, el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}, "总结这页的错题，最该先补哪块？") }))));
+	Max.tip(`错题 ${s.total} 道` + (Object.keys(s.script).length ? `，最多的错因：${Object.entries(s.script).sort((a, b) => b[1] - a[1])[0][0]}` : ""));
+}
+addEventListener("max:changed", () => load());
+
+function load() {
+	loadSum();
+	api(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank").then((d) => { data = d; render(); });
+}
 load();
 autoRefresh(load); // 切回页面时更新（不定时刷新，免得收起正在看的题）
 window.addEventListener("load", () => math($("#list")));

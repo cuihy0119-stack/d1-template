@@ -299,28 +299,44 @@ body.drawing .rail.show{opacity:.3}
 .board input,.calcpad input,.bwrap input{-webkit-user-select:text;user-select:text}
 /* 落笔时浮岛不再实时模糊画布，写字更跟手 */
 body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
-/* ---------- Max 助手 ---------- */
-.maxfab{position:fixed;z-index:40;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));width:46px;height:46px;border-radius:50%;border:0;
-  background:linear-gradient(135deg,var(--pri2),var(--pri));color:#fff;font:600 20px/1 var(--serif);box-shadow:0 6px 18px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
-.maxfab.on{transform:scale(.9)}
-body:not(.has-tabs) .maxfab{bottom:auto;top:calc(12px + env(safe-area-inset-top));width:38px;height:38px;font-size:17px} /* 做题页：右上角，不挡翻页按钮 */
-.maxpan{position:fixed;z-index:41;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));max-height:72vh;display:flex;flex-direction:column;
-  background:var(--solid);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden;animation:rise .25s var(--ease) both}
-.maxpan[hidden]{display:none}
-@media(min-width:744px){.maxpan{left:auto;width:400px;right:14px;max-height:80vh}}
-.maxhead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
-.maxhead b{font:600 18px var(--serif);color:var(--pri)}.maxhead .mute{flex:1;font-size:12px}
-.maxhead button{border:0;background:none;color:var(--mute);font-size:15px;padding:4px 6px}
-.maxlog{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-height:120px}
-.mb{max-width:88%;padding:8px 12px;border-radius:14px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
-.mb.user{align-self:flex-end;background:var(--pri);color:#fff;border-bottom-right-radius:4px}
-.mb.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
-.mb.thinking{color:var(--mute)}
-.mb .maxgo{display:inline-block;margin-top:6px;text-decoration:none;white-space:normal}
-.maxchips{display:flex;gap:6px;overflow-x:auto;padding:0 12px 6px;scrollbar-width:none}.maxchips .chip{flex:none;font-size:13px;padding:4px 10px}
-.maxin{display:flex;gap:8px;padding:8px 12px 12px;border-top:1px solid var(--line)}
-.maxin textarea{flex:1;min-height:40px;max-height:120px;resize:none;margin:0;font-size:16px}
-.maxin .btn{flex:none;margin:0}
+/* ---------- Max 助手：悬浮球 + 灵动岛 ---------- */
+.maxball{position:fixed;z-index:40;right:10px;top:62%;width:48px;height:48px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;
+  background:#1c1a18;box-shadow:0 6px 20px rgba(0,0,0,.28);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform .25s var(--ease),opacity .2s}
+.maxball:active{transform:scale(.9)}.maxball.hide{opacity:0;transform:scale(.6);pointer-events:none}
+.island{position:fixed;z-index:45;left:50%;top:calc(8px + env(safe-area-inset-top));width:min(94vw,440px);transform:translateX(-50%) scale(.3,.12);transform-origin:top center;
+  opacity:0;pointer-events:none;background:#121110;color:#f2ede6;border-radius:30px;box-shadow:0 14px 44px rgba(0,0,0,.35);overflow:hidden;
+  transition:transform .42s cubic-bezier(.2,.9,.25,1.15),opacity .2s,border-radius .3s}
+.island.peek{opacity:1;transform:translateX(-50%) scale(1);pointer-events:auto;width:auto;max-width:min(94vw,440px)}
+.island.open{opacity:1;transform:translateX(-50%) scale(1);pointer-events:auto;border-radius:26px}
+.mpill{display:flex;align-items:center;gap:8px;padding:8px 16px 8px 10px;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.island.open .mpill{display:none}.island:not(.open) .mbody{display:none}
+.mlogo{display:inline-grid;place-items:center;flex:none}.mlogo svg{width:22px;height:22px}
+.mbody{display:flex;flex-direction:column;max-height:min(74vh,620px)}
+.mhead{display:flex;align-items:center;gap:8px;padding:12px 14px 8px}.mhead b{font:600 17px var(--serif)}
+.mhead .msub{flex:1;font-size:11px;color:#a59d93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mhead button{border:0;background:#2a2826;color:#d8d1c7;font-size:12px;padding:5px 10px;border-radius:12px}
+.mlog{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px;display:flex;flex-direction:column;gap:8px;min-height:140px}
+.mb{max-width:88%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
+.mb.user{align-self:flex-end;background:#D97757;color:#fff;border-bottom-right-radius:5px}
+.mb.assistant{align-self:flex-start;background:#24221f;border-bottom-left-radius:5px}
+.mb.thinking{color:#a59d93}
+.mgo{display:inline-block;margin:6px 6px 0 0;padding:5px 12px;border-radius:12px;border:0;background:#33302c;color:#f5c9b5;font-size:14px;text-decoration:none;white-space:normal}
+.mchips{display:flex;gap:6px;overflow-x:auto;padding:4px 14px 6px;scrollbar-width:none}
+.mchips button{flex:none;border:1px solid #3a3733;background:none;color:#d8d1c7;font-size:13px;padding:5px 11px;border-radius:14px}
+.min{display:flex;gap:8px;align-items:flex-end;padding:6px 12px 12px}
+.min textarea{flex:1;min-height:40px;max-height:110px;resize:none;margin:0;font-size:16px;background:#1f1d1b;color:#f2ede6;border:1px solid #3a3733;border-radius:18px;padding:9px 14px}
+.msend{flex:none;width:40px;height:40px;border-radius:50%;border:0;background:#D97757;color:#fff;font-size:18px}.msend:disabled{opacity:.5}
+@media(prefers-reduced-motion:reduce){.island,.maxball{transition:none}}
+.lite .island{box-shadow:none}
 .maxcard .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.maxcard .row .btn{margin:0;text-decoration:none}
 .maxcard p{margin:6px 0}.maxcard .weak{font-size:14px}.maxcard .weak span{display:inline-block;margin:2px 6px 2px 0}
 .maxtag{font-size:12px;color:var(--pri);margin-left:4px}
+/* 做题页：悬浮球放左边、小一点，避开右侧画板工具条；落笔时隐藏 */
+body.focus .maxball{right:auto;left:8px;width:40px;height:40px;opacity:.85}
+body.drawing .maxball{opacity:0;pointer-events:none}
+/* 错题本：错因（脚本推断 / Max 诊断） */
+.item .why{margin-top:4px;font-size:12px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 10px}.item .why .mx{color:var(--pri)}
+.why2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}.why2>div>b{font-size:13px;color:var(--mute);font-weight:500}
+@media(max-width:420px){.why2{grid-template-columns:1fr}}
+.bars>div{display:grid;grid-template-columns:5.5em 1fr 1.8em;align-items:center;gap:6px;font-size:13px;margin-top:4px}
+.bars i{height:8px;border-radius:4px;background:var(--pri2);min-width:4px}.bars b{font-weight:500;text-align:right}

@@ -287,6 +287,7 @@ async function showResult(ids) {
 	const objective = rows.filter((r) => r.status === "已判");
 	const right = objective.filter((r) => r.is_correct).length;
 	const pending = rows.filter((r) => r.status === "待批改").length;
+	if (!poll || !pending) Max.tip(`这次 ${right}/${objective.length} 对` + (pending ? `，${pending} 题在批改` : "") + (objective.length - right ? "，点「问 Max」看错在哪" : ""));
 	const open = new Set([...app.querySelectorAll("details[open]")].map((d) => d.dataset.id)); // 刷新后保持展开
 	const fold = rows.length > 3; // 题多就折叠，点开看详情
 	const score = el("p", { className: "score", textContent: `已批 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") });
