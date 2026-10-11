@@ -122,6 +122,7 @@ async function loadSum() {
 	if (MODE !== "wrong") return; // 题库页没有错因卡片
 	if (tab !== "active") { lastSum = ""; return $("#maxsum").replaceChildren(); }
 	const s = await cachedApi("/api/max/wrongsum", 120000).catch(() => null);
+	if (s?.thinking) setTimeout(() => { dropCache(); loadSum(); }, 15000); // Max 后台重写总结中：过一会儿再看
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
 	if (JSON.stringify(s) === lastSum) return; // 没变不重画、不再弹提示
 	lastSum = JSON.stringify(s);

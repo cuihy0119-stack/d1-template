@@ -159,7 +159,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
 	if (c.req.query("brief") === "1") { // 首页一次拿全（数据 + Max 建议），少一次请求
-		const [h, b] = await Promise.all([homeData(c.env.DB), brief(c.env).catch(() => null)]);
+		const [h, b] = await Promise.all([homeData(c.env.DB), brief(c.env, false, c.executionCtx).catch(() => null)]);
 		return c.json({ ...h, brief: b && { ...b, budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) } });
 	}
 	return c.json(await homeData(c.env.DB));
@@ -400,9 +400,9 @@ app.get("/api/question/:id", async (c) => {
 });
 
 // ---------- Max 助手 ----------
-app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1")), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
+app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1", c.executionCtx)), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
 app.get("/api/max/status", async (c) => c.json(await status(c.env, c.req.query("fresh") === "1")));
-app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1")));
+app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1", c.executionCtx)));
 app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }

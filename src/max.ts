@@ -42,6 +42,17 @@ const clean = (t: string) => t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
+/** 交给后台算（网页、Claude 都不等模型）：同一件事同时只算一份，3 分钟内的重复请求直接跳过 */
+export function bgRun(env: Env, ctx: ExecutionContext, key: string, job: () => Promise<unknown>): true {
+	ctx.waitUntil((async () => {
+		const db = env.DB, k = "lock:" + key;
+		const lk = await db.prepare("SELECT v FROM meta WHERE k = ?").bind(k).first<{ v: string }>();
+		if (lk && Date.now() - Number(lk.v) < 180000) return;
+		await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)").bind(k, String(Date.now())).run();
+		try { await job(); } catch {} finally { await db.prepare("DELETE FROM meta WHERE k = ?").bind(k).run(); }
+	})());
+	return true;
+}
 const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
 
 async function providers(env: Env, route: Route, must = false, only?: string, deep = false): Promise<Prov[]> {
@@ -259,10 +270,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 		const list = qs.map((q, i) => `${i}. [${q.subject}·${q.tag || q.type}] ${q.stem.slice(0, 300)}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}｜答：${arr(q.answer).join(" / ")}｜章节›考点：${q.category || "?"}›${q.topic || "?"}｜解析：${q.explanation ? "有" : "无"}`).join("\n");
 		const known = subjects.map((s) => `${s}：${tops.filter((t) => t.subject === s).map((t) => t.topic).join("、") || "无"}`).join("\n");
 		const out = json<{ i: number; tag?: string; cat?: string; topic?: string; alt?: string[]; exp?: string; warn?: string }[]>(
-			await Promise.race([
-				ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有 章节›考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100, ok: isArr }),
-				new Promise<string>((_, rej) => setTimeout(() => rej(new MaxErr("超时")), 25000)),
-			]));
+			await ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有 章节›考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100, ok: isArr }));
 		if (!Array.isArray(out)) return "";
 		const stmts: D1PreparedStatement[] = [], warns: string[] = [];
 		for (const r of out) {
@@ -294,7 +302,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 const BRIEF_SYS = `按数据给初三学生排今天的练习。只输出 JSON：
 {"say":"≤50字先做什么+为什么","order":[候选题号≤10个按先后],"weak":"≤60字薄弱点和练法","sprint":"≤60字冲刺重点，无考试则空"}`;
 
-export async function brief(env: Env, force = false) {
+export async function brief(env: Env, force = false, ctx?: ExecutionContext): Promise<any> {
 	const db = env.DB, d = today();
 	const [stats, due, fresh, exams] = await Promise.all([
 		db.prepare(`SELECT a.subject, COALESCE(q.topic, a.topic, q.category, '未分类') topic, COUNT(*) n, SUM(a.is_correct = 0) wrong
@@ -323,6 +331,7 @@ export async function brief(env: Env, force = false) {
 	if (old && (!force || hit!.recent)) return { ...base, ...old.r, order: fill(old.r.order), cached: true };
 	if (!force && (await cacheGet(db, "brfail", 0.5))) return { ...base, say: "Max 暂时不在，先按复习顺序做", order: fill([]), weakTip: "", sprint: "" }; // 刚失败过：半小时内不重试，免得每次刷新都花额度
 	if (!cands.length && !weak.length) return { ...base, say: "题库还空着，拍照上传错题或让 Claude 出题吧", order: [], weakTip: "", sprint: "" };
+	if (ctx) return { ...base, ...(old?.r ?? {}), order: fill(old?.r?.order ?? []), say: old?.r?.say || "Max 正在想今天的建议…", thinking: bgRun(env, ctx, "brief", () => brief(env, force)) }; // 后台想，这次先给旧的或占位
 	try {
 		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
 			`近30天错得多的考点：${weak.map((w) => `${w.subject}/${w.topic} 错${w.wrong}/${w.n}`).join("；") || "无"}`,
@@ -593,7 +602,7 @@ export const unorganized = async (db: D1Database) => (await db.prepare(`SELECT C
 
 
 /** 错题本错因统计：脚本归类 vs Max 归类 + Max 一段总结（按统计变化缓存） */
-export async function wrongSummary(env: Env, force = false) {
+export async function wrongSummary(env: Env, force = false, ctx?: ExecutionContext): Promise<any> {
 	const db = env.DB;
 	const { results: rs } = await db.prepare(`SELECT q.subject, q.topic, q.max_reason, q.max_note, q.max_at FROM questions q
 		WHERE q.status = 'active' AND ${live()} AND (q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`).all<any>(); // 只取统计要的几列
@@ -602,8 +611,10 @@ export async function wrongSummary(env: Env, force = false) {
 	// 总结存一份，刷新只读它；只有第一次、每天定时、或手动「重新分析」才让 Max 重写
 	const saved = json<{ text: string; sig: string }>((await db.prepare("SELECT v FROM meta WHERE k = 'wsum'").first<{ v: string }>())?.v ?? "");
 	const sig = JSON.stringify(Object.keys(max).sort().map((k) => [k, max[k]])); // 排好序，顺序不同不算变
-	let summary = saved?.text ?? null;
-	if ((!saved || (force && saved.sig !== sig)) && rs.length >= 3 && (force || !(await cacheGet(db, "wsfail", 0.5)))) {
+	let summary = saved?.text ?? null, thinking = false;
+	const want = (!saved || (force && saved.sig !== sig)) && rs.length >= 3 && (force || !(await cacheGet(db, "wsfail", 0.5)));
+	if (want && ctx) thinking = bgRun(env, ctx, "wsum", () => wrongSummary(env, force)); // 后台重写，这次先给旧的
+	else if (want) {
 		try {
 			const notes = rs.filter((r) => r.max_note).slice(0, 15).map((r) => `${r.subject}/${r.topic || "?"}：${r.max_note}`).join("\n");
 			summary = await ask(env, [{ role: "system", content: "据错因统计和诊断，≤80字说初三学生最主要的问题和下一步怎么练。" },
@@ -611,7 +622,7 @@ export async function wrongSummary(env: Env, force = false) {
 			await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('wsum', ?)").bind(JSON.stringify({ text: summary, sig })).run();
 		} catch { summary = saved?.text ?? null; await cachePut(db, "wsfail", "1"); } // 失败半小时内不自动重试
 	}
-	return { total: rs.length, max, summary, stale: !!saved && saved.sig !== sig && rs.length >= 3, todo: await unorganized(db) };
+	return { total: rs.length, max, summary, thinking, stale: !!saved && saved.sig !== sig && rs.length >= 3, todo: await unorganized(db) };
 }
 
 // ---------- 错题文件夹：Max 总结，攒满 20 道发给 Claude 的就是这份总结（Claude 少读很多字） ----------
