@@ -46,11 +46,16 @@ function render() {
 		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
 	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {
-		const b = e.currentTarget, old = b.textContent, ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 150000);
+		const b = e.currentTarget, old = b.textContent;
 		b.disabled = true; b.textContent = "Max 整理中…";
-		try { const r = await api("/api/max/classify", { method: "POST", signal: ctl.signal }); toast(r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"); load(); }
-		catch (err) { toast(ctl.signal.aborted ? "Max 整理太久了，稍后再点一次" : err.message); }
-		finally { clearTimeout(t); b.disabled = false; b.textContent = old; } // 不论成败都恢复，没改动时也不会卡住
+		try {
+			await api("/api/max/classify", { method: "POST" }); // 后台整理，这里只等它的结果
+			const s = await pollUntil("/api/max/classify", (x) => x.status !== "running");
+			if (!s) toast("还在整理，稍后刷新页面看看");
+			else if (s.status === "error") toast(s.msg);
+			else { toast(s.n ? `整理好 ${s.n} 个考点` : "没有新考点，不用整理"); dropCache(); load(); } // 清缓存：不然 60 秒内读到的还是整理前的
+		} catch (err) { toast(err.message); }
+		finally { b.disabled = false; b.textContent = old; }
 	} }));
 	if (todo.length) {
 		const href = MODE === "bank" && subject && !cat ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id).slice(0, 50));

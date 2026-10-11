@@ -16,6 +16,15 @@ async function cachedApi(url, ttl) {
 	try { sessionStorage.setItem("c:" + url, JSON.stringify({ at: Date.now(), d })); } catch {}
 	return d;
 }
+// 后台任务：每 3 秒问一次状态，直到 done() 为真或超过 max 毫秒（结果已存库，超时后刷新也能看到）
+async function pollUntil(url, done, max = 240000) {
+	for (const end = Date.now() + max; ;) {
+		const s = await api(url);
+		if (done(s)) return s;
+		if (Date.now() > end) return null;
+		await new Promise((r) => setTimeout(r, 3000));
+	}
+}
 function dropCache() { try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("c:")) sessionStorage.removeItem(k); } catch {} }
 // 第一次打开时测一下帧率（页面加载完再测，取中位数，避免把加载时的忙碌误判成卡）：明显掉帧就记住用精简模式
 try {
