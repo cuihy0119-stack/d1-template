@@ -61,6 +61,7 @@ export async function dailyCleanup(db: D1Database) {
 		db.prepare("DELETE FROM attempts WHERE status = '待批改' AND question_id NOT IN (SELECT id FROM questions)"), // 题删了，待批改的作答没法批
 		db.prepare("UPDATE attempts SET grader = NULL WHERE status = '待批改' AND grader = 'maxing'"), // Max 批到一半断了：交给 Claude
 		db.prepare("DELETE FROM max_cache WHERE at < datetime('now', '-14 days')"),
+		db.prepare("DELETE FROM jobs WHERE at < datetime('now', '-3 days')"),
 	]);
 	// 2. 已批改作答的照片超过 30 天：删照片，photo_key 置空
 	const old = (await db.prepare("SELECT id, photo_key FROM attempts WHERE status = '已判' AND photo_key IS NOT NULL AND created_at < datetime('now','-30 days') LIMIT 500").all<{ id: number; photo_key: string }>()).results;

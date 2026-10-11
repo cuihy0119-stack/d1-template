@@ -16,6 +16,7 @@ const short = (s) => { // 截断但不切断 $公式$
 function state(q) {
 	if (q.pending) return ["待批改", "wait"];
 	if (MODE === "wrong") return tab === "mastered" ? ["已改对", "ok"] : q.last === 1 ? ["重做已对", "ok"] : ["待重做", "due"];
+	if (q.due && q.due > data.today) return [`${+q.due.slice(5, 7)}月${+q.due.slice(8, 10)}日做`, "wait"]; // 排到以后做的题
 	return !q.tries ? ["未做", "new"] : q.last === 1 ? ["✓ 做对", "ok"] : ["✗ 做错", "due"]; // 显示最近一次的结果，不再笼统写「已做」
 }
 
@@ -38,7 +39,7 @@ function render() {
 		el("button", { className: "chip small" + (c === cat ? " on" : ""), textContent: c || "全部章节", onclick: () => { cat = c; render(); } }))));
 
 	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat));
-	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries));
+	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries && !(q.due && q.due > data.today)));
 	const top = $("#redo");
 	top.replaceChildren();
 	if (MODE === "wrong" && tab === "mastered") {

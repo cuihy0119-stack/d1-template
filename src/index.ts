@@ -10,9 +10,10 @@ import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classifyState, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
-import { live, wrongSql } from "./live";
+import { live, ready, wrongSql } from "./live";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
+import { runJobs } from "./jobs";
 
 type Q = {
 	id: number;
@@ -133,9 +134,10 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 		.all<Q>();
 	const fresh = await db
 		.prepare(
-			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active' AND ${live()}
+			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active' AND ${live()} AND ${ready()}
 			 AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id`,
 		)
+		.bind(today())
 		.all<Q>();
 	const seen = new Set(due.results.map((q) => q.id)); // 放回复习的新题可能两边都有，去重
 	return [...due.results, ...fresh.results.filter((q) => !seen.has(q.id))];
@@ -146,12 +148,12 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 	const { results } = await db
 		.prepare(
 			`SELECT q.* FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE q.subject = ? AND q.status = 'active' AND ${live()}
+			 WHERE q.subject = ? AND q.status = 'active' AND ${live()} AND ${ready()}
 			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
 			   AND (r.question_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id))
 			 ORDER BY (r.question_id IS NOT NULL), q.id LIMIT 50`,
 		)
-		.bind(subject)
+		.bind(subject, today())
 		.all<Q>();
 	return results;
 }
@@ -172,12 +174,12 @@ async function homeData(db: D1Database) {
 		db
 			.prepare(
 				`SELECT q.subject, COUNT(*) total,
-				        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN 1 ELSE 0 END) undone,
+				        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) AND ${ready()} THEN 1 ELSE 0 END) undone,
 				        SUM(CASE WHEN r.next_date <= ? THEN 1 ELSE 0 END) due
 				 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
 				 WHERE q.status = 'active' AND ${live()} GROUP BY q.subject ORDER BY q.subject`,
 			)
-			.bind(today())
+			.bind(today(), today())
 			.all(),
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改' AND grader IS NULL").first<{ n: number }>(), // Max 在批的不算
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
@@ -245,8 +247,8 @@ app.get("/api/practice", async (c) => {
 	if (topic) {
 		const [s, t] = topic.split("/");
 		const { results } = await c.env.DB.prepare(
-			`SELECT q.* FROM questions q WHERE q.status = 'active' AND ${live()} AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%')
-			 ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 20`).bind(s, t || null).all<Q>();
+			`SELECT q.* FROM questions q WHERE q.status = 'active' AND ${live()} AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%') AND (q.due IS NULL OR q.due <= ?3)
+			 ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 20`).bind(s, t || null, today()).all<Q>();
 		return c.json(results.map(clientQ));
 	}
 	if (!ids.length) return c.json((await todayQuestions(c.env.DB)).map(clientQ));
@@ -346,7 +348,7 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
-			        q.max_reason, q.max_note, q.tag,
+			        q.max_reason, q.max_note, q.tag, q.due,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
@@ -486,5 +488,6 @@ function providerFor(origin: string) {
 
 export default {
 	fetch: async (req, env, ctx) => (await edge(req, env)) ?? providerFor(new URL(req.url).origin).fetch(req, env, ctx),
-	scheduled: (_e, env, ctx) => ctx.waitUntil(dailyCleanup(env.DB).then(() => maxDaily(env))), // 每日清理 + Max 用剩下的额度整理错题
+	// 每分钟：做后台任务队列里的活（见 jobs.ts）；每天凌晨：清理 + Max 把当天要用的先想好
+	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? runJobs(env, "cron") : dailyCleanup(env.DB).then(() => maxDaily(env))),
 } satisfies ExportedHandler<Env>;
