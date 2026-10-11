@@ -9,11 +9,11 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classifyState, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classifyState, cleanBank, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
-import { runJobs } from "./jobs";
+import { enqueue, enqueueNow, runJobs } from "./jobs";
 
 type Q = {
 	id: number;
@@ -302,9 +302,10 @@ app.post("/api/submit", async (c) => {
 		else if (ok == null) toClaude.push(id!);
 		await db.prepare("UPDATE marks SET attempt_id = ? WHERE question_id = ?").bind(id!, q.id).run(); // 标记过的题：交卷后进临时文件夹
 	}
-	if (toMax.length) c.executionCtx.waitUntil(gradeAll(c.env, toMax)); // Max 在后台批，结果页轮询会显示
-	if (toClaude.length) c.executionCtx.waitUntil(pregrade(c.env, toClaude)); // 交给 Claude 的：Max 先写初评，Claude 看得少
-	c.executionCtx.waitUntil((async () => { if ((await unorganized(db)) >= 5) await organize(c.env, 10); })().catch(() => {})); // 新错题攒够 5 道才让 Max 分析一次（一次批量，省额度）
+	// 模型活都排进后台队列（见 jobs.ts）：请求里先试跑，被平台切断的由定时任务接着做，不会卡在「批改中」
+	if (toMax.length) await enqueueNow(c.env, c.executionCtx, "grade"); // Max 批改，结果页轮询会显示
+	if (toClaude.length) await enqueueNow(c.env, c.executionCtx, "pregrade", JSON.stringify(toClaude)); // 交给 Claude 的：Max 先写初评，Claude 看得少
+	if (toMax.length || toClaude.length) await enqueue(c.env, "organize"); // 新错题攒够 5 道才让 Max 分析一次（定时任务做）
 	return c.json({ attempt_ids: attemptIds });
 });
 
@@ -321,8 +322,8 @@ app.get("/api/attempts", async (c) => {
 		)
 		.bind(...ids)
 		.all<Record<string, any>>();
-	const stuck = results.filter((r) => r.status === "待批改" && r.grader === "max"); // 交卷时后台没批完（如断网）：这里补批
-	if (stuck.length) c.executionCtx.waitUntil(gradeAll(c.env, stuck.map((r) => ({ id: r.id, fallback: r.type === "fill" ? 0 : null }))));
+	// 还有 Max 没批完的（含被切断卡在「批改中」的）：确认批改任务在队列里（已在排/在跑就不重复）
+	if (results.some((r) => r.status === "待批改" && (r.grader === "max" || r.grader === "maxing"))) await enqueueNow(c.env, c.executionCtx, "grade");
 	return c.json(
 		results.map((r) => ({
 			...r,

@@ -6,7 +6,7 @@
 // ctx：{ q: 正在做的题 } { a: 已交的作答 } { explain: 作答id（一键讲解，有缓存）} { marked: true（解析标记的题）} { tmp: 临时练习题（不在题库）}
 // 输入框上面两个标签：深度思考（只用 DeepSeek 的思考模型）、联网搜索（先搜网页再回答），点一下开、再点关；状态记在本标签页
 const Max = (() => {
-	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 90000, IDLE = 3000, M = 10; // M：离屏幕边的距离
+	const KEY = "max_chat", POS = "max_pos", IDLE = 3000, M = 10; // M：离屏幕边的距离
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
 	const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
 	let att = null; // 待发的图片（dataURL，已压缩）
@@ -247,7 +247,14 @@ const Max = (() => {
 			el("h3", { textContent: "工具" }),
 			el("div", { className: "mtools" },
 				tool("🗂 整理错题本", async () => { const r = await api("/api/max/organize", { method: "POST" }); window.dispatchEvent(new Event("max:changed")); return r.done ? `整理好 ${r.done} 道` : "都整理过了"; }),
-				tool("🏷 整理分类", async () => { const r = await api("/api/max/classify", { method: "POST" }); return r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"; }),
+				tool("🏷 整理分类", async () => { // 后台整理：等它的结果（和题库页的按钮一样）
+					await api("/api/max/classify", { method: "POST" });
+					const s = await pollUntil("/api/max/classify", (x) => x.status !== "running");
+					if (!s) return "还在整理，稍后刷新页面看看";
+					if (s.status === "error") return s.msg;
+					window.dispatchEvent(new Event("max:changed"));
+					return s.n ? `整理好 ${s.n} 个考点` : "没有新考点，不用整理";
+				}),
 				tool("🔌 检查 DeepSeek", async () => { settings(box, true); return ""; }),
 				tool("📍 悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
 				tool("🧹 清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
@@ -427,9 +434,12 @@ const Max = (() => {
 		if (img) ub.prepend(el("img", { className: "mimg", src: img, alt: "", onclick: () => { const z = el("div", { className: "figzoom", onclick: () => z.remove() }, el("img", { src: img, alt: "" })); document.body.append(z); } })); // 点开看大图
 		const deep = tg.deep, web = tg.web; // 发出时的开关状态
 		const out = thinking(deep ? "深度思考中" : web ? "搜索并思考中" : "思考中");
-		let all = "", ok = false, eng = "", webN = null, timedOut = false, last = 0, tm = 0;
+		let all = "", ok = false, eng = "", webN = null, timedOut = false, last = 0, tm = 0, t = 0;
 		job = new AbortController();
-		const ctl = job, t = setTimeout(() => { timedOut = true; ctl.abort(); }, deep ? 150000 : TIMEOUT); // 一分钟没说完就停（深度思考给 2 分半），免得卡住
+		// 超时按「多久没动静」算，不按总时长：正在输出的长回答不会被半路掐断；卡住才停
+		const ctl = job, arm = (ms) => { clearTimeout(t); t = setTimeout(() => { timedOut = true; ctl.abort(); }, ms); };
+		const FIRST = deep ? 150000 : 60000; // 等第一个字：深度思考要先想很久
+		arm(img ? 100000 : FIRST); // 看图最多试两个模型
 		lock(true);
 		try {
 			if (img) { // 先看图：转写成文字放进这句话里（之后追问也带着）
@@ -440,10 +450,13 @@ const Max = (() => {
 				if (!s.ok) throw new Error(j.error || "看图失败（" + s.status + "）");
 				hist[hist.length - 1].content = text + "\n【图片内容】" + j.text;
 				out.lastChild.textContent = deep ? "深度思考中" : web ? "搜索并思考中" : "思考中";
+				arm(FIRST);
 			}
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
+			// 只发服务器会用的：旧回答服务器只看开头 300 字，这里先截好，少传
+			const msgs = (one ? hist.slice(-1) : hist.slice(-6)).map((m) => ({ role: m.role, content: m.role === "assistant" ? m.content.slice(0, 300) : m.content.slice(0, 800) }));
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
-				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one || !PAGE_RE.test(text) ? undefined : page() } }) });
+				body: JSON.stringify({ messages: msgs, ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one || !PAGE_RE.test(text) ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
 			eng = r.headers.get("x-max-engine") || "";
@@ -459,6 +472,7 @@ const Max = (() => {
 				for (;;) {
 					const { done, value } = await rd.read();
 					if (done) break;
+					arm(30000); // 输出中途 30 秒没新字：算卡住
 					all += dec.decode(value, { stream: true });
 					if (!tm) tm = setTimeout(draw, Math.max(0, 80 - (Date.now() - last)));
 				}
