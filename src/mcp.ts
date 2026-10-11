@@ -38,12 +38,10 @@ const tsv = (rows: Record<string, unknown>[]) =>
 		: "（无）";
 
 async function images(db: D1Database, keys: string[]): Promise<Img[]> {
-	const out: Img[] = [];
-	for (const key of keys) {
-		const r = await db.prepare("SELECT content_type, data FROM photos WHERE key = ?").bind(key).first<{ content_type: string; data: string }>();
-		if (r) out.push({ type: "image", data: r.data, mimeType: r.content_type });
-	}
-	return out;
+	if (!keys.length) return [];
+	const { results } = await db.prepare(`SELECT key, content_type, data FROM photos WHERE key IN (${keys.map(() => "?")})`).bind(...keys).all<{ key: string; content_type: string; data: string }>();
+	const by = new Map(results.map((r) => [r.key, r]));
+	return keys.flatMap((k) => { const r = by.get(k); return r ? [{ type: "image" as const, data: r.data, mimeType: r.content_type }] : []; });
 }
 
 async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source: "原错题" | "同类题") {
@@ -57,14 +55,9 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 		options: q.opts?.length ? JSON.stringify(q.opts) : null, answer: JSON.stringify(q.ans), explanation: q.exp ?? null, source,
 		origin_id: q.origin ?? null, board: board === "coord" || board === "grid" ? board : null, tag, // 画板读题时由 tag 推出
 	};
-	const ins = () => db.prepare(`INSERT INTO questions (${Object.keys(row)}, no) VALUES (${Object.keys(row).map(() => "?")}, (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?))`).bind(...Object.values(row), subject).run();
-	const r = await ins().catch((e) => { // 迁移 0006 还没跑：先不存 tag，读题时按题干判断
-		if (!/no such column: tag/.test(String(e))) throw e;
-		delete row.tag;
-		return ins();
-	});
-	const no = (await db.prepare("SELECT no FROM questions WHERE id = ?").bind(r.meta.last_row_id).first<{ no: number }>())?.no;
-	return { id: r.meta.last_row_id, label: `${subject}${no}[${tag}]` };
+	const r = await db.prepare(`INSERT INTO questions (${Object.keys(row)}, no) VALUES (${Object.keys(row).map(() => "?")}, (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?)) RETURNING id, no`)
+		.bind(...Object.values(row), subject).first<{ id: number; no: number }>();
+	return { id: r!.id, label: `${subject}${r!.no}[${tag}]` };
 }
 
 // ---------- 错题文件夹打包推送 ----------
@@ -73,14 +66,14 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 // 发出去就从题库清掉（作答记录保留，Claude 照样能用作答 id 补错因）。
 const PACK_SIZE = 20;
 async function wrongPack(db: D1Database): Promise<string> {
-	const n = (await db.prepare("SELECT COUNT(*) n FROM questions WHERE status = 'mastered' AND sent_at IS NULL").first<{ n: number }>())?.n ?? 0;
+	const n = (await db.prepare("SELECT COUNT(*) n FROM questions WHERE status = 'mastered'").first<{ n: number }>())?.n ?? 0;
 	if (n < PACK_SIZE) return "";
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
 			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
-			 FROM questions q JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
-			 WHERE q.status = 'mastered' AND q.sent_at IS NULL ORDER BY q.subject, topic LIMIT 40`,
+			 FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
+			 WHERE q.status = 'mastered' ORDER BY q.subject, topic LIMIT 40`,
 		)
 		.all<any>();
 	if (!results.length) return "";
@@ -88,9 +81,10 @@ async function wrongPack(db: D1Database): Promise<string> {
 	await db.batch([ // 发出即清
 		db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
 		db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
+		db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (${list})`),
 		db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
 	]);
-	return `\n\n【错题文件夹】${results.length} 道错题已重做做对（后端已整理题干、选项、当初的错答、正确答案、错因、解析），已从题库清掉：\n${results.map((r) => wrongLine(r) + `｜作答id=${r.aid}`).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①按科目/考点整理，指出反复错的点；错因不准的 save({grades:[{id:作答id,score:0,comment,reason}]}) 补上；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
+	return `\n\n【错题文件夹】${results.length} 道错题已重做做对（后端已整理题干、选项、当初的错答、正确答案、错因、解析），已从题库清掉：\n${results.map((r) => wrongLine(r) + (r.aid ? `｜作答id=${r.aid}` : "（照片录入的原错题）")).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①按科目/考点整理，指出反复错的点；错因不准的 save({grades:[{id:作答id,score:0,comment,reason}]}) 补上；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
 }
 
 export function buildServer(env: Env) {
@@ -109,7 +103,7 @@ export function buildServer(env: Env) {
 		const atts = (
 			await db
 				.prepare(
-					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.no, q.stem, q.options, q.answer
+					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.no, q.stem, q.options, q.answer, q.explanation
 					 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' ORDER BY a.id`,
 				)
 				.all<any>()
@@ -117,11 +111,14 @@ export function buildServer(env: Env) {
 		for (const a of atts) {
 			const ans = String(a.answer_text ?? "");
 			// 作答照片 + 手绘/草纸小图（已裁剪压缩）；views/ 是只给学生自己看的整板图，文字描述已经够
-			const keys = String(a.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/"));
-			if (keys.length > budget) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
+			let keys = String(a.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/"));
+			if (keys.length > budget) {
+				if (budget < MAX_IMAGES) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
+				keys = keys.slice(0, budget); // 单题图太多：只附前几张，不卡住后面的题
+			}
 			budget -= keys.length;
 			out.push(
-				{ type: "text", text: `${a.subject}${a.no ?? ""}：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}｜作答id=${a.id}` },
+				{ type: "text", text: `${a.subject}${a.no ?? ""}：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}${a.explanation ? "｜要点：" + a.explanation : ""}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}｜作答id=${a.id}` },
 				...(await images(db, keys)),
 			);
 		}
@@ -176,22 +173,23 @@ export function buildServer(env: Env) {
 			if (wrong.length) {
 				const ids = await add(wrong, "原错题");
 				const next = addDays(today(), 1);
-				for (const { id } of ids) await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, next).run();
+				if (ids.length) await db.batch(ids.map(({ id }) => db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, next)));
 				out.push(`错题 ${ids.map((q) => q.label).join(",")}`);
 			}
 			const done = new Set([...done_uploads, ...wrong.map((w) => w.upload).filter((u): u is number => !!u)]);
-			for (const u of done) await db.prepare("UPDATE uploads SET status = '已处理' WHERE id = ?").bind(u).run();
+			if (done.size) await db.prepare(`UPDATE uploads SET status = '已处理' WHERE id IN (${[...done].map(() => "?")})`).bind(...done).run();
 			if (done.size) out.push(`照片已处理 ${done.size}`);
 			if (questions.length) out.push(`新题 ${(await add(questions, "同类题")).map((q) => q.label).join(",")}`);
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
 					const old = it.subject ? (await db.prepare("SELECT subject FROM questions WHERE id = ?").bind(it.id).first<{ subject: string }>())?.subject : null;
-					const q = it.tag ? await db.prepare("SELECT subject, stem, type, options FROM questions WHERE id = ?").bind(it.id).first<any>() : null;
-					const t = q ? pick({ ...q, tag: it.tag, opts: !!q.options }) : null;
+					const q = it.tag ? await db.prepare("SELECT subject, stem, options, answer FROM questions WHERE id = ?").bind(it.id).first<any>() : null;
+					const t = q ? pick({ subject: q.subject, stem: q.stem, tag: it.tag, opts: !!q.options }).tag : null; // 按新标签重定题型（填空 ↔ 计算 等）
+					const type = t && (t === "选择" ? (JSON.parse(q.answer).length > 1 ? "multi" : "single") : t === "填空" ? "fill" : "short");
 					const r = await db
-						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), board = CASE WHEN ?4 IS NULL THEN board ELSE ?5 END WHERE id = ?6")
-						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t?.tag ?? null, t?.board === "coord" || t?.board === "grid" ? t.board : null, it.id)
+						.prepare("UPDATE questions SET subject = COALESCE(?1, subject), category = COALESCE(?2, category), topic = COALESCE(?3, topic), tag = COALESCE(?4, tag), type = COALESCE(?5, type) WHERE id = ?6")
+						.bind(it.subject ?? null, it.category ?? null, it.topic ?? null, t, type, it.id)
 						.run();
 					if (old && old !== it.subject) // 换了科目：在新科目里接着编号
 						await db.prepare("UPDATE questions SET no = (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?1 AND id <> ?2) WHERE id = ?2").bind(it.subject, it.id).run();
@@ -200,15 +198,16 @@ export function buildServer(env: Env) {
 				out.push(`分类 ${n}`);
 			}
 			if (review.length) { // 复习：旧题今天到期，状态改回复习中
-				for (const id of review) {
-					await db.prepare("UPDATE questions SET status = 'active', status_at = NULL WHERE id = ?").bind(id).run();
-					await db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) VALUES (?, ?, 0)").bind(id, today()).run();
-				}
+				await db.batch(review.flatMap((id) => [
+					db.prepare("UPDATE questions SET status = 'active', status_at = NULL WHERE id = ?").bind(id),
+					db.prepare("INSERT OR REPLACE INTO review_queue (question_id, next_date, stage) SELECT id, ?, 0 FROM questions WHERE id = ?").bind(today(), id),
+				]));
 				out.push(`复习 ${review.join(",")}`);
 			}
 			if (exams) {
-				await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('exams', ?)").bind(JSON.stringify(exams.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date)))).run();
-				out.push(`考试 ${exams.length} 场`);
+				const ok = exams.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date));
+				await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('exams', ?)").bind(JSON.stringify(ok)).run();
+				out.push(`考试 ${ok.length} 场`);
 			}
 			if (summary) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
