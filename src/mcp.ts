@@ -12,10 +12,11 @@ const PASS = 80; // 简答得分（百分制）≥80 算做对
 const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"] as const;
 const MAX_IMAGES = 6;
 
-const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})；返回里出现【错题文件夹·Max 已整理】就照附言处理。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
-分工：网站自带助手 Max（免费小模型）批选择/填空/文字解答，get_inbox 只给你作图、照片、手写的题；你推题后 Max 会补等价答案和考点，返回里有「⚠ 请核对」就检查那几题。
-作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
+const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短；和学生说题用题号（如 数学1）。
+分工：网站助手 Max 批选择/填空/文字题、整理错题和错因；你只批作图/照片/手写题，处理照片收件箱，做错题文件夹后续。
+批改：get_inbox → save({grades})；有「Max初评」且同意就 save({ok:[作答id]})，要看图 get_data({kind:"img",id})。
+出题：get_data({kind:"tpl"})（每对话一次）；复习旧题 save({review:[id]})；考试 save({exams:[{name,date}]})。
+返回里有【错题文件夹·Max 已整理】就照附言做。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
 
 // 题目（短字段名省输出）
 const Q = z.object({
@@ -95,8 +96,10 @@ export function buildServer(env: Env) {
 	const db = env.DB;
 	const s = new McpServer({ name: "错题练习站", version: "2.0.0" }, { instructions: INSTRUCTIONS });
 
-	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待批改作答（作答id）。和学生说题时用题号（如 数学1），不要说 id。", inputSchema: {} }, async () => {
+	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待你批改的作答（作答id，附 Max 初评）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
+		const br = (await db.prepare("SELECT v FROM max_cache WHERE k = ?").bind("br:" + today()).first<{ v: string }>())?.v; // Max 今天对学生的判断，免得你再查记录
+		try { const r = br && JSON.parse(br).r; if (r?.say) out.push({ type: "text", text: `Max 今日：${r.say}${r.weakTip ? "；" + r.weakTip : ""}` }); } catch {}
 		let budget = MAX_IMAGES;
 		const ups = (await db.prepare("SELECT id, r2_key FROM uploads WHERE status = '待处理' ORDER BY id").all<{ id: number; r2_key: string }>()).results;
 		for (const u of ups) {
@@ -107,7 +110,7 @@ export function buildServer(env: Env) {
 		const atts = (
 			await db
 				.prepare(
-					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.no, q.stem, q.options, q.answer, q.explanation
+					`SELECT a.id, a.answer_text, a.photo_key, a.max_score, a.max_comment, a.max_sure, q.subject, q.no, q.stem, q.options, q.answer, q.explanation
 					 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' AND a.grader IS NULL ORDER BY a.id`, // Max 在批的不给
 				)
 				.all<any>()
@@ -116,13 +119,16 @@ export function buildServer(env: Env) {
 			const ans = String(a.answer_text ?? "");
 			// 作答照片 + 手绘/草纸小图（已裁剪压缩）；views/ 是只给学生自己看的整板图，文字描述已经够
 			let keys = String(a.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/"));
+			const sure = a.max_score != null && (a.max_sure ?? 0) >= 0.7 && ans.trim(); // Max 有把握：先不附图，要看再取
+			const hint = a.max_score != null ? `｜Max初评 ${a.max_score}分：${a.max_comment || ""}${sure && keys.length ? `（图${keys.length}张未附，要看 get_data({kind:"img",id:${a.id}})）` : ""}` : "";
+			if (sure) keys = [];
 			if (keys.length > budget) {
 				if (budget < MAX_IMAGES) { out.push({ type: "text", text: `另有待批改作答，下次再取` }); break; }
 				keys = keys.slice(0, budget); // 单题图太多：只附前几张，不卡住后面的题
 			}
 			budget -= keys.length;
 			out.push(
-				{ type: "text", text: `${a.subject}${a.no ?? ""}：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}${a.explanation ? "｜要点：" + a.explanation : ""}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}｜作答id=${a.id}` },
+				{ type: "text", text: `${a.subject}${a.no ?? ""}：${a.stem}${a.options ? "｜选项：" + a.options : ""}｜参考：${a.answer}${a.explanation ? "｜要点：" + a.explanation : ""}｜答：${ans || "（空）"}${keys.length ? `｜附图${keys.length}张` : ""}${hint}｜作答id=${a.id}` },
 				...(await images(db, keys)),
 			);
 		}
@@ -140,6 +146,7 @@ export function buildServer(env: Env) {
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
 				wrong: z.array(Q.extend({ upload: z.number().int().optional().describe("来自哪张照片") })).optional(),
 				done_uploads: z.array(z.number().int()).optional().describe("看过但没有错题的照片"),
+				ok: z.array(z.number().int()).optional().describe("同意 Max 初评的作答id"),
 				grades: z
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
@@ -149,9 +156,14 @@ export function buildServer(env: Env) {
 				summary: z.string().optional(),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], organize = [], review = [], exams, summary }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary }) => {
 			const out: string[] = [];
 			const err: string[] = [];
+			if (agree.length) { // 同意 Max 初评：直接照初评打分
+				const { results } = await db.prepare(`SELECT id, max_score, max_comment FROM attempts WHERE max_score IS NOT NULL AND id IN (${agree.map(() => "?")})`).bind(...agree).all<{ id: number; max_score: number; max_comment: string | null }>();
+				grades = [...grades, ...results.filter((x) => !grades.some((g) => g.id === x.id)).map((x) => ({ id: x.id, score: x.max_score, comment: x.max_comment || "" }))];
+				if (results.length < agree.length) err.push(`${agree.length - results.length} 个作答没有 Max 初评，请用 grades`);
+			}
 			if (grades.length) {
 				const r: string[] = [];
 				for (const g of grades) {
@@ -163,6 +175,8 @@ export function buildServer(env: Env) {
 						.bind(g.score, g.comment, g.reason ?? null, ok ? 1 : 0, g.id)
 						.run();
 					if (a.status === "待批改" || a.is_correct !== (ok ? 1 : 0)) await updateQueue(db, a.question_id, ok); // 只是给错题补讲解：不重复动复习队列
+					if (!ok) await db.prepare("UPDATE questions SET max_reason = COALESCE(?, max_reason), max_note = ?, max_at = datetime('now') WHERE id = ?") // 错因统一记在题上（错题本显示）
+						.bind(g.reason ?? null, g.comment.slice(0, 60) || null, a.question_id).run();
 					r.push(`${a.lab}${ok ? "✓" : "✗"}`);
 				}
 				out.push("批改 " + r.join(" "));
@@ -225,11 +239,16 @@ export function buildServer(env: Env) {
 	s.registerTool(
 		"get_data",
 		{
-			description: "kind=tpl 出题模板（出题前取）；kind=marked 学生标记的题（含作答、对错、答案、考点，用来解析）；kind=records 作答记录 TSV（days 默认 7）；kind=bank 题库清单 TSV（默认只列复习中的题，all=true 列全部）。",
-			inputSchema: { kind: z.enum(["tpl", "marked", "records", "bank"]), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
+			description: "tpl 出题模板；marked 学生标记的题；records 作答记录 TSV（days 默认 7）；bank 题库 TSV（all=true 含已掌握）；img 某作答的图（id）",
+			inputSchema: { kind: z.enum(["tpl", "marked", "records", "bank", "img"]), id: z.number().int().optional().describe("kind=img：作答id"), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
 		},
-		async ({ kind, days, subject, all }) => {
+		async ({ kind, id, days, subject, all }) => {
 			if (kind === "tpl") return text(TEMPLATES);
+			if (kind === "img") { // Max 初评有把握时没附的图：要看再取
+				const a = id ? await db.prepare("SELECT photo_key FROM attempts WHERE id = ?").bind(id).first<{ photo_key: string | null }>() : null;
+				const keys = String(a?.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/")).slice(0, MAX_IMAGES);
+				return keys.length ? { content: [{ type: "text" as const, text: `作答id=${id} 的图` }, ...(await images(db, keys))] } : text("这个作答没有图");
+			}
 			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一行，错题带错答和错因
 				const { results } = await db.prepare(
 					`SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec

@@ -49,7 +49,7 @@ function render() {
 	const list = $("#list");
 	list.replaceChildren();
 	if (!shown.length) list.append(el("p", { className: "mute", textContent: MODE === "wrong" ? (tab === "mastered" ? "文件夹是空的，错题重做做对后会放进来" : "还没有错题，做错的题会自动收进来") : "还没有题" }));
-	for (const q of shown) list.append(row(q));
+	shown.forEach((q, i) => { const r = row(q); if (i < 16) r.style.setProperty("--i", i); list.append(r); }); // 前 16 条依次浮现
 	math(list);
 }
 
@@ -62,9 +62,8 @@ function row(q) {
 			el("span", { className: "tag", textContent: tag }),
 			el("span", { className: "time", textContent: "🕒 " + when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) }),
-			MODE === "wrong" && (q.cause || q.max_reason) ? el("div", { className: "why" },
-				q.cause ? el("span", { textContent: "脚本：" + q.cause }) : "",
-				q.max_reason || q.max_note ? el("span", { className: "mx", textContent: "Max：" + [q.max_reason, q.max_note].filter(Boolean).join("，") }) : "") : ""),
+			MODE === "wrong" ? el("div", { className: "why" },
+				el("span", { className: "mx", textContent: q.max_reason || q.max_note ? "错因：" + [q.max_reason, q.max_note].filter(Boolean).join("，") : "错因：Max 待分析" })) : ""),
 		el("div", { className: "side" }, el("span", { className: "st " + cls, textContent: label }), del));
 	if (MODE === "bank") {
 		item.onclick = () => (location.href = quizHref([q.id]));
@@ -111,9 +110,10 @@ async function loadSum() {
 	$("#maxsum").replaceChildren(el("div", { className: "card maxcard" },
 		el("h2", { textContent: `错因分析（${s.total} 道错题）` }),
 		s.summary ? el("p", { textContent: "🤖 " + s.summary }) : "",
-		el("div", { className: "why2" }, el("div", {}, el("b", { textContent: "脚本按作答推断" }), bars(s.script)), Object.keys(s.max).length ? el("div", {}, el("b", { textContent: "Max 看题诊断" }), bars(s.max)) : ""),
+		Object.keys(s.max).length ? el("div", { className: "why2" }, el("div", {}, el("b", { textContent: "Max 看题分析的错因" }), bars(s.max))) : "",
 		el("div", { className: "row" }, org, el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}, "总结这页的错题，最该先补哪块？") }))));
-	Max.tip(`错题 ${s.total} 道` + (Object.keys(s.script).length ? `，最多的错因：${Object.entries(s.script).sort((a, b) => b[1] - a[1])[0][0]}` : ""));
+	const top = Object.entries(s.max).filter(([k]) => k !== "待分析").sort((a, b) => b[1] - a[1])[0];
+	Max.tip(`错题 ${s.total} 道` + (top ? `，最多的错因：${top[0]}` : s.todo ? `，Max 正在分析错因` : ""));
 }
 addEventListener("max:changed", () => load());
 

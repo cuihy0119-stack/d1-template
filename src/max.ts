@@ -5,13 +5,13 @@
 // 省用量：关掉深度思考、限制输出长度、只发必要字段、能缓存的都缓存；作图/照片/手写题不碰，照旧交给 Claude。
 import { today, updateQueue } from "./review";
 import { pick } from "./tags";
-import { cause, wrongLine } from "./cause";
+import { wrongLine } from "./cause";
 
 const CF = ["@cf/qwen/qwen3.8-27b", "@cf/zai-org/glm-4.7-flash"]; // 总管 + 总管忙时的替补
 const DAILY = 9800, SOFT = 8500; // Cloudflare 估算神经元：超过 SOFT 只留批改，超过 DAILY 不再用
 const DS_DAILY = 400_000; // DeepSeek 每天最多用的 token（防止意外花钱）
 const PASS = 80;
-const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"];
+const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"]; // 只是作答表的旧约束；Max 的错因写在题目上，不受限
 const DRAW = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图题：Max 不批，交给 Claude
 
 type Msg = { role: "system" | "user" | "assistant"; content: string };
@@ -158,9 +158,8 @@ export function byMax(q: { subject: string; stem: string; tag?: string | null; b
 	return !DRAW.has(pick({ ...q, opts: !!q.options }).tag);
 }
 
-const GRADE_SYS = `你是 Max，初三错题练习站的批改助手。按参考答案和评分要点给学生作答打分（0-100，≥80 算对）。
-等价写法算对：0.5 与 1/2、x=2 与 2、顺序不同的多个根、单位写法不同但数值正确、意思相同的文字表述。
-只输出 JSON：{"score":数字,"comment":"≤40字，指出关键对错","reason":"概念不清|表述不规范|审题失误|计算错误|不会做|空（对的留空）","sure":0到1，你对这个判分有多确定}`;
+const GRADE_SYS = `给初三作答打分 0-100（≥80 算对），依据参考答案和要点，等价写法算对。
+只输出 JSON：{"score":0,"comment":"≤30字","reason":"错因≤6字，对则空","sure":0-1 把握}`;
 
 /** 批改一条作答（先抢占，避免重复批）。失败：填空退回网站判，简答留给 Claude */
 export async function grade(env: Env, id: number, fallback: number | null) {
@@ -185,7 +184,7 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 			.bind(score, (r.comment || "").slice(0, 120) || null, !ok && REASONS.includes(r.reason ?? "") ? r.reason : null, ok ? 1 : 0, id).run();
 		await updateQueue(db, a.question_id, ok);
 		if (!ok) await db.prepare("UPDATE questions SET max_reason = ?, max_note = ?, max_at = datetime('now') WHERE id = ?")
-			.bind(REASONS.includes(r.reason ?? "") ? r.reason : null, (r.comment || "").slice(0, 60) || null, a.question_id).run();
+			.bind((r.reason || "").slice(0, 12) || null, (r.comment || "").slice(0, 60) || null, a.question_id).run(); // 错因随 Max 写，不套模板
 	} catch {
 		if (fallback != null) { // 填空：Max 不在就按网站的判法
 			await db.prepare("UPDATE attempts SET is_correct = ?, score = ?, status = '已判', grader = NULL WHERE id = ?").bind(fallback, fallback * 100, id).run();
@@ -199,12 +198,8 @@ export async function gradeAll(env: Env, ids: { id: number; fallback: number | n
 }
 
 // ---------- Claude 推题后：Max 扫一遍，补等价答案/考点/简短解析，发现答案可疑就提醒 ----------
-const REFINE_SYS = `你是 Max，帮老师检查刚录入的初三练习题。对每题输出：
-- topic：考点（≤10字）。若「已有考点」里有同义的，必须原样用已有的；原考点已经合适就照抄。
-- alt：仅填空题，参考答案的其它等价写法（如 1/2→0.5、x=2→2），最多 3 个，没有就 []。
-- exp：只有原题没有解析时才写（≤50字关键思路），否则空字符串。
-- warn：参考答案明显有错或题目缺条件时写一句（≤30字），否则空字符串。
-只输出 JSON 数组：[{"i":序号,"topic":"","alt":[],"exp":"","warn":""}]`;
+const REFINE_SYS = `检查新录入的初三题，每题给：topic 考点≤8字（已有同义的照抄已有）；alt 填空题的等价答案≤3个；exp 原题无解析才写≤40字；warn 答案有错/缺条件才写≤20字。
+只输出 JSON 数组：[{"i":0,"topic":"","alt":[],"exp":"","warn":""}]`;
 
 export async function refine(env: Env, ids: number[]): Promise<string> {
 	if (!ids.length) return "";
@@ -241,8 +236,8 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 }
 
 // ---------- 首页：今天先做什么 + 薄弱点 + 考前冲刺（一次调用，按天缓存，做题有变化且过了 3 小时才重算） ----------
-const BRIEF_SYS = `你是 Max，初三学生的学习助手。根据数据给出今天的安排。只输出 JSON：
-{"say":"≤60字，今天先做什么、为什么","order":[从候选题里挑最该先做的题号，最多10个，按先后],"weak":"≤80字，薄弱点总结和改进建议","sprint":"≤80字考前冲刺重点（没有7天内的考试就空字符串）"}`;
+const BRIEF_SYS = `按数据给初三学生排今天的练习。只输出 JSON：
+{"say":"≤50字先做什么+为什么","order":[候选题号≤10个按先后],"weak":"≤60字薄弱点和练法","sprint":"≤60字冲刺重点，无考试则空"}`;
 
 export async function brief(env: Env, force = false) {
 	const db = env.DB, d = today();
@@ -288,11 +283,9 @@ export async function brief(env: Env, force = false) {
 }
 
 // ---------- 聊天 ----------
-const CHAT_SYS = `你是 Max，「错题练习站」里的常驻学习助手，服务一个初三学生（也在学法语）。
-用中文回答，简洁直接（一般不超过 200 字），公式写 $..$，化学式写 $\\ce{..}$，可用 **加粗** 和分行列表。
-只根据下面给的数据谈题库和成绩，不确定就说不确定，不编造。作图、电路、光路、受力、证明题的批改交给 Claude。
-你能看到学生当前打开的页面内容，可以直接总结、分析它。
-需要网站动作时，在回答最后单独一行写（网站会变成按钮）：[[练:科目/考点]] [[练:今日]] 开始练习；[[去:/wrong]] 错题本、[[去:/bank]] 题库、[[去:/]] 首页；[[整理错题]] 让你整理错题本。`;
+const CHAT_SYS = `你是 Max，错题练习站的学习助手；学生初三，也学法语。中文、简洁（≤150字），公式 $..$，化学式 $\\ce{..}$。
+只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
+需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]`;
 
 type Ctx = { q?: number; a?: number; explain?: number; marked?: boolean; page?: { path?: string; title?: string; text?: string } };
 
@@ -359,13 +352,10 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ 
 }
 
 // ---------- 错题本：Max 整理（错因 + 一句话诊断 + 统一考点） ----------
-// 脚本先按作答推断错因（cause.ts），Max 再看题和错答给出自己的判断；两种都给学生看
-const ORG_SYS = `你是 Max，管理一个初三学生的错题本。对每道错题给出：
-- reason：错因，只能选一个：概念不清|表述不规范|审题失误|计算错误|不会做（参考「脚本初判」，但以题目和错答为准）
-- note：≤30字，具体错在哪 + 下次注意什么
-- topic：考点（≤10字），「已有考点」里有同义的就原样用
-只输出 JSON 数组：[{"i":序号,"reason":"","note":"","topic":""}]`;
-const WRONG_ROWS = `SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note,
+// 错因不用固定模板：Max 看题、正确答案、错答、用时自己分析
+const ORG_SYS = `看题、正确答案、错答、用时，分析每道错题为什么错（不套模板，说具体原因）。
+只输出 JSON 数组：[{"i":0,"reason":"错因≤6字","note":"≤25字错在哪+怎么避免","topic":"考点≤8字，优先用已有"}]`;
+const WRONG_ROWS = `SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note, q.max_at,
 	a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec, a.is_correct, a.status
 	FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)`;
 
@@ -379,12 +369,12 @@ export async function organize(env: Env, n = 10): Promise<number> {
 	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('org_at', datetime('now'))").run();
 	const subjects = [...new Set(rs.map((r) => r.subject))];
 	const { results: tops } = await db.prepare(`SELECT subject, topic FROM questions WHERE topic IS NOT NULL AND subject IN (${subjects.map(() => "?")}) GROUP BY 1, 2 LIMIT 80`).bind(...subjects).all<{ subject: string; topic: string }>();
-	const list = rs.map((r, i) => `${i}. [${r.subject}] ${r.stem.slice(0, 200)}${r.options ? "｜选项：" + arr(r.options).join(" ") : ""}｜正确：${arr(r.answer).join(" / ")}｜错答：${String(r.answer_text ?? "（照片录入的原错题）").slice(0, 150)}｜脚本初判：${cause(r)}${r.time_spent_sec ? `｜用时${r.time_spent_sec}秒` : ""}`).join("\n");
+	const list = rs.map((r, i) => `${i}. [${r.subject}] ${r.stem.slice(0, 200)}${r.options ? "｜选项：" + arr(r.options).join(" ") : ""}｜正确：${arr(r.answer).join(" / ")}｜错答：${String(r.answer_text ?? "（照片录入的原错题）").slice(0, 150)}${r.time_spent_sec ? `｜用时${r.time_spent_sec}秒` : ""}`).join("\n");
 	const known = subjects.map((s) => `${s}：${tops.filter((t) => t.subject === s).map((t) => t.topic).join("、") || "无"}`).join("\n");
 	const out = json<{ i: number; reason?: string; note?: string; topic?: string }[]>(await ask(env, [{ role: "system", content: ORG_SYS }, { role: "user", content: `已有考点：\n${known}\n\n错题：\n${list}` }], { max: 60 * rs.length + 80, ok: isArr }));
 	if (!Array.isArray(out)) return 0;
 	const stmts = out.filter((r) => rs[r.i]).map((r) => db.prepare("UPDATE questions SET max_reason = ?, max_note = ?, topic = COALESCE(?, topic), max_at = datetime('now') WHERE id = ?")
-		.bind(REASONS.includes(r.reason ?? "") ? r.reason : null, (r.note || "").slice(0, 60) || null, r.topic && r.topic.length <= 12 ? r.topic : null, rs[r.i].id));
+		.bind((r.reason || "").slice(0, 12) || null, (r.note || "").slice(0, 60) || null, r.topic && r.topic.length <= 12 ? r.topic : null, rs[r.i].id));
 	if (stmts.length) await db.batch(stmts);
 	return stmts.length;
 }
@@ -392,31 +382,28 @@ export async function organize(env: Env, n = 10): Promise<number> {
 export const unorganized = async (db: D1Database) => (await db.prepare(`SELECT COUNT(*) n FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
 	WHERE q.status IN ('active', 'mastered') AND (q.source = '原错题' OR a.id IS NOT NULL) AND (q.max_at IS NULL OR q.max_at < a.created_at)`).first<{ n: number }>())?.n ?? 0;
 
-/** 脚本错因归类（cause() 的结果收成几大类） */
-export const bucket = (c: string) => REASONS.find((r) => c.includes(r)) ?? (/漏选|多选/.test(c) ? "选项漏选/多选" : c.startsWith("待批改") ? "待批改" : "其它");
 
 /** 错题本错因统计：脚本归类 vs Max 归类 + Max 一段总结（按统计变化缓存） */
 export async function wrongSummary(env: Env) {
 	const db = env.DB;
 	const { results: rs } = await db.prepare(`${WRONG_ROWS} WHERE q.status = 'active' AND (q.source = '原错题' OR a.id IS NOT NULL)`).all<any>();
 	const count = (f: (r: any) => string | null) => rs.reduce((m: Record<string, number>, r) => { const k = f(r); if (k) m[k] = (m[k] || 0) + 1; return m; }, {});
-	const script = count((r) => bucket(cause(r))), max = count((r) => r.max_reason);
-	const sig = "ws:" + JSON.stringify([script, max]);
+	const max = count((r) => r.max_reason || (r.max_at ? null : "待分析"));
+	const sig = "ws:" + JSON.stringify(max);
 	let summary = await cacheGet(db, sig, 24 * 7);
 	if (!summary && rs.length >= 3) {
 		try {
 			const notes = rs.filter((r) => r.max_note).slice(0, 15).map((r) => `${r.subject}/${r.topic || "?"}：${r.max_note}`).join("\n");
-			summary = await ask(env, [{ role: "system", content: "你是 Max，初三学生的学习助手。根据错因统计和诊断，用≤100字总结最主要的问题和下一步怎么练，直接说结论。" },
-				{ role: "user", content: `脚本统计：${JSON.stringify(script)}\nMax 统计：${JSON.stringify(max)}\n诊断：\n${notes || "无"}` }], { max: 200 });
+			summary = await ask(env, [{ role: "system", content: "据错因统计和诊断，≤80字说初三学生最主要的问题和下一步怎么练。" },
+				{ role: "user", content: `错因统计：${JSON.stringify(max)}\n诊断：\n${notes || "无"}` }], { max: 200 });
 			await cachePut(db, sig, summary);
 		} catch { summary = null; }
 	}
-	return { total: rs.length, script, max, summary, todo: await unorganized(db) };
+	return { total: rs.length, max, summary, todo: await unorganized(db) };
 }
 
 // ---------- 错题文件夹：Max 总结，攒满 20 道发给 Claude 的就是这份总结（Claude 少读很多字） ----------
-const FOLDER_SYS = `你是 Max。下面是一个初三学生错过、后来重做做对的题。用≤250字总结给老师（Claude）看：
-①按科目/考点归类的主要问题 ②反复出现的错因 ③建议（哪些考点要出巩固题、归档时的重点）。直接写结论，不要客套。`;
+const FOLDER_SYS = `这些是初三学生错过、后来重做做对的题。≤200字写给老师（Claude）：主要问题（按科目/考点）、反复出现的错因、该出巩固题的考点。只写结论。`;
 export async function folderSummary(env: Env, force = false): Promise<{ ids: number[]; text: string } | null> {
 	const db = env.DB;
 	const { results: rs } = await db.prepare(`${WRONG_ROWS} WHERE q.status = 'mastered' ORDER BY q.subject, q.topic LIMIT 40`).all<any>();
@@ -424,7 +411,7 @@ export async function folderSummary(env: Env, force = false): Promise<{ ids: num
 	const ids = rs.map((r) => r.id);
 	const old = json<{ ids: number[]; text: string }>((await db.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? "");
 	if (old && !force && ids.filter((i) => !old.ids.includes(i)).length < 5) return old; // 新进来不到 5 道：用上次的
-	const list = rs.map((r) => `${r.subject}/${r.topic || "?"}｜错因：${r.max_reason || bucket(cause(r))}${r.max_note ? "｜" + r.max_note : ""}`).join("\n");
+	const list = rs.map((r) => `${r.subject}/${r.topic || "?"}｜错因：${r.max_reason || "?"}${r.max_note ? "｜" + r.max_note : ""}`).join("\n");
 	const text = await ask(env, [{ role: "system", content: FOLDER_SYS }, { role: "user", content: list }], { max: 450 });
 	const v = { ids, text: text.slice(0, 600) };
 	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run();
@@ -432,10 +419,26 @@ export async function folderSummary(env: Env, force = false): Promise<{ ids: num
 }
 /** 发给 Claude 的一行（短）：题号、考点、题干开头、错因、诊断 */
 export const shortLine = (r: any) =>
-	`${r.subject}${r.no ?? ""}（${r.topic || "?"}）：${String(r.stem).slice(0, 60)}${r.stem.length > 60 ? "…" : ""}｜正确：${arr(r.answer).join(" / ").slice(0, 40)}｜错因：${r.max_reason || bucket(cause(r))}${r.max_note ? "｜" + r.max_note : ""}${r.aid ? "｜作答id=" + r.aid : ""}`;
+	`${r.subject}${r.no ?? ""}（${r.topic || "?"}）：${String(r.stem).slice(0, 60)}${r.stem.length > 60 ? "…" : ""}｜正确：${arr(r.answer).join(" / ").slice(0, 40)}${r.max_reason ? "｜错因：" + r.max_reason : ""}${r.max_note ? "｜" + r.max_note : ""}${r.aid ? "｜作答id=" + r.aid : ""}`;
 
 /** 每天定时：用掉总管当天剩下的额度做整理（UTC 19 点后，额度 0 点重置） */
 export async function maxDaily(env: Env) {
 	try { for (let i = 0; i < 4 && (await organize(env, 10)); i++); } catch {}
 	try { await folderSummary(env); } catch {}
+}
+
+// ---------- 给 Claude 减负：交给 Claude 的题（作图/电路等有文字描述的），Max 先写初评 ----------
+// 只看文字（画板描述里有算好的方程/交点、电路网表），不看图，省额度；Claude 同意就一键确认，拿不准再看图
+export async function pregrade(env: Env, ids: number[]) {
+	for (const id of ids) {
+		const a = await env.DB.prepare(`SELECT a.answer_text, q.subject, q.stem, q.answer, q.explanation FROM attempts a JOIN questions q ON q.id = a.question_id
+			WHERE a.id = ? AND a.status = '待批改' AND a.grader IS NULL`).bind(id).first<any>();
+		if (!a || !String(a.answer_text ?? "").trim()) continue; // 没有文字（纯照片/手写）：只能 Claude 看图
+		try {
+			const r = json<{ score: number; comment?: string; sure?: number }>(await ask(env, [{ role: "system", content: GRADE_SYS + "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好）。" },
+				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, ok: (t) => typeof json<any>(t)?.score === "number" }));
+			if (r) await env.DB.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ? WHERE id = ?")
+				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), Math.max(0, Math.min(1, r.sure ?? 0.5)), id).run();
+		} catch { return; } // 额度没了就算了，Claude 照常批
+	}
 }

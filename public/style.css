@@ -53,7 +53,9 @@ main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(6){animation-delay:.25s
 @keyframes slideback{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
 /* 跨页面平滑过渡（支持的浏览器） */
 @view-transition{navigation:auto}
-::view-transition-old(root),::view-transition-new(root){animation-duration:.22s}
+::view-transition-old(root){animation:.18s var(--ease) both vtout}::view-transition-new(root){animation:.32s var(--ease) both vtin}
+@keyframes vtout{to{opacity:0;transform:scale(.985)}}@keyframes vtin{from{opacity:0;transform:translateY(10px)}}
+.tabbar{view-transition-name:tabbar}.maxball{view-transition-name:maxball} /* 底栏和悬浮球换页时不动，只有内容过渡 */
 /* 按钮：玻璃 + 按下回弹 + 主按钮流光 */
 .btn{display:block;width:100%;padding:14px;border-radius:var(--r-l);color:var(--fg);font:500 17px/1.4 var(--serif);text-align:center;cursor:pointer;text-decoration:none;position:relative;overflow:hidden;transition:transform .25s var(--ease),box-shadow .25s var(--ease),background .25s}
 .btn:active,.opt:active,.chip:active,.subj:active{transform:scale(.97)}
@@ -336,9 +338,9 @@ body.focus .maxball{right:auto;left:8px;width:40px;height:40px;opacity:.85}
 body.drawing .maxball{opacity:0;pointer-events:none}
 /* 错题本：错因（脚本推断 / Max 诊断） */
 .item .why{margin-top:4px;font-size:12px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 10px}.item .why .mx{color:var(--pri)}
-.why2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}.why2>div>b{font-size:13px;color:var(--mute);font-weight:500}
+.why2{display:grid;grid-template-columns:1fr;gap:12px;margin-top:6px}.why2>div>b{font-size:13px;color:var(--mute);font-weight:500}
 @media(max-width:420px){.why2{grid-template-columns:1fr}}
-.bars>div{display:grid;grid-template-columns:5.5em 1fr 1.8em;align-items:center;gap:6px;font-size:13px;margin-top:4px}
+.bars>div{display:grid;grid-template-columns:minmax(4em,8em) 1fr 1.8em;align-items:center;gap:6px;font-size:13px;margin-top:4px}
 .bars i{height:8px;border-radius:4px;background:var(--pri2);min-width:4px}.bars b{font-weight:500;text-align:right}
 /* Max 标志动画：思考/回答时光芒错落伸缩 + 慢慢转（只动 transform） */
 .mlogo svg g,.mlogo line{transform-box:view-box;transform-origin:0 0} /* 标志的中心就是坐标原点 */
@@ -351,3 +353,41 @@ body.drawing .maxball{opacity:0;pointer-events:none}
 .msend.stop{background:#3a3733;font-size:14px}
 @media(prefers-reduced-motion:reduce){.mlogo svg g,.mlogo line{animation:none!important}}
 .meng{margin-top:4px;font-size:11px;color:#8d857b}
+
+/* ---------- 动效：列表/结果卡片依次浮现，Max 气泡弹入（只动 transform/opacity；精简模式和减少动态时关闭） ---------- */
+.item,.rcard{animation:rise .42s var(--ease) both;animation-delay:calc(var(--i,0) * 32ms)}
+.mb{animation:mbin .3s var(--ease) both}
+@keyframes mbin{from{opacity:0;transform:translateY(8px) scale(.97)}}
+.stat b{display:inline-block;animation:pop .5s var(--ease) both .2s}
+.lite .item,.lite .rcard,.lite .mb,.lite .stat b{animation:none}
+
+/* ---------- 灵动岛动画：弹性展开（支持 linear() 的用弹簧曲线），内容随后淡入；收起更快 ---------- */
+.island{--spring:cubic-bezier(.2,.9,.25,1.15)}
+@supports (transition-timing-function:linear(0,1)){.island{--spring:linear(0,.009,.035 2.1%,.141,.281 6.7%,.723 12.9%,.938 16.7%,1.017,1.077,1.121,1.149 24.3%,1.159,1.163,1.161,1.154 29.9%,1.129 32.8%,1.051 39.6%,1.017 43.1%,.991,.977 51%,.974 53.8%,.975 57.1%,.997 69.8%,1.003 76.9%,1)}}
+.island{transition:transform .5s var(--spring),opacity .18s,border-radius .35s var(--ease)}
+.island:not(.open):not(.peek){transition:transform .26s var(--ease),opacity .2s}
+.island.open .mbody>*{animation:mdrop .34s var(--ease) both}
+.island.open .mhead{animation-delay:.06s}.island.open .mlog{animation-delay:.1s}.island.open .mchips,.island.open .min{animation-delay:.14s}
+@keyframes mdrop{from{opacity:0;transform:translateY(-8px)}}
+.island.peek .mpill{animation:mbin .35s var(--ease) both}
+body.max-busy .island.peek .mlogo svg g{animation:mspin 3.2s linear infinite}
+
+/* ---------- iPad / 大屏 ---------- */
+.maxball{right:calc(10px + env(safe-area-inset-right))}
+@media(min-width:744px){
+  .island{left:auto;right:calc(16px + env(safe-area-inset-right));width:420px;transform:scale(.3,.12);transform-origin:top right}
+  .island.peek,.island.open{transform:scale(1)}
+  .island .mbody{max-height:min(80vh,720px)}
+  .maxball{width:54px;height:54px}.maxball svg{width:30px;height:30px}
+}
+@media(min-width:1024px){main{max-width:920px}.subjects{grid-template-columns:repeat(4,1fr)}}
+/* 触控板/鼠标悬停（iPad 妙控键盘、电脑） */
+@media(hover:hover) and (pointer:fine){
+  .btn,.subj,.chip,.opt{transition:transform .2s var(--ease),box-shadow .2s,background .2s}
+  .btn:hover,.subj:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.08)}
+  .chip:hover,.opt:hover{transform:translateY(-1px)}
+  .item:hover{background:color-mix(in srgb,var(--pri) 5%,transparent)}
+  .maxball:hover{transform:scale(1.06)}
+  .mchips button:hover,.mhead button:hover,.mgo:hover{filter:brightness(1.25)}
+}
+@media(prefers-reduced-motion:reduce){.island{transition:none!important}.island .mbody>*{animation:none!important}}

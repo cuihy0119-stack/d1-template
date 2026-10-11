@@ -6,10 +6,9 @@ import { passcodeOk } from "./auth";
 import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { pick } from "./tags";
-import { cause } from "./cause";
 import { loginPage } from "./login";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, bucket, byMax, chat, folderSummary, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, pregrade, folderSummary, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
 type Q = {
 	id: number;
@@ -22,6 +21,8 @@ type Q = {
 	type: "single" | "multi" | "fill" | "short";
 	stem: string;
 	no?: number | null;
+	max_reason?: string | null;
+	max_note?: string | null;
 	options: string | null;
 	answer: string;
 	explanation: string | null;
@@ -251,7 +252,7 @@ app.post("/api/submit", async (c) => {
 	const { items } = await c.req.json<{ items: Item[] }>();
 	if (!Array.isArray(items) || !items.length) return c.json({ error: "没有作答" }, 400);
 	const db = c.env.DB;
-	const attemptIds: number[] = [], toMax: { id: number; fallback: number | null }[] = [];
+	const attemptIds: number[] = [], toMax: { id: number; fallback: number | null }[] = [], toClaude: number[] = [];
 	for (const it of items) {
 		const q = await db.prepare("SELECT * FROM questions WHERE id = ?").bind(it.question_id).first<Q>();
 		if (!q) continue;
@@ -271,7 +272,7 @@ app.post("/api/submit", async (c) => {
 		let id = old?.id;
 		if (old) {
 			await db
-				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ?, grader = ? WHERE id = ?")
+				.prepare("UPDATE attempts SET answer_text = ?, photo_key = COALESCE(?, photo_key), is_correct = ?, score = ?, comment = NULL, error_reason = NULL, status = ?, time_spent_sec = ?, grader = ?, max_score = NULL, max_comment = NULL, max_sure = NULL WHERE id = ?")
 				.bind(text, photo, ok, ok == null ? null : ok * 100, status, secs, grader, old.id)
 				.run();
 		} else {
@@ -283,9 +284,11 @@ app.post("/api/submit", async (c) => {
 		if (ok != null && ok !== old?.is_correct) await updateQueue(db, q.id, !!ok);
 		attemptIds.push(id!);
 		if (mx) toMax.push({ id: id!, fallback: q.type === "fill" ? site : null });
+		else if (ok == null) toClaude.push(id!);
 		await db.prepare("UPDATE marks SET attempt_id = ? WHERE question_id = ?").bind(id!, q.id).run(); // 标记过的题：交卷后进临时文件夹
 	}
 	if (toMax.length) c.executionCtx.waitUntil(gradeAll(c.env, toMax)); // Max 在后台批，结果页轮询会显示
+	if (toClaude.length) c.executionCtx.waitUntil(pregrade(c.env, toClaude)); // 交给 Claude 的：Max 先写初评，Claude 看得少
 	return c.json({ attempt_ids: attemptIds });
 });
 
@@ -328,22 +331,17 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
-			        q.max_reason, q.max_note, q.answer, la.answer_text, la.error_reason, la.comment, la.time_spent_sec,
+			        q.max_reason, q.max_note,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
 			        (SELECT is_correct FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) last
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 LEFT JOIN attempts la ON la.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
 			 WHERE ${wrong ? WRONG_SQL[wrong] : "q.status = 'active'"}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
-		.all<Record<string, any>>();
-	// 错因：脚本按作答推断一份（cause），Max 整理后再给一份（max_reason + max_note）
-	const items = results.map(({ answer, answer_text, error_reason, comment, time_spent_sec, ...q }) => ({
-		...q, cause: wrong && answer_text != null ? bucket(cause({ ...q, answer, answer_text, error_reason, comment, time_spent_sec } as any)) : wrong && q.source === "原错题" ? "原错题" : null,
-	}));
-	return { items, today: today() };
+		.all();
+	return { items: results, today: today() }; // 错因只用 Max 分析的（max_reason + max_note）
 }
 
 app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB)));
@@ -388,7 +386,7 @@ app.get("/api/question/:id", async (c) => {
 		...clientQ(q),
 		answer: parse<string[]>(q.answer, []),
 		explanation: q.explanation,
-		attempts: results.map((r) => ({ ...r, error_reason: r.is_correct === 0 ? cause({ ...q, ...r, id: q.id }) : r.error_reason, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
+		attempts: results.map((r) => ({ ...r, error_reason: r.is_correct === 0 ? q.max_reason || r.error_reason : r.error_reason, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
 	});
 });
 
