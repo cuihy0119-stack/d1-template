@@ -3,7 +3,8 @@
 // 悬浮球：任意拖动，松手自动贴到最近的左/右边（位置会记住）；3 秒不用淡到 20%，一碰就亮。点一下，窗口从球的位置弹开。
 // 思考/回答时标志的光芒一伸一缩、慢慢转。Max 能读当前页面文字，随时总结分析。
 // 其它脚本：Max.open(ctx, 问题) 带上下文提问；Max.setCtx(ctx) 换上下文；Max.tip(文字) 在球旁边短暂提示（本地算的，不花额度）。
-// ctx：{ q: 正在做的题 } { a: 已交的作答 } { explain: 作答id（一键讲解，有缓存）} { marked: true（解析标记的题）}
+// ctx：{ q: 正在做的题 } { a: 已交的作答 } { explain: 作答id（一键讲解，有缓存）} { marked: true（解析标记的题）} { tmp: 临时练习题（不在题库）}
+// 输入框上面两个标签：深度思考（只用 DeepSeek 的思考模型）、联网搜索（先搜网页再回答），点一下开、再点关；状态记在本标签页
 const Max = (() => {
 	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 60000, IDLE = 3000, M = 10; // M：离屏幕边的距离
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
@@ -11,6 +12,13 @@ const Max = (() => {
 	let hist = [], ctx = {}, base = {}, ui = null, ball = null, peek = null, tipT = 0, idleT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
 	try { hist = JSON.parse(ss(KEY) || "[]"); if (!Array.isArray(hist)) hist = []; } catch { hist = []; }
 	const keep = () => ss(KEY, JSON.stringify(hist.slice(-12)));
+	// 输入框上面的两个开关（深度思考 / 联网搜索）：记在本标签页，关掉浏览器就复位，免得忘了关一直多花额度
+	const tg = (() => { try { const t = JSON.parse(ss("max_tg") || "{}"); return { deep: !!t.deep, web: !!t.web }; } catch { return { deep: false, web: false }; } })();
+	const line = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+	const TAGS = [
+		["deep", "深度思考", "只用 DeepSeek 的思考模型，想得更深、更慢", line('<path d="M9.5 18h5M10.5 21h3"/><path d="M12 3a6 6 0 00-3.6 10.8c.6.5 1.1 1.3 1.1 2.1V16h5v-.1c0-.8.5-1.6 1.1-2.1A6 6 0 0012 3z"/>')],
+		["web", "联网搜索", "先搜网页再回答（说明来源）", line('<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.7 3.9 5.7 3.9 9s-1.3 6.3-3.9 9c-2.6-2.7-3.9-5.7-3.9-9S9.4 5.7 12 3z"/>')],
+	];
 	const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
 	// 设置（存在本机）：len 回答长短，pref 优先引擎，fade 悬浮球闲置时的不透明度（1 = 不变淡）
 	const prefs = (() => { try { return { len: "m", pref: "auto", fade: 0.2, ...JSON.parse(ls("max_prefs") || "{}") }; } catch { return { len: "m", pref: "auto", fade: 0.2 }; } })();
@@ -144,6 +152,19 @@ const Max = (() => {
 		const input = el("textarea", { rows: 1, placeholder: "问 Max…", enterKeyHint: "send", maxLength: 800 });
 		const sendB = el("button", { type: "button", className: "msend", textContent: "↑", title: "发送" });
 		const chips = el("div", { className: "mchips" });
+		const tags = el("div", { className: "mtog" }, ...TAGS.map(([k, name, tip, icon]) => {
+			const b = el("button", { type: "button", className: "mtag" + (tg[k] ? " on" : ""), title: tip, innerHTML: icon + `<span>${name}</span>` });
+			b.setAttribute("aria-pressed", String(tg[k]));
+			b.onclick = () => {
+				if (k === "deep" && !tg.deep && ui?.dsOn === false) return toast("深度思考只能用 DeepSeek，现在没接上（看设置页）");
+				tg[k] = !tg[k]; ss("max_tg", JSON.stringify(tg));
+				b.classList.toggle("on", tg[k]); b.setAttribute("aria-pressed", String(tg[k]));
+				input.placeholder = ph();
+			};
+			return b;
+		}));
+		const ph = () => (tg.deep && tg.web ? "深度思考 + 联网搜索…" : tg.deep ? "深度思考（DeepSeek）…" : tg.web ? "联网搜索…" : "问 Max…");
+		input.placeholder = ph();
 		const sub = el("span", { className: "msub", textContent: "能看到当前页面 · 难题找 Claude" });
 		const gear = el("button", { type: "button", className: "mgear", title: "用量和设置", innerHTML: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>' });
 		const set = el("div", { className: "mset" });
@@ -151,7 +172,7 @@ const Max = (() => {
 		const island = el("section", { className: "island" },
 			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub, gear,
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
-			log, chips, el("div", { className: "min" }, input, sendB), set);
+			log, chips, tags, el("div", { className: "min" }, input, sendB), set);
 		sendB.onclick = () => (job ? stop() : send());
 		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
@@ -161,13 +182,13 @@ const Max = (() => {
 		const vv = window.visualViewport;
 		if (vv) { const fit = () => { if (island.classList.contains("open")) layout(); }; vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
 		// 动作按钮：整理错题（事件委托，只挂一次）
-		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
+		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); });
 		document.body.append(island);
 		ui = { island, log, input, sendB, chips, gear };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
-			const show = (ui.show = (s) => { sub.textContent = `Cloudflare ${s.cfu?.pct ?? s.cf}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
+			const show = (ui.show = (s) => { ui.dsOn = !!s.ds.on; sub.textContent = `Cloudflare ${s.cfu?.pct ?? s.cf}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
 			let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
 			if (st && Date.now() - st.at < 600000) show(st.s);
 			else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
@@ -237,7 +258,8 @@ const Max = (() => {
 	const PAGES = { "/": "首页", "/wrong": "错题本", "/bank": "题库" };
 	function paint(div, text, final) {
 		const h = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*/gm, "")
-			.replace(/\[\[练[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim())}">📝 练：${t.trim()}</a>`)
+			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
+			.replace(/\[\[清理[:：]([^\]]+)\]\]/g, (_, t) => `<button type="button" class="mgo" data-act="clean" data-spec="${t.trim()}">清理题库：${t.trim().replace("|", " · ")}</button>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
 			.replace(/\[\[[^\]]*$/, ""); // 流式输出时半截的 [[…：先不显示
@@ -252,8 +274,8 @@ const Max = (() => {
 		scroll();
 		return d;
 	}
-	function thinking() { // 思考中：一个会动的标志，代替文字
-		const d = el("div", { className: "mb assistant thinking" }, logo("big"), el("span", { textContent: "思考中" }));
+	function thinking(text = "思考中") { // 思考中：一个会动的标志，代替文字
+		const d = el("div", { className: "mb assistant thinking" }, logo("big"), el("span", { textContent: text }));
 		ui.log.append(d);
 		scroll();
 		return d;
@@ -317,6 +339,21 @@ const Max = (() => {
 		finally { out.classList.remove("thinking"); job = null; lock(false); }
 	}
 
+	// Max 提议清理题库：先数一数、让学生确认，才真删（做题记录保留）
+	async function cleanNow(b) {
+		const spec = b.dataset.spec, post = (dry) => api("/api/max/clean", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ spec, dry }) });
+		b.disabled = true;
+		try {
+			const r = await post(true);
+			if (!r.n) return toast("题库里没有符合的题");
+			if (!confirm(`删除题库里「${spec.replace("|", " · ")}」的 ${r.n} 道题？\n例如：${r.sample.join("；")}\n做题记录会保留，删了不能恢复。`)) return;
+			await post(false);
+			b.textContent = `已清理 ${r.n} 道`; b.classList.add("done");
+			window.dispatchEvent(new Event("max:changed"));
+		} catch (e) { toast(e.message); }
+		finally { if (!b.classList.contains("done")) b.disabled = false; }
+	}
+
 	async function send(text = ui.input.value.trim(), extra = {}) {
 		build();
 		if (!text) return;
@@ -324,18 +361,20 @@ const Max = (() => {
 		ui.input.value = ""; ui.input.style.height = "";
 		hist.push({ role: "user", content: text });
 		const ub = bubble("user", text);
-		const out = thinking();
-		let all = "", ok = false, eng = "", timedOut = false, last = 0, tm = 0;
+		const deep = tg.deep, web = tg.web; // 发出时的开关状态
+		const out = thinking(deep ? "深度思考中" : web ? "搜索并思考中" : "思考中");
+		let all = "", ok = false, eng = "", webN = null, timedOut = false, last = 0, tm = 0;
 		job = new AbortController();
-		const ctl = job, t = setTimeout(() => { timedOut = true; ctl.abort(); }, TIMEOUT); // 一分钟没说完就停，免得卡住
+		const ctl = job, t = setTimeout(() => { timedOut = true; ctl.abort(); }, deep ? 150000 : TIMEOUT); // 一分钟没说完就停（深度思考给 2 分半），免得卡住
 		lock(true);
 		try {
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
-				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, page: one ? undefined : page() } }) });
+				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
 			eng = r.headers.get("x-max-engine") || "";
+			webN = r.headers.get("x-max-web");
 			const draw = () => { // 边生成边显示：最多 80ms 画一次；你往上翻着看时不强行拉到底
 				tm = 0; last = Date.now();
 				const near = ui.log.scrollHeight - ui.log.scrollTop - ui.log.clientHeight < 60;
@@ -363,8 +402,8 @@ const Max = (() => {
 			paint(out, all, true);
 			if (ok) {
 				hist.push({ role: "assistant", content: all }); keep();
-				const by = { cf: "Cloudflare 回答", ds: "DeepSeek 回答", cache: "之前讲过（没花额度）" }[eng];
-				if (by) out.append(el("div", { className: "meng", textContent: by }));
+				const by = { cf: "Cloudflare 回答", ds: deep ? "DeepSeek 深度思考" : "DeepSeek 回答", cache: "之前讲过（没花额度）" }[eng];
+				if (by) out.append(el("div", { className: "meng", textContent: by + (webN == null ? "" : webN === "0" ? " · 联网没搜到" : ` · 联网 ${webN} 条`) }));
 				quick(); // 出现「没懂，再讲详细点」
 			}
 			else { // 失败的问题不留在上下文里；重试时把这一问一答撤掉重来，不重复

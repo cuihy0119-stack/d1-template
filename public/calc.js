@@ -93,7 +93,8 @@ class CalcBoard {
 	paste(s) { // 写到画板：从上往下第一行空行
 		const b = this.pad;
 		let y = Math.floor(b.oy / CELL) - 1;
-		while (y > -b.H / CELL && b.objs.some((o) => o.p && Math.abs(o.p[1] - y) < 1)) y--;
+		const frac = (t) => /\d+\/\d+/.test(t || ""); // 带分数的行上下各多占一点，不和相邻行挤在一起
+		while (y > -b.H / CELL && b.objs.some((o) => o.p && Math.abs(o.p[1] - y) < (frac(o.s) || frac(s) ? 1.3 : 1))) y--;
 		b.add({ t: "text", p: [Math.ceil(-b.ox / CELL) + 1, y], s });
 	}
 

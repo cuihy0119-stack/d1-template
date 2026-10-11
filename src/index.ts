@@ -9,7 +9,8 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classify, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classify, cleanBank, gen, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { live } from "./live";
 
 type Q = {
 	id: number;
@@ -120,7 +121,7 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 	const due = await db
 		.prepare(
 			`SELECT q.* FROM questions q JOIN review_queue r ON r.question_id = q.id
-			 WHERE r.next_date <= ?
+			 WHERE r.next_date <= ? AND q.status = 'active' AND ${live()}
 			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
 			 ORDER BY r.next_date, q.id`,
 		)
@@ -128,7 +129,7 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 		.all<Q>();
 	const fresh = await db
 		.prepare(
-			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active'
+			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active' AND ${live()}
 			 AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id`,
 		)
 		.all<Q>();
@@ -141,7 +142,7 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 	const { results } = await db
 		.prepare(
 			`SELECT q.* FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE q.subject = ? AND q.status = 'active'
+			 WHERE q.subject = ? AND q.status = 'active' AND ${live()}
 			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
 			   AND (r.question_id IS NOT NULL OR NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id))
 			 ORDER BY (r.question_id IS NOT NULL), q.id LIMIT 50`,
@@ -160,24 +161,23 @@ app.get("/api/home", async (c) => {
 	return c.json(await homeData(c.env.DB));
 });
 async function homeData(db: D1Database) {
-	const [qs, summary, pending, wrong, subjects, ungraded, marked, recent, exams, days_, right7] = await Promise.all([
+	const [qs, pending, wrong, subjects, ungraded, marked, recent, exams, days_, right7] = await Promise.all([
 		todayQuestions(db),
-		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
-		db.prepare("SELECT COUNT(*) n FROM review_queue").first<{ n: number }>(),
+		db.prepare(`SELECT COUNT(*) n FROM review_queue r JOIN questions q ON q.id = r.question_id WHERE q.status = 'active' AND ${live()}`).first<{ n: number }>(),
 		db
 			.prepare(
 				`SELECT q.subject, COUNT(*) total,
 				        SUM(CASE WHEN NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN 1 ELSE 0 END) undone,
 				        SUM(CASE WHEN r.next_date <= ? THEN 1 ELSE 0 END) due
 				 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-				 WHERE q.status = 'active' GROUP BY q.subject ORDER BY q.subject`,
+				 WHERE q.status = 'active' AND ${live()} GROUP BY q.subject ORDER BY q.subject`,
 			)
 			.bind(today())
 			.all(),
 		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改' AND grader IS NULL").first<{ n: number }>(), // Max 在批的不算
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
-		db.prepare("SELECT id, subject, no, type, tag, board, stem, options, created_at FROM questions WHERE status = 'active' ORDER BY id DESC LIMIT 8").all<any>(),
+		db.prepare(`SELECT id, subject, no, type, tag, board, stem, options, created_at FROM questions q WHERE q.status = 'active' AND ${live()} ORDER BY id DESC LIMIT 8`).all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
 		// 打卡：按北京时间统计每天有没有做题，近 7 天做对多少
 		db.prepare("SELECT DISTINCT date(created_at, '+8 hours') d FROM attempts ORDER BY d DESC LIMIT 400").all<{ d: string }>(),
@@ -188,7 +188,6 @@ async function homeData(db: D1Database) {
 	for (let d = days.has(today()) ? today() : addDays(today(), -1); days.has(d); d = addDays(d, -1)) streak++; // 今天还没做不算断
 	return {
 		today_count: qs.length,
-		summary,
 		pending_uploads: pending?.n ?? 0,
 		pending_grades: ungraded?.n ?? 0,
 		queue_count: wrong?.n ?? 0,
@@ -242,7 +241,7 @@ app.get("/api/practice", async (c) => {
 	if (topic) {
 		const [s, t] = topic.split("/");
 		const { results } = await c.env.DB.prepare(
-			`SELECT q.* FROM questions q WHERE q.status = 'active' AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%')
+			`SELECT q.* FROM questions q WHERE q.status = 'active' AND ${live()} AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%')
 			 ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 20`).bind(s, t || null).all<Q>();
 		return c.json(results.map(clientQ));
 	}
@@ -334,7 +333,7 @@ app.get("/api/attempts", async (c) => {
 
 // ---------- 题库 / 错题本 ----------
 const WRONG_SQL = {
-	active: "q.status = 'active' AND (q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))",
+	active: `q.status = 'active' AND ${live()} AND (q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`,
 	mastered: "q.status = 'mastered'", // 错题文件夹
 };
 
@@ -348,7 +347,7 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
 			        (SELECT is_correct FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) last
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE ${wrong ? WRONG_SQL[wrong] : "q.status = 'active'"}
+			 WHERE ${wrong ? WRONG_SQL[wrong] : `q.status = 'active' AND ${live()}`}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
 		.all();
@@ -407,6 +406,18 @@ app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（
 	try { return c.json({ done: await classify(c.env, true) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
 });
+// 现场出题（题库没有同类题时）：临时题不进题库，答案一起发给网页当场判
+app.post("/api/max/gen", async (c) => {
+	const b = await c.req.json<{ topic?: string; n?: number }>().catch(() => ({}) as { topic?: string; n?: number });
+	try { return c.json({ questions: await gen(c.env, String(b.topic ?? "").slice(0, 40), Number(b.n) || 5, () => chatQuota(c.env.DB)) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "出题失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
+});
+// 清理题库：dry=1 只数一数；否则真删（网页确认后才会调）
+app.post("/api/max/clean", async (c) => {
+	const b = await c.req.json<{ spec?: string; dry?: boolean }>().catch(() => ({}) as { spec?: string; dry?: boolean });
+	try { return c.json(await cleanBank(c.env.DB, String(b.spec ?? "").slice(0, 60), !b.dry)); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "清理失败：" + (e as Error).message }, e instanceof MaxErr ? 400 : 500); }
+});
 app.post("/api/max/chat", async (c) => {
 	const body = await c.req.json<{ messages?: unknown; ctx?: any }>().catch(() => ({}) as { messages?: unknown; ctx?: any });
 	const ctx = body.ctx && typeof body.ctx === "object" ? body.ctx : {};
@@ -414,10 +425,13 @@ app.post("/api/max/chat", async (c) => {
 		.slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content.slice(0, 800) }) as { role: "user" | "assistant"; content: string });
 	if (!messages.length) return c.json({ error: "说点什么吧" }, 400);
 	const pg = ctx.page && typeof ctx.page === "object" ? { path: String(ctx.page.path ?? "").slice(0, 60), title: String(ctx.page.title ?? "").slice(0, 60), text: String(ctx.page.text ?? "").slice(0, 1500) } : undefined;
+	const t = ctx.tmp && typeof ctx.tmp === "object" && typeof ctx.tmp.stem === "string" ? ctx.tmp : null; // 临时练习题（不在题库）：网页把题带过来
+	const tmp = t ? { stem: t.stem.slice(0, 500), options: (Array.isArray(t.options) ? t.options : []).slice(0, 4).map((o: unknown) => String(o).slice(0, 120)), answer: String(t.answer ?? "").slice(0, 120),
+		mine: String(t.mine ?? "").slice(0, 120), exp: String(t.exp ?? "").slice(0, 150), done: !!t.done } : undefined;
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg,
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, web: !!ctx.web, deep: !!ctx.deep, tmp, page: pg,
 			len: ["s", "m", "l"].includes(ctx.len) ? ctx.len : "m", pref: ["auto", "ds", "cf"].includes(ctx.pref) ? ctx.pref : "auto" }, () => chatQuota(c.env.DB));
-		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "" } });
+		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "", ...(r.web != null ? { "x-max-web": String(r.web) } : {}) } });
 	} catch (e) {
 		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
 	}

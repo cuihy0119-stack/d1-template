@@ -9,7 +9,7 @@ function page(body: string, status = 200, headers?: Headers) {
 	const h = headers ?? new Headers();
 	h.set("Content-Type", "text/html; charset=utf-8");
 	return new Response(
-		`<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权</title><link rel="stylesheet" href="/style.css"></head><body><main class="login">${body}</main></body></html>`,
+		`<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权 · MAX NOTE</title><link rel="stylesheet" href="/style.css"></head><body><main class="login">${body}</main></body></html>`,
 		{ status, headers: h },
 	);
 }
@@ -24,7 +24,7 @@ export function mountAuthorize(app: Hono<{ Bindings: Env }>) {
 			const consent = await oauth.beginConsent(req);
 			return page(
 				`<h1>授权 Claude</h1>
-<p>「${esc(d.clientName)}」想连接你的错题练习站（出题、批改、写总结）。</p>
+<p>「${esc(d.clientName)}」想连接你的 MAX NOTE（出题、批改、写总结）。</p>
 <p class="mute">回调地址：${esc(d.redirectHost)}</p>
 <form method="post">
 <input type="hidden" name="handle" value="${esc(consent.handle)}">

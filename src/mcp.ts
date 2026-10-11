@@ -1,3 +1,4 @@
+import { live } from "./live";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
@@ -12,7 +13,7 @@ const PASS = 80; // 简答得分（百分制）≥80 算做对
 const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错误", "不会做"] as const;
 const MAX_IMAGES = 6;
 
-const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短；和学生说题用题号（如 数学1）。
+const INSTRUCTIONS = `MAX NOTE（错题练习，初三自用）。省用量：一次 save 写完，回复简短；和学生说题用题号（如 数学1）。
 分工：网站助手 Max 批选择/填空/文字题和有把握的作图题，整理错题、错因、题型标签和章节考点分类；你批 Max 拿不准的作图题和照片/手写题，处理照片收件箱，做错题文件夹后续。
 批改：get_inbox → save({grades})；有「Max初评」且同意就 save({ok:[作答id]})，要看图 get_data({kind:"img",id})。
 出题：get_data({kind:"tpl"})（每对话一次）；复习旧题 save({review:[id]})；考试 save({exams:[{name,date}]})。
@@ -94,7 +95,7 @@ async function wrongPack(env: Env): Promise<string> {
 
 export function buildServer(env: Env) {
 	const db = env.DB;
-	const s = new McpServer({ name: "错题练习站", version: "2.0.0" }, { instructions: INSTRUCTIONS });
+	const s = new McpServer({ name: "MAX NOTE", version: "2.0.0" }, { instructions: INSTRUCTIONS });
 
 	s.registerTool("get_inbox", { description: "待处理：新照片（upload_id）+ 待你批改的作答（作答id，附 Max 初评）。", inputSchema: {} }, async () => {
 		const out: Content[] = [];
@@ -265,7 +266,7 @@ export function buildServer(env: Env) {
 					: `SELECT q.id, q.subject || COALESCE(q.no, '') no, q.subject s, q.category c, q.topic t, q.tag g, substr(q.stem, 1, 30) stem,
 					        CASE WHEN r.question_id IS NOT NULL THEN '复习' WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN '已做' ELSE '未做' END st
 					   FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR q.status = 'active') ORDER BY q.id LIMIT 2000`;
+					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR (q.status = 'active' AND ${live()})) ORDER BY q.id LIMIT 2000`; // 默认只看网站上还看得到的题（隐藏的 24/48 小时外的不算）
 			const { results } = await db.prepare(sql).bind(`-${days ?? 7} days`, subject ?? null, all ? 1 : 0).all();
 			return text(tsv(results as Record<string, unknown>[]));
 		},

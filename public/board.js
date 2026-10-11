@@ -130,6 +130,26 @@ function calcText(s) {
 	} catch { return s; }
 }
 
+// ---------- 计算板上的文字：数字分数 3/4 自动写成竖式分数（上分子、下分母、中间一横）；结果后面的「（≈0.75）」小号灰字 ----------
+const RICH = /(-?\d+\/\d+|（≈[^）]*）)/;
+function richText(c, s, x, y) {
+	const F = "17px 'LXGW WenKai Screen', serif", f = "13px 'LXGW WenKai Screen', serif", col = c.fillStyle;
+	c.textAlign = "left"; c.textBaseline = "middle";
+	const text = (t, font = F, fill = col) => { c.font = font; c.fillStyle = fill; c.fillText(t, x, y); x += c.measureText(t).width; };
+	for (const part of String(s).split(RICH)) {
+		if (!part) continue;
+		if (part.startsWith("（≈")) { text(part, f, "#8a8178"); continue; }
+		const m = part.match(/^(-?)(\d+)\/(\d+)$/);
+		if (!m) { text(part); continue; }
+		if (m[1]) { text("−"); x += 3; }
+		c.font = f; c.fillStyle = col;
+		const w = Math.max(c.measureText(m[2]).width, c.measureText(m[3]).width) + 6;
+		c.textAlign = "center"; c.fillText(m[2], x + w / 2, y - 7.5); c.fillText(m[3], x + w / 2, y + 8.5); c.textAlign = "left";
+		c.beginPath(); c.moveTo(x, y + 0.5); c.lineTo(x + w, y + 0.5); c.lineWidth = 1.2; c.strokeStyle = col; c.stroke();
+		x += w + 3;
+	}
+}
+
 // ---------- 几何（单位：格） ----------
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 const lerp = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k];
@@ -420,7 +440,7 @@ class Board {
 				c.stroke(); break;
 			}
 			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); label(q, (o.name || "") + xy(o.p), o.name ? "italic 15px serif" : "13px sans-serif"); break; }
-			case "text": { const q = P(o.p); c.font = "17px 'LXGW WenKai Screen', serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
+			case "text": { const q = P(o.p); if (this.calc) { richText(c, o.s, q[0], q[1]); break; } c.font = "17px 'LXGW WenKai Screen', serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
 			case "ra": { const k = 0.45, a = o.at; path([[a[0] + o.u[0] * k, a[1] + o.u[1] * k], [a[0] + (o.u[0] + o.v[0]) * k, a[1] + (o.u[1] + o.v[1]) * k], [a[0] + o.v[0] * k, a[1] + o.v[1] * k]]); break; }
 			case "fn": {
 				const f = this.fn(o.expr); if (!f) break;
