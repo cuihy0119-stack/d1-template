@@ -146,7 +146,8 @@ function render(anim) {
 				if (!qs.length) { isle.hide(); return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" })); }
 				cur = Math.min(cur, qs.length - 1); shownAt = Date.now(); render();
 			} })),
-		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }));
+		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }),
+		Fig.view(q.fig)); // 题图：题干正下方、选项和画板之前
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
 	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
@@ -264,7 +265,7 @@ const isle = (() => {
 	addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(update); }, { passive: true });
 	tablet.addEventListener?.("change", () => { park(null); update(); });
 	return {
-		fill(q) { park(null); close(); qp.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("div", { className: "istem", textContent: q.stem })); math(qp); requestAnimationFrame(update); },
+		fill(q) { park(null); close(); qp.replaceChildren(el("span", { className: "tag", textContent: q.tag || q.subject }), el("div", { className: "istem", textContent: q.stem }), Fig.view(q.fig, "side")); math(qp); requestAnimationFrame(update); }, // 题图也放进题干浮窗/平板左栏：画到画板时能对着看
 		hide() { park(null); rail.classList.remove("show"); document.body.classList.remove("split"); open(qp, qb, false); open(tp, tb, false); },
 	};
 })();
@@ -319,7 +320,7 @@ async function showResult(ids, got) {
 		card.append(el("summary", {},
 			el("span", { className: "badge " + badge[1], textContent: badge[0] }),
 			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "🔖" }) : "",
-			el("p", { className: "rstem", textContent: r.stem })));
+			el("p", { className: "rstem", textContent: r.stem })), Fig.view(r.fig, "small"));
 		if (r.options.length) card.append(el("div", { className: "mute", textContent: r.options.join("\n"), style: "white-space:pre-wrap" }));
 		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
 		if (r.photos.length) {

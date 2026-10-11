@@ -1,4 +1,5 @@
 import { live } from "./live";
+import { normFig } from "./fig";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
@@ -29,6 +30,7 @@ const Q = z.object({
 	ans: z.array(z.string()).describe("见模板"),
 	exp: z.string().optional().describe("解析"),
 	tag: z.string().optional().describe("必填，见模板"),
+	fig: z.any().optional().describe("题图（画板 JSON 或 SVG），见模板"),
 }).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
 type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
 
@@ -58,6 +60,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 		subject, category: q.category ?? def.category ?? null, topic: q.topic ?? def.topic ?? null, type, stem: q.stem,
 		options: q.opts?.length ? JSON.stringify(q.opts) : null, answer: JSON.stringify(q.ans), explanation: q.exp ?? null, source,
 		origin_id: q.origin ?? null, board: board === "coord" || board === "grid" ? board : null, tag, // 画板读题时由 tag 推出
+		fig: normFig(q.fig),
 	};
 	const r = await db.prepare(`INSERT INTO questions (${Object.keys(row)}, no) VALUES (${Object.keys(row).map(() => "?")}, (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?)) RETURNING id, no`)
 		.bind(...Object.values(row), subject).first<{ id: number; no: number }>();
@@ -151,7 +154,7 @@ export function buildServer(env: Env) {
 				grades: z
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
-				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.string().optional() })).optional(),
+				organize: z.array(z.object({ id: z.number().int(), subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional(), tag: z.string().optional(), fig: z.any().optional().describe("补/改题图") })).optional(),
 				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
 				exams: z.array(z.object({ name: z.string(), date: z.string().describe("YYYY-MM-DD") })).optional().describe("临近考试（整表替换），首页显示倒计时"),
 				summary: z.string().optional(),
@@ -204,6 +207,7 @@ export function buildServer(env: Env) {
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
+					if (it.fig !== undefined) await db.prepare("UPDATE questions SET fig = ? WHERE id = ?").bind(normFig(it.fig), it.id).run();
 					const old = it.subject ? (await db.prepare("SELECT subject FROM questions WHERE id = ?").bind(it.id).first<{ subject: string }>())?.subject : null;
 					const q = it.tag ? await db.prepare("SELECT subject, stem, options, answer FROM questions WHERE id = ?").bind(it.id).first<any>() : null;
 					const t = q ? pick({ subject: q.subject, stem: q.stem, tag: it.tag, opts: !!q.options }).tag : null; // 按新标签重定题型（填空 ↔ 计算 等）

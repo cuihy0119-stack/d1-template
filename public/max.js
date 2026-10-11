@@ -9,6 +9,7 @@ const Max = (() => {
 	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 60000, IDLE = 3000, M = 10; // M：离屏幕边的距离
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
 	const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
+	let att = null; // 待发的图片（dataURL，已压缩）
 	let hist = [], ctx = {}, base = {}, ui = null, ball = null, peek = null, tipT = 0, idleT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
 	try { hist = JSON.parse(ss(KEY) || "[]"); if (!Array.isArray(hist)) hist = []; } catch { hist = []; }
 	const keep = () => ss(KEY, JSON.stringify(hist.slice(-12)));
@@ -151,6 +152,11 @@ const Max = (() => {
 		const log = el("div", { className: "mlog" });
 		const input = el("textarea", { rows: 1, placeholder: "问 Max…", enterKeyHint: "send", maxLength: 800 });
 		const sendB = el("button", { type: "button", className: "msend", textContent: "↑", title: "发送" });
+		// 发图片：拍照/相册/粘贴，压到 1280px；先给 Max 看图转成文字，再连同问题一起回答
+		const pick = el("input", { type: "file", accept: "image/*", hidden: true, onchange: () => { if (pick.files[0]) attach(pick.files[0]); pick.value = ""; } });
+		const picB = el("button", { type: "button", className: "mpic", title: "发图片（拍题、作答、笔记）", innerHTML: line('<rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="8.5" cy="10" r="1.6"/><path d="M21 15.5l-4.5-4.5L8 19.5"/>'), onclick: () => pick.click() }, pick);
+		const attBox = el("div", { className: "matt", hidden: true });
+		input.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/")); if (f) { e.preventDefault(); attach(f); } });
 		const chips = el("div", { className: "mchips" });
 		const tags = el("div", { className: "mtog" }, ...TAGS.map(([k, name, tip, icon]) => {
 			const b = el("button", { type: "button", className: "mtag" + (tg[k] ? " on" : ""), title: tip, innerHTML: icon + `<span>${name}</span>` });
@@ -172,7 +178,7 @@ const Max = (() => {
 		const island = el("section", { className: "island" },
 			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub, gear,
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
-			log, chips, tags, el("div", { className: "min" }, input, sendB), set);
+			log, chips, tags, attBox, el("div", { className: "min" }, picB, input, sendB), set);
 		sendB.onclick = () => (job ? stop() : send());
 		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
@@ -184,7 +190,7 @@ const Max = (() => {
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); const c = e.target.closest(".mgo[data-act=clean]"); if (c) cleanNow(c); });
 		document.body.append(island);
-		ui = { island, log, input, sendB, chips, gear };
+		ui = { island, log, input, sendB, chips, gear, attBox };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
@@ -301,7 +307,7 @@ const Max = (() => {
 		ui.island.classList.add("open");
 		ui.status();
 		ball?.classList.add("hide");
-		if (!ui.log.childElementCount) { hist.forEach((m) => bubble(m.role, m.content)); hello(); }
+		if (!ui.log.childElementCount) { hist.forEach((m) => bubble(m.role, m.shown ?? m.content)); hello(); }
 		quick();
 		requestAnimationFrame(scroll);
 		if (text) send(text, c || {});
@@ -357,13 +363,31 @@ const Max = (() => {
 		finally { if (!b.classList.contains("done")) b.disabled = false; }
 	}
 
-	async function send(text = ui.input.value.trim(), extra = {}) {
+	// 选好的图片：压缩后显示在输入框上方（可删）
+	async function attach(file) {
 		build();
-		if (!text) return;
+		if (!file.type.startsWith("image/")) return toast("只能发图片");
+		const f = await compress(file, 1280);
+		att = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f); });
+		showAtt();
+		ui.input.focus();
+	}
+	function showAtt() {
+		const b = ui.attBox;
+		b.hidden = !att;
+		b.replaceChildren(...(att ? [el("img", { src: att, alt: "" }), el("span", { textContent: "发送时 Max 会先看图" }), el("button", { type: "button", textContent: "×", title: "不发这张", onclick: () => { att = null; showAtt(); } })] : []));
+	}
+
+	async function send(text = ui.input.value.trim(), extra = {}, img = att) {
+		build();
+		if (!text && !img) return;
 		if (job) return void toast("Max 还在回答，等它说完或点 ■ 停止");
+		text = text || "看看这张图，帮我讲讲";
+		if (img && img === att) { att = null; showAtt(); }
 		ui.input.value = ""; ui.input.style.height = "";
-		hist.push({ role: "user", content: text });
+		hist.push({ role: "user", content: text, ...(img ? { shown: text + "［图片］" } : {}) });
 		const ub = bubble("user", text);
+		if (img) ub.prepend(el("img", { className: "mimg", src: img, alt: "", onclick: () => { const z = el("div", { className: "figzoom", onclick: () => z.remove() }, el("img", { src: img, alt: "" })); document.body.append(z); } })); // 点开看大图
 		const deep = tg.deep, web = tg.web; // 发出时的开关状态
 		const out = thinking(deep ? "深度思考中" : web ? "搜索并思考中" : "思考中");
 		let all = "", ok = false, eng = "", webN = null, timedOut = false, last = 0, tm = 0;
@@ -371,6 +395,15 @@ const Max = (() => {
 		const ctl = job, t = setTimeout(() => { timedOut = true; ctl.abort(); }, deep ? 150000 : TIMEOUT); // 一分钟没说完就停（深度思考给 2 分半），免得卡住
 		lock(true);
 		try {
+			if (img) { // 先看图：转写成文字放进这句话里（之后追问也带着）
+				out.lastChild.textContent = "看图中";
+				const s = await fetch("/api/max/see", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal, body: JSON.stringify({ image: img, q: text }) });
+				if (s.status === 401) return void (location.href = "/login");
+				const j = await s.json().catch(() => ({}));
+				if (!s.ok) throw new Error(j.error || "看图失败（" + s.status + "）");
+				hist[hist.length - 1].content = text + "\n【图片内容】" + j.text;
+				out.lastChild.textContent = deep ? "深度思考中" : web ? "搜索并思考中" : "思考中";
+			}
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
 				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one ? undefined : page() } }) });
@@ -411,7 +444,7 @@ const Max = (() => {
 			}
 			else { // 失败的问题不留在上下文里；重试时把这一问一答撤掉重来，不重复
 				hist.pop();
-				out.append(el("button", { type: "button", className: "mgo", textContent: "↻ 重试", onclick: () => { if (job) return; ub.remove(); out.remove(); send(text, extra); } }));
+				out.append(el("button", { type: "button", className: "mgo", textContent: "↻ 重试", onclick: () => { if (job) return; ub.remove(); out.remove(); send(text, extra, img); } }));
 			}
 			job = null;
 			lock(false);

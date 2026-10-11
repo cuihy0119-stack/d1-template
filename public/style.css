@@ -443,3 +443,20 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .opt:disabled{cursor:default}
 .opt.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 16%,var(--card))}.opt.ok .ol{background:var(--ok);color:#fff}
 .opt.bad{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,var(--card))}.opt.bad .ol{background:var(--bad);color:#fff}
+/* 题图（Claude 的画板）：题干下居中；白底圆角细边；宽度按内容和屏幕自适应，不超过半屏高；点一下全屏放大 */
+.qfig{display:flex;justify-content:center;margin:12px 0 14px;cursor:zoom-in}
+.qfig canvas,.qfig img{display:block;max-width:100%;height:auto;border-radius:14px;background:#fff;box-shadow:0 0 0 1px var(--line),0 4px 14px -10px rgba(80,50,20,.35)}
+.qfig.small{justify-content:flex-start;margin:8px 0}
+.qfig.side{margin:10px 0 0}
+.figzoom{position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;background:rgba(20,16,12,.72);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);animation:mbin .25s var(--ease) both;cursor:zoom-out}
+.figzoom canvas,.figzoom img{max-width:100%;max-height:82vh;height:auto;border-radius:16px;background:#fff}
+.figzoom p{margin:0;color:#fff;opacity:.7;font-size:13px}
+/* Max 发图片：输入框左边的图片按钮、待发图片预览、气泡里的缩略图 */
+.mpic{flex:none;width:40px;height:40px;border-radius:50%;border:1px solid var(--mg-edge);background:var(--mg-btn);color:var(--fg);display:grid;place-items:center;padding:0}
+.mpic svg{width:20px;height:20px}
+.matt{position:relative;display:flex;align-items:center;gap:10px;margin:4px 14px 0;padding:6px;border-radius:14px;background:var(--mg-btn)}
+.matt img{width:46px;height:46px;object-fit:cover;border-radius:10px;flex:none}
+.matt span{flex:1;font-size:12px;color:var(--mute)}
+.matt button{flex:none;width:28px;height:28px;border:0;border-radius:50%;background:var(--mg-field);color:var(--fg);font-size:16px;line-height:1}
+.mb .mimg{display:block;max-width:180px;max-height:180px;border-radius:12px;margin:2px 0 6px;cursor:zoom-in}
+.island.setting>.matt{visibility:hidden}

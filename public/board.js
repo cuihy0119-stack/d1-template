@@ -334,8 +334,9 @@ class Board {
 		c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
 		c.lineWidth = 1; c.strokeStyle = "#e3e6ec"; c.setLineDash([]);
 		c.beginPath();
-		if (!this.calc) for (let x = ox % CELL; x <= W; x += CELL) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); } // 计算板只画横线
-		for (let y = oy % CELL; y <= H; y += CELL) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
+		if (this.nogrid) {} // 题图（纯几何）不画方格
+		else if (!this.calc) for (let x = ox % CELL; x <= W; x += CELL) { c.moveTo(x + 0.5, 0); c.lineTo(x + 0.5, H); } // 计算板只画横线
+		if (!this.nogrid) for (let y = oy % CELL; y <= H; y += CELL) { c.moveTo(0, y + 0.5); c.lineTo(W, y + 0.5); }
 		c.stroke();
 		if (this.axes) this.paintAxes(c);
 		const style = this.sty();
@@ -370,7 +371,7 @@ class Board {
 		this.arrowLine(c, [0, oy + 0.5], [W - 2, oy + 0.5], false, true);
 		this.arrowLine(c, [ox + 0.5, H], [ox + 0.5, 2], false, true);
 		c.font = "11px sans-serif"; c.textAlign = "center"; c.textBaseline = "top";
-		for (let x = ox % CELL; x < W - 12; x += CELL) if (Math.abs(x - ox) > 1) c.fillText(num((x - ox) / CELL), x, oy + 3);
+		for (let x = ox % CELL; x < W - 12; x += CELL) if (Math.abs(x - ox) > 1 && x > 8) c.fillText(num((x - ox) / CELL), x, oy + 3);
 		c.textAlign = "right"; c.textBaseline = "middle";
 		for (let y = oy % CELL; y < H; y += CELL) if (Math.abs(y - oy) > 1 && y > 12) c.fillText(num((oy - y) / CELL), ox - 4, y);
 		c.font = "italic 14px serif";
@@ -429,7 +430,7 @@ class Board {
 			case "open": path(o.pts); break;
 			case "poly": path(o.pts, true); break;
 			case "line": case "ray": { const s = this.clip(P(o.a), P(o.b), o.t === "ray"); if (s) this.arrowLine(c, s[0], s[1], o.t === "line", true); break; }
-			case "circle": { const q = P(o.a); c.beginPath(); c.arc(q[0], q[1], dist(o.a, o.b) * CELL, 0, 7); c.stroke(); this.dot(c, q, 2); break; }
+			case "circle": { const q = P(o.a); c.beginPath(); c.arc(q[0], q[1], dist(o.a, o.b) * CELL, 0, 7); c.stroke(); if (!o.nodot) this.dot(c, q, 2); break; }
 			case "pen": case "curve": {
 				const q = o.pts.map(P);
 				c.beginPath(); c.moveTo(...q[0]);
@@ -439,7 +440,25 @@ class Board {
 				}
 				c.stroke(); break;
 			}
-			case "pt": { const q = P(o.p); this.dot(c, q, 3.5); label(q, (o.name || "") + xy(o.p), o.name ? "italic 15px serif" : "13px sans-serif"); break; }
+			case "pt": {
+				const q = P(o.p), s = (o.name || "") + (o.noxy ? "" : xy(o.p));
+				this.dot(c, q, 3.5);
+				if (!o.lp) { label(q, s, o.name ? "italic 15px serif" : "13px sans-serif"); break; }
+				// 题图：标签放在点背离图形中心的一侧，不压线
+				const [dx, dy] = o.lp, x = q[0] + dx * 10, y = q[1] - dy * 10;
+				c.font = o.name ? "italic 16px serif" : "13px sans-serif";
+				c.textAlign = dx > 0.35 ? "left" : dx < -0.35 ? "right" : "center"; c.textBaseline = dy > 0.35 ? "bottom" : dy < -0.35 ? "top" : "middle";
+				c.save(); c.strokeStyle = "#fff"; c.lineWidth = 4; c.setLineDash([]); c.strokeText(s, x, y); c.restore();
+				c.fillText(s, x, y); break;
+			}
+			case "angle": { // 角弧：顶点 at，从 at→a 转到 at→b（取小于 180° 的那边），标注写在角平分线上
+				const q = P(o.at), A = P(o.a), B = P(o.b), r = o.r ? o.r * CELL : 16;
+				let a1 = Math.atan2(A[1] - q[1], A[0] - q[0]), a2 = Math.atan2(B[1] - q[1], B[0] - q[0]), d = a2 - a1;
+				while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+				c.setLineDash([]); c.lineWidth = 1.4; c.beginPath(); c.arc(q[0], q[1], r, a1, a1 + d, d < 0); c.stroke();
+				if (o.s) { const m = a1 + d / 2; c.font = "italic 14px serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(o.s, q[0] + Math.cos(m) * (r + 11), q[1] + Math.sin(m) * (r + 11)); }
+				break;
+			}
 			case "text": { const q = P(o.p); if (this.calc) { richText(c, o.s, q[0], q[1]); break; } c.font = "17px 'LXGW WenKai Screen', serif"; c.textAlign = "left"; c.textBaseline = "middle"; c.fillText(o.s, ...q); break; }
 			case "ra": { const k = 0.45, a = o.at; path([[a[0] + o.u[0] * k, a[1] + o.u[1] * k], [a[0] + (o.u[0] + o.v[0]) * k, a[1] + (o.u[1] + o.v[1]) * k], [a[0] + o.v[0] * k, a[1] + o.v[1] * k]]); break; }
 			case "fn": {
@@ -454,7 +473,8 @@ class Board {
 					if (y > 16 && y < this.H - 6) end = [x, y];
 				}
 				c.stroke();
-				if (end) { c.font = "13px serif"; c.textAlign = "right"; c.textBaseline = "bottom"; c.fillText(o.expr, Math.min(end[0], this.W - 4), end[1] - 4); }
+				const lab = o.label ?? o.expr; // 题图的函数只在给了名字时标注
+				if (end && lab) { c.font = "13px serif"; c.textAlign = "right"; c.textBaseline = "bottom"; c.fillText(lab, Math.min(end[0], this.W - 4), end[1] - 4); }
 			}
 		}
 		c.setLineDash([]);

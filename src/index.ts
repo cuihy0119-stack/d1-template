@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classify, cleanBank, gen, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classify, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 import { live } from "./live";
 import { findNote } from "./notion";
 
@@ -30,6 +30,7 @@ type Q = {
 	answer: string;
 	explanation: string | null;
 	source: string;
+	fig?: string | null;
 };
 
 const COOKIE = "session";
@@ -92,6 +93,7 @@ const clientQ = (q: Q) => ({
 	stem: label(q) + q.stem,
 	options: parse<string[]>(q.options, []),
 	...pick({ ...q, opts: !!q.options }), // tag、board：旧题按题干补判
+	fig: parse<any>(q.fig ?? null, null), // 题图（Claude 的画板），网页画出来
 	created_at: q.created_at,
 });
 const inList = (ids: number[]) => ids.map(() => "?").join(",");
@@ -309,7 +311,7 @@ app.get("/api/attempts", async (c) => {
 	if (!ids.length) return c.json([]);
 	const { results } = await c.env.DB
 		.prepare(
-			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, a.max_score, a.max_comment, a.max_sure, q.tag, q.board,
+			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, a.max_score, a.max_comment, a.max_sure, q.tag, q.board, q.fig,
 			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
@@ -326,6 +328,7 @@ app.get("/api/attempts", async (c) => {
 			stem: label(r as Q) + r.stem,
 			options: parse<string[]>(r.options, []),
 			answer: parse<string[]>(r.answer, []),
+			fig: parse<any>(r.fig ?? null, null),
 			photos: r.photo_key ? String(r.photo_key).split(",") : [],
 			photo_key: undefined,
 		})),
@@ -411,6 +414,14 @@ app.post("/api/max/classify", async (c) => { // 手动：让 Max 整理分类（
 app.get("/api/notion", async (c) => {
 	try { return c.json(await findNote(c.env, String(c.req.query("subject") ?? ""), String(c.req.query("topic") ?? ""))); }
 	catch (e) { return c.json({ note: null, error: (e as Error).message }); }
+});
+// Max 看图：学生发的照片先转写成文字（前端再把文字连同问题发给 /api/max/chat）
+app.post("/api/max/see", async (c) => {
+	const b = await c.req.json<{ image?: string; q?: string }>().catch(() => ({}) as { image?: string; q?: string });
+	const img = String(b.image ?? "");
+	if (!/^data:image\/(jpeg|png|webp|gif);base64,/.test(img) || img.length > 3_000_000) return c.json({ error: "图片格式不对或太大" }, 400);
+	try { return c.json({ text: await see(c.env, img, String(b.q ?? "").slice(0, 300), () => chatQuota(c.env.DB)) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "看图失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
 });
 // 现场出题（题库没有同类题时）：临时题不进题库，答案一起发给网页当场判
 app.post("/api/max/gen", async (c) => {
