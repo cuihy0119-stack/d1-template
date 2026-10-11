@@ -33,8 +33,11 @@ const Max = (() => {
 		const s = safe(), w = size(), top = s.t + 60, bot = innerHeight - s.b - bottomGap() - w;
 		return { x: p.side === "l" ? s.l + M : innerWidth - s.r - M - w, y: Math.round(Math.min(Math.max(p.y * innerHeight, top), Math.max(top, bot))) };
 	}
-	const place = (x, y) => { ball.style.transform = `translate3d(${x}px,${y}px,0)`; };
+	// 球的当前坐标记在 cur 里（不去量 getBoundingClientRect：按下时球会缩放，量出来会偏几像素）
+	const cur = { x: 0, y: 0 };
+	const place = (x, y) => { cur.x = x; cur.y = y; ball.style.transform = `translate3d(${x}px,${y}px,0)`; };
 	const snap = () => { const p = xy(); place(p.x, p.y); };
+	const box = () => { const w = ball ? size() : 50, p = ball ? xy() : { x: innerWidth - 60, y: innerHeight * 0.6 }; return { left: p.x, top: p.y, right: p.x + w, bottom: p.y + w, width: w, height: w }; }; // 球「落定」的位置
 	// 闲置变淡：碰一下就亮，3 秒不碰淡下去
 	function wake() {
 		if (!ball) return;
@@ -44,44 +47,66 @@ const Max = (() => {
 	}
 
 	// ---------- 悬浮球 ----------
+	// 拖动：按住时记下手指和球左上角的距离，之后球始终跟着手指走（每帧最多挪一次）；
+	// 松手按位置和甩动速度贴到左/右边，竖直方向顺着速度多滑一点；贴边用轻弹的动画
 	function makeBall() {
 		ball = el("button", { type: "button", className: "maxball", title: "Max 助手（可拖动）" }, logo());
 		ball.style.visibility = "hidden";
 		document.body.append(ball);
 		snap();
 		requestAnimationFrame(() => { ball.style.visibility = ""; });
-		let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, down = false;
+		let down = false, moved = false, offX = 0, offY = 0, sx = 0, sy = 0, raf = 0, nx = 0, ny = 0, vx = 0, vy = 0, lt = 0, lx = 0, ly = 0;
+		const frame = () => { raf = 0; place(nx, ny); };
 		ball.addEventListener("pointerdown", (e) => {
+			if (e.button > 0) return;
 			down = true; moved = false; wake();
-			sx = e.clientX; sy = e.clientY;
-			const r = ball.getBoundingClientRect(); ox = r.left; oy = r.top;
+			sx = lx = e.clientX; sy = ly = e.clientY; lt = e.timeStamp; vx = vy = 0;
+			offX = e.clientX - cur.x; offY = e.clientY - cur.y; // 手指在球里的位置（用记下的坐标，不受缩放影响）
+			ball.classList.add("press");
 			try { ball.setPointerCapture(e.pointerId); } catch {}
 		});
 		ball.addEventListener("pointermove", (e) => {
 			if (!down) return;
-			const dx = e.clientX - sx, dy = e.clientY - sy;
-			if (!moved && Math.hypot(dx, dy) > 6) { moved = true; ball.classList.add("drag"); hidePeek(); }
-			if (moved) place(Math.min(Math.max(ox + dx, 0), innerWidth - size()), Math.min(Math.max(oy + dy, 0), innerHeight - size()));
+			if (!moved && Math.hypot(e.clientX - sx, e.clientY - sy) > 6) { moved = true; ball.classList.add("drag"); hidePeek(); }
+			if (!moved) return;
+			const dt = Math.max(1, e.timeStamp - lt); // 甩动速度（px/ms，平滑一下）
+			vx = vx * 0.6 + ((e.clientX - lx) / dt) * 0.4; vy = vy * 0.6 + ((e.clientY - ly) / dt) * 0.4;
+			lx = e.clientX; ly = e.clientY; lt = e.timeStamp;
+			const w = size();
+			nx = Math.min(Math.max(e.clientX - offX, 0), innerWidth - w);
+			ny = Math.min(Math.max(e.clientY - offY, 0), innerHeight - w);
+			if (!raf) raf = requestAnimationFrame(frame);
 		});
 		const end = (tap) => {
 			if (!down) return;
 			down = false;
-			if (moved) { // 松手：贴到最近的一边，弹一下落位
-				const r = ball.getBoundingClientRect();
-				pos = { side: r.left + r.width / 2 < innerWidth / 2 ? "l" : "r", y: r.top / innerHeight };
-				ball.classList.remove("drag");
-				requestAnimationFrame(snap);
+			ball.classList.remove("press");
+			if (moved) {
+				cancelAnimationFrame(raf); raf = 0;
+				if (nx || ny) place(nx, ny);
+				const w = size(), cx = cur.x + w / 2;
+				const side = Math.abs(vx) > 0.6 ? (vx < 0 ? "l" : "r") : cx < innerWidth / 2 ? "l" : "r"; // 快速一甩：往甩的方向贴
+				const y = cur.y + Math.max(-160, Math.min(160, vy * 120)); // 顺着速度多滑一点
+				pos = { side, y: Math.min(1, Math.max(0, y / innerHeight)) };
 				ls(POS, JSON.stringify(pos));
+				ball.classList.remove("drag");
+				ball.classList.add("land");
+				requestAnimationFrame(snap);
+				setTimeout(() => ball.classList.remove("land"), 500);
 			} else if (tap) open();
 			wake();
 		};
 		ball.addEventListener("pointerup", () => end(true));
-		ball.addEventListener("pointercancel", () => end(false));
+		ball.addEventListener("pointercancel", () => end(false)); // 系统手势打断：照样落位
+		ball.addEventListener("lostpointercapture", () => end(false));
 		ball.addEventListener("pointerenter", wake);
 		ball.addEventListener("touchmove", (e) => e.cancelable && e.preventDefault(), { passive: false }); // iOS：拖球时页面别跟着滚
+		ball.addEventListener("contextmenu", (e) => e.preventDefault()); // 长按不弹菜单
 		ball.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }); // 外接键盘也能打开
 		let rt = 0;
-		addEventListener("resize", () => { cancelAnimationFrame(rt); rt = requestAnimationFrame(() => { snap(); if (ui?.island.classList.contains("open")) layout(); }); }, { passive: true });
+		const refit = () => { cancelAnimationFrame(rt); rt = requestAnimationFrame(() => { if (!down) snap(); if (ui?.island.classList.contains("open")) layout(); }); };
+		addEventListener("resize", refit, { passive: true });
+		addEventListener("orientationchange", refit, { passive: true });
 		wake();
 		if (pendingTip) tip(pendingTip);
 	}
@@ -98,7 +123,7 @@ const Max = (() => {
 		if (ui?.island.classList.contains("open")) return;
 		if (!peek) { peek = el("div", { className: "mpeek" }, logo(), el("span")); peek.onclick = () => open(); document.body.append(peek); }
 		peek.lastChild.textContent = text;
-		const b = ball.getBoundingClientRect(), w = Math.min(peek.offsetWidth || 240, innerWidth - 2 * M - b.width - 8);
+		const b = box(), w = Math.min(peek.offsetWidth || 240, innerWidth - 2 * M - b.width - 8);
 		const x = pos.side === "l" ? b.right + 8 : b.left - 8 - w, y = b.top + (b.height - (peek.offsetHeight || 36)) / 2;
 		peek.style.transform = `translate3d(${Math.max(M, x)}px,${y}px,0)`;
 		peek.classList.add("on");
@@ -148,7 +173,7 @@ const Max = (() => {
 		const kb = vv && vv.height < innerHeight - 80; // 键盘弹出
 		const W = Math.min(innerWidth - 2 * M - s.l - s.r, innerWidth >= 744 ? 420 : 400);
 		const H = Math.max(240, Math.min(kb ? vh - 16 : vh * 0.72, kb ? 9999 : 620));
-		const b = ball ? ball.getBoundingClientRect() : { left: innerWidth - 60, right: innerWidth - M, top: innerHeight * 0.6, bottom: innerHeight * 0.6 + 50, width: 50, height: 50 };
+		const b = box(); // 用球落定的位置（球还在弹的时候点开也不会偏）
 		let x = pos.side === "l" ? b.left : b.right - W;
 		x = Math.min(Math.max(x, s.l + M), innerWidth - s.r - M - W);
 		let y = kb ? vt + 8 : b.top + b.height / 2 > innerHeight / 2 ? b.bottom - H : b.top;
