@@ -46,9 +46,11 @@ function render() {
 		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
 	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {
-		const b = e.currentTarget; b.disabled = true; b.textContent = "Max 整理中…";
-		try { const r = await api("/api/max/classify", { method: "POST" }); toast(r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"); load(); }
-		catch (err) { toast(err.message); b.disabled = false; b.textContent = "🗂 让 Max 整理分类"; }
+		const b = e.currentTarget, old = b.textContent, ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 150000);
+		b.disabled = true; b.textContent = "Max 整理中…";
+		try { const r = await api("/api/max/classify", { method: "POST", signal: ctl.signal }); toast(r.done ? `整理好 ${r.done} 个考点` : "分类已经很整齐了"); load(); }
+		catch (err) { toast(ctl.signal.aborted ? "Max 整理太久了，稍后再点一次" : err.message); }
+		finally { clearTimeout(t); b.disabled = false; b.textContent = old; } // 不论成败都恢复，没改动时也不会卡住
 	} }));
 	if (todo.length) {
 		const href = MODE === "bank" && subject && !cat ? "/quiz?subject=" + encodeURIComponent(subject) : quizHref(todo.map((q) => q.id).slice(0, 50));
@@ -121,8 +123,11 @@ async function loadSum() {
 	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
 		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
 	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `🗂 让 Max 整理（${s.todo} 道没整理）` : "🗂 Max 已整理完", disabled: !s.todo, onclick: async () => {
+		const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 150000);
 		org.disabled = true; org.textContent = "整理中…";
-		try { await api("/api/max/organize", { method: "POST" }); load(); } catch (e) { toast(e.message); org.disabled = false; org.textContent = "🗂 让 Max 整理"; }
+		try { await api("/api/max/organize", { method: "POST", signal: ctl.signal }); load(); }
+		catch (e) { toast(ctl.signal.aborted ? "Max 整理太久了，稍后再点一次" : e.message); }
+		finally { clearTimeout(t); org.disabled = false; org.textContent = "🗂 让 Max 整理"; }
 	} });
 	$("#maxsum").replaceChildren(el("div", { className: "card maxcard" },
 		el("h2", { textContent: `错因分析（${s.total} 道错题）` }),

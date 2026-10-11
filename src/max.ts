@@ -629,22 +629,21 @@ const topicRows = (db: D1Database, subject: string) =>
 export async function classify(env: Env, force = false): Promise<number> {
 	const db = env.DB;
 	const { results: subs } = await db.prepare("SELECT DISTINCT subject FROM questions WHERE topic IS NOT NULL").all<{ subject: string }>();
-	let n = 0;
-	for (const { subject } of subs) {
+	const one = async (subject: string): Promise<number> => { // 一科一次调用，各科之间并行
 		const { results: rows } = await topicRows(db, subject);
 		const sig = JSON.stringify(rows.map((r) => [r.topic, r.cat]));
-		if (!force && (await db.prepare("SELECT v FROM meta WHERE k = ?").bind("cls:" + subject).first<{ v: string }>())?.v === sig) continue; // 没新考点：不花额度
+		if (!force && (await db.prepare("SELECT v FROM meta WHERE k = ?").bind("cls:" + subject).first<{ v: string }>())?.v === sig) return 0; // 没新考点：不花额度
 		const out = json<{ from: string; topic?: string; cat?: string }[]>(await ask(env, [{ role: "system", content: CLASSIFY_SYS },
 			{ role: "user", content: `${subject}（考点｜现章节｜题数）：\n${rows.map((r) => `${r.topic}｜${r.cat || "?"}｜${r.c}`).join("\n")}` }], { max: 40 * rows.length + 80, ok: isArr }));
-		if (!Array.isArray(out)) continue;
+		if (!Array.isArray(out)) return 0;
 		const known = new Set(rows.map((r) => r.topic));
 		const stmts = out.filter((x) => known.has(x.from) && (x.topic || x.cat)).map((x) =>
 			db.prepare("UPDATE questions SET topic = COALESCE(?, topic), category = COALESCE(?, category) WHERE subject = ? AND topic = ?")
 				.bind(x.topic && x.topic.length <= 12 ? x.topic : null, x.cat && x.cat.length <= 12 ? x.cat : null, subject, x.from));
 		for (let i = 0; i < stmts.length; i += 40) await db.batch(stmts.slice(i, i + 40));
-		n += stmts.length;
 		const { results: after } = await topicRows(db, subject);
 		await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)").bind("cls:" + subject, JSON.stringify(after.map((r) => [r.topic, r.cat]))).run();
-	}
-	return n;
+		return stmts.length;
+	};
+	return (await Promise.all(subs.map((x) => one(x.subject)))).reduce((n, k) => n + k, 0);
 }
