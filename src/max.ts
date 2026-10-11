@@ -353,10 +353,12 @@ async function bankIndexRaw(db: D1Database) {
 		`SELECT q.subject s, COALESCE(q.topic, q.category, '未分类') t, COUNT(*) n,
 		        SUM(EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)) w,
 		        SUM(q.id IN (SELECT question_id FROM review_queue WHERE next_date <= date('now', '+8 hours'))) d
-		 FROM questions q WHERE q.status = 'active' GROUP BY 1, 2 ORDER BY 1, w DESC LIMIT 60`).all<{ s: string; t: string; n: number; w: number; d: number }>();
+		 FROM questions q WHERE q.status = 'active' GROUP BY 1, 2 ORDER BY 1, w DESC LIMIT 40`).all<{ s: string; t: string; n: number; w: number; d: number }>();
 	return results.length ? "题库（科目/考点：题数，错过，今天到期）：\n" + results.map((r) => `${r.s}/${r.t}：${r.n}题${r.w ? "，错" + r.w : ""}${r.d ? "，到期" + r.d : ""}`).join("\n") : "题库还是空的";
 }
 
+const PAGEQ = /页|这|总结|分析|看看|上面|屏幕|错题|列表|哪/; // 问题跟当前页面有关才带页面内容
+const digest = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
 // 难题信号：学生说没懂/要详细/问为什么，聊得很长，或要讲数理化的解答题 → 直接让 DeepSeek 答
 const HARD = /难|不懂|没懂|看不懂|不明白|详细|为什么|证明|推导|再讲|换个讲法|一步步|怎么来的/;
 export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () => Promise<boolean>): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array>; engine?: string }> {
@@ -367,16 +369,21 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		const hit = await cacheGet(db, c.key, 24 * 14);
 		if (hit) return { cached: hit };
 	}
-	const hist = messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 800) }) as Msg);
-	const page = !oneShot && ctx.page?.text ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1500)}` : "";
-	const sys = [CHAT_SYS, c.text || bank || (await bankIndex(db)), page].filter(Boolean).join("\n\n"); // 讲具体题时不带题库概况，省额度
+	// 省额度：历史里 Max 的旧回答只留开头；页面内容只在问到「这页/总结/分析…」时才带；带了页面就不再带题库概况
+	const hist = messages.slice(-6).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
+	const q = messages[messages.length - 1]?.content ?? "";
+	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
+	const sys = [CHAT_SYS, c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
+	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
+	const qkey = !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
+	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
 	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
 	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来"); // 只有真要问模型才算一次（缓存命中不算）
 	let engine = "";
 	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : hard ? 800 : 600, route: hard ? "hard" : "work",
-		done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : undefined, engine: (n) => (engine = n) });
+		done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream, engine };
 }
 
@@ -455,7 +462,8 @@ export async function maxDaily(env: Env) { // 北京时间凌晨 3 点：Max 把
 	try { for (let i = 0; i < 4 && (await organize(env, 10)); i++); } catch {}
 	try { await folderSummary(env); } catch {}
 	try { await wrongSummary(env, true); } catch {}
-	try { await brief(env, true); } catch {}
+	// 最近 3 天做过题才提前想好今天的建议；没在用就不花额度（打开首页时再想）
+	try { if ((await env.DB.prepare("SELECT COUNT(*) n FROM attempts WHERE created_at > datetime('now', '-3 days')").first<{ n: number }>())?.n) await brief(env, true); } catch {}
 	try { await classify(env); } catch {} // 有新考点才整理
 }
 
@@ -465,7 +473,7 @@ export async function pregrade(env: Env, ids: number[]) {
 	for (const id of ids) {
 		const a = await env.DB.prepare(`SELECT a.answer_text, q.subject, q.stem, q.answer, q.explanation FROM attempts a JOIN questions q ON q.id = a.question_id
 			WHERE a.id = ? AND a.status = '待批改' AND a.grader IS NULL`).bind(id).first<any>();
-		if (!a || !String(a.answer_text ?? "").trim()) continue; // 没有文字（纯照片/手写）：只能 Claude 看图
+		if (!a || !/\[(作图|电路|计算)\]/.test(String(a.answer_text ?? ""))) continue; // 没有画板文字描述（纯照片/手写）：Max 看不了图，不白花额度
 		try {
 			const r = json<{ score: number; comment?: string; sure?: number }>(await ask(env, [{ role: "system", content: GRADE_SYS + "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好）。" },
 				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, ok: (t) => typeof json<any>(t)?.score === "number" }));
