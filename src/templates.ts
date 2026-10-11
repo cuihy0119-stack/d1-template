@@ -7,6 +7,7 @@ export const TEMPLATES = `save({def:{subject,topic}, questions:[…]})。公式 
 简答/实验/翻译 {stem,tag:"简答",ans:["参考"],exp:"得分点"}；默写用 填空
 照片原错题放 wrong 带 upload:照片id；同类题 questions 带 origin:原题id；复习旧题 save({review:[id]})。
 topic/exp/等价答案可省，Max 会补；返回有 ⚠ 才核对。推错了撤回：save({retract:["数学3"]}) 或 retract:["last"]（上一批整批）。
+排期：每题可带 due:"YYYY-MM-DD"（哪天开始做，省略=今天）；已推的题 save({plan:[{q:["物理3","物理4"],d:"2026-10-14"}]})，q 可写 "last"（刚推的一批），d 写今天=今天做。网站只把到期的题放进今日练习和 Max 的推荐，其余在题库里等着；题库清单的 d 列是排期。
 题图 fig（题目需要图时给，网站自动裁边居中画出）：{axes?:坐标系,grid?:方格,x?:[a,b],y?:[a,b],items:[…]}，单位=格，y 向上。
  点先在 P 里定义（省字）：P:{A:[0,3],B:[0,0]}，之后用名字；要标坐标用 {t:"pt",p:[1,2],n:"P",xy:1}。{t:"seg"|"line"|"ray",a:"A",b:"B",d?:虚线,c?:"red"|"blue"}；{t:"poly",pts:"ABC"}；
  {t:"circle",o:"O",r:2}；{t:"fn",expr:"y=x^2-2x"}；{t:"text",p:[1,2],s:"60°"}；{t:"right",at:"C",a:"A",b:"B"} 直角；{t:"angle",at:"B",a:"A",b:"C",s:"α"} 角弧；

@@ -10,9 +10,14 @@ const redone = (q: string) =>
 	`EXISTS (SELECT 1 FROM attempts ar WHERE ar.question_id = ${q}.id AND ar.id > CASE WHEN ${q}.source = '原错题' THEN 0
 		ELSE COALESCE((SELECT MIN(a1.id) FROM attempts a1 WHERE a1.question_id = ${q}.id AND a1.is_correct = 0), 9e18) END)`;
 
+/** 计时起点：推送时间；排到以后做的题（due = 北京日期）从那天 0 点开始算 */
+const since = (q: string) => `MAX(${q}.created_at, COALESCE(datetime(${q}.due, '-8 hours'), ${q}.created_at))`;
+/** 排期：已经到了开始做的日子（没排期 = 马上）。today 是北京日期 YYYY-MM-DD 的占位符 ? */
+export const ready = (q = "q") => `(${q}.due IS NULL OR ${q}.due <= ?)`;
+
 /** 题还在显示期内（SQL 条件，q 是 questions 的别名） */
 export const live = (q = "q") =>
-	`(${q}.created_at > datetime('now', '-1 day') OR (${q}.created_at > datetime('now', '-2 days') AND ${wrongSql(q)} AND NOT ${redone(q)}))`;
+	`(${since(q)} > datetime('now', '-1 day') OR (${since(q)} > datetime('now', '-2 days') AND ${wrongSql(q)} AND NOT ${redone(q)}))`;
 
 /** 文件夹里的题不受限，其余要在显示期内 */
 export const alive = (q = "q") => `(${q}.status <> 'active' OR ${live(q)})`;

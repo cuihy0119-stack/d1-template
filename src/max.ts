@@ -6,9 +6,10 @@
 import { today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { wrongLine } from "./cause";
-import { alive, live } from "./live";
+import { alive, live, ready } from "./live";
 import { webSearch } from "./search";
 import { figText } from "./fig";
+import { enqueueNow } from "./jobs";
 
 const CF = ["@cf/qwen/qwen3.8-27b", "@cf/zai-org/glm-4.7-flash"]; // 总管 + 总管忙时的替补
 const DAILY = 9800, SOFT = 8500; // Cloudflare 估算神经元：超过 SOFT 只留批改，超过 DAILY 不再用
@@ -42,17 +43,6 @@ const clean = (t: string) => t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
-/** 交给后台算（网页、Claude 都不等模型）：同一件事同时只算一份，3 分钟内的重复请求直接跳过 */
-export function bgRun(env: Env, ctx: ExecutionContext, key: string, job: () => Promise<unknown>): true {
-	ctx.waitUntil((async () => {
-		const db = env.DB, k = "lock:" + key;
-		const lk = await db.prepare("SELECT v FROM meta WHERE k = ?").bind(k).first<{ v: string }>();
-		if (lk && Date.now() - Number(lk.v) < 180000) return;
-		await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)").bind(k, String(Date.now())).run();
-		try { await job(); } catch {} finally { await db.prepare("DELETE FROM meta WHERE k = ?").bind(k).run(); }
-	})());
-	return true;
-}
 const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
 
 async function providers(env: Env, route: Route, must = false, only?: string, deep = false): Promise<Prov[]> {
@@ -311,7 +301,7 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem, r.stage FROM questions q JOIN review_queue r ON r.question_id = q.id
 			WHERE r.next_date <= ? AND q.status = 'active' AND ${live()} ORDER BY r.next_date LIMIT 20`).bind(d).all<any>(),
 		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
-			WHERE q.status = 'active' AND ${live()} AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id DESC LIMIT 20`).all<any>(),
+			WHERE q.status = 'active' AND ${live()} AND ${ready()} AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id DESC LIMIT 20`).bind(d).all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
 	]);
 	const weak = stats.results.slice(0, 5);
@@ -331,7 +321,7 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 	if (old && (!force || hit!.recent)) return { ...base, ...old.r, order: fill(old.r.order), cached: true };
 	if (!force && (await cacheGet(db, "brfail", 0.5))) return { ...base, say: "Max 暂时不在，先按复习顺序做", order: fill([]), weakTip: "", sprint: "" }; // 刚失败过：半小时内不重试，免得每次刷新都花额度
 	if (!cands.length && !weak.length) return { ...base, say: "题库还空着，拍照上传错题或让 Claude 出题吧", order: [], weakTip: "", sprint: "" };
-	if (ctx) return { ...base, ...(old?.r ?? {}), order: fill(old?.r?.order ?? []), say: old?.r?.say || "Max 正在想今天的建议…", thinking: bgRun(env, ctx, "brief", () => brief(env, force)) }; // 后台想，这次先给旧的或占位
+	if (ctx) { await enqueueNow(env, ctx, "brief"); return { ...base, ...(old?.r ?? {}), order: fill(old?.r?.order ?? []), say: old?.r?.say || "Max 正在想今天的建议…", thinking: true }; } // 排进后台任务（见 jobs.ts），这次先给旧的或占位
 	try {
 		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
 			`近30天错得多的考点：${weak.map((w) => `${w.subject}/${w.topic} 错${w.wrong}/${w.n}`).join("；") || "无"}`,
@@ -613,7 +603,7 @@ export async function wrongSummary(env: Env, force = false, ctx?: ExecutionConte
 	const sig = JSON.stringify(Object.keys(max).sort().map((k) => [k, max[k]])); // 排好序，顺序不同不算变
 	let summary = saved?.text ?? null, thinking = false;
 	const want = (!saved || (force && saved.sig !== sig)) && rs.length >= 3 && (force || !(await cacheGet(db, "wsfail", 0.5)));
-	if (want && ctx) thinking = bgRun(env, ctx, "wsum", () => wrongSummary(env, force)); // 后台重写，这次先给旧的
+	if (want && ctx) { await enqueueNow(env, ctx, "wsum"); thinking = true; } // 后台重写（见 jobs.ts），这次先给旧的
 	else if (want) {
 		try {
 			const notes = rs.filter((r) => r.max_note).slice(0, 15).map((r) => `${r.subject}/${r.topic || "?"}：${r.max_note}`).join("\n");
@@ -680,16 +670,18 @@ export async function classifyState(db: D1Database): Promise<ClsState> {
 	catch { return { status: "idle" }; }
 }
 export async function startClassify(env: Env, ctx: ExecutionContext): Promise<ClsState> {
-	const db = env.DB, cur = await classifyState(db);
-	if (cur.status === "running" && Date.now() - (cur.at ?? 0) < 300000) return cur; // 已经在整理：不重复开
-	const put = (v: ClsState) => db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('cls_state', ?)").bind(JSON.stringify(v)).run();
+	const cur = await classifyState(env.DB);
+	if (cur.status === "running" && Date.now() - (cur.at ?? 0) < 600000) return cur; // 已经在整理：不重复开
 	const run = { status: "running", at: Date.now() } as ClsState;
-	await put(run);
-	ctx.waitUntil((async () => {
-		try { const n = await classify(env); await put({ status: "done", n, at: Date.now() }); } // 不 force：只整理有新考点的科目，没变化的不花额度
-		catch (e) { await put({ status: "error", msg: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message, at: Date.now() }); }
-	})());
+	await env.DB.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('cls_state', ?)").bind(JSON.stringify(run)).run();
+	await enqueueNow(env, ctx, "classify");
 	return run;
+}
+/** 任务队列里的整理分类：做完把结果写进 cls_state，网页轮询就能看到 */
+export async function classifyJob(env: Env): Promise<void> {
+	const put = (v: ClsState) => env.DB.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('cls_state', ?)").bind(JSON.stringify(v)).run();
+	try { await put({ status: "done", n: await classify(env), at: Date.now() }); } // 不 force：只整理有新考点的科目，没变化的不花额度
+	catch (e) { await put({ status: "error", msg: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message, at: Date.now() }); }
 }
 
 export async function classify(env: Env, force = false): Promise<number> {

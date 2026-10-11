@@ -7,7 +7,8 @@ import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
-import { bgRun, refine } from "./max";
+import { enqueueNow } from "./jobs";
+import { refine } from "./max";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -31,8 +32,12 @@ const Q = z.object({
 	exp: z.string().optional().describe("解析"),
 	tag: z.string().optional().describe("必填，见模板"),
 	fig: z.any().optional().describe("题图（画板 JSON 或 SVG），见模板"),
+	due: z.string().optional().describe("哪天开始做 YYYY-MM-DD，省略=今天"),
 }).loose(); // 旧缓存工具可能还传 type/board，留着给 pick() 参考
 type QIn = z.infer<typeof Q> & { origin?: number; type?: string; board?: string };
+
+// 排期日期：今天或更早 = 马上做（存空），以后的日子才存
+const dueOf = (s?: string | null): string | null => { const t = String(s ?? "").trim(); return /^\d{4}-\d{2}-\d{2}$/.test(t) && t > today() ? t : null; };
 
 type Img = { type: "image"; data: string; mimeType: string };
 type Content = { type: "text"; text: string } | Img;
@@ -60,7 +65,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 		subject, category: q.category ?? def.category ?? null, topic: q.topic ?? def.topic ?? null, type, stem: q.stem,
 		options: q.opts?.length ? JSON.stringify(q.opts) : null, answer: JSON.stringify(q.ans), explanation: q.exp ?? null, source,
 		origin_id: q.origin ?? null, board: board === "coord" || board === "grid" ? board : null, tag, // 画板读题时由 tag 推出
-		fig: normFig(q.fig),
+		fig: normFig(q.fig), due: dueOf(q.due),
 	};
 	const r = await db.prepare(`INSERT INTO questions (${Object.keys(row)}, no) VALUES (${Object.keys(row).map(() => "?")}, (SELECT COALESCE(MAX(no), 0) + 1 FROM questions WHERE subject = ?)) RETURNING id, no`)
 		.bind(...Object.values(row), subject).first<{ id: number; no: number }>();
@@ -145,7 +150,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 	s.registerTool(
 		"save",
 		{
-			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结；notes 考点→Notion 笔记对照表；retract 撤回已推送的题。",
+			description: "一次写入（各项都可省）：grades 批改（score 百分制，≥80 算对）；wrong 照片里的原错题（明天起复习）；questions 推送新题到今日练习；organize 改分类/标签；summary 首页总结；notes 考点→Notion 笔记对照表；retract 撤回已推送的题；plan 排期（哪些题今天做、哪些以后做）。",
 			inputSchema: {
 				def: z.object({ subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() }).optional().describe("本批题共用的科目/章节/考点"),
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
@@ -159,11 +164,12 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				review: z.array(z.number().int()).optional().describe("旧题 id：放回今日练习复习"),
 				exams: z.array(z.object({ name: z.string(), date: z.string().describe("YYYY-MM-DD") })).optional().describe("临近考试（整表替换），首页显示倒计时"),
 				summary: z.string().optional(),
+				plan: z.array(z.object({ q: z.array(z.string()).max(60).describe('题号，如 物理3；"last"=刚推的这一批'), d: z.string().describe('哪天做 YYYY-MM-DD；today 或更早=今天做') })).max(20).optional().describe('排期：网站只把到期的题放进今日练习，其余在题库里等着'),
 				retract: z.array(z.string()).max(30).optional().describe('撤回已推送的题：题号（如 数学3）或 "last"（撤回上一次推送的整批）。有待批改作答的题不撤'),
 				notes: z.array(z.object({ s: z.array(z.string()).describe("科目（可带别名，如 道法、道德与法治）"), t: z.string().describe("笔记标题"), u: z.string().describe("Notion 链接"), k: z.array(z.string()).optional().describe("考点关键词；省略 = 这一科的兜底页") })).max(80).optional().describe("考点→Notion 笔记对照表（整表替换），答错后网站按它给「Notion 笔记」按钮"),
 			},
 		},
-		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary, notes, retract = [] }) => {
+		async ({ def = {}, questions = [], wrong = [], done_uploads = [], grades = [], ok: agree = [], organize = [], review = [], exams, summary, notes, retract = [], plan = [] }) => {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (agree.length) { // 同意 Max 初评：直接照初评打分
@@ -226,6 +232,22 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 			if (done.size) out.push(`照片已处理 ${done.size}`);
 			if (questions.length) out.push(`新题 ${(await add(questions, "同类题")).map((q) => q.label).join(",")}`);
 			if (fresh.length) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('last_push', ?)").bind(JSON.stringify(fresh)).run(); // 记下这一批，retract:["last"] 可整批撤回
+			if (plan.length) { // 排期：哪些题今天做、哪些以后做（d 写今天或更早 = 今天做）
+				let n = 0;
+				for (const p of plan) {
+					const ids: number[] = [];
+					for (const t of p.q) {
+						if (t === "last") { try { ids.push(...(JSON.parse((await db.prepare("SELECT v FROM meta WHERE k = 'last_push'").first<{ v: string }>())?.v ?? "[]") as number[])); } catch {} }
+						else {
+							const r = await db.prepare("SELECT id FROM questions WHERE subject || COALESCE(no, '') = ? AND status = 'active'").bind(t.trim()).first<{ id: number }>();
+							if (r) ids.push(r.id); else err.push(`排期：找不到 ${t}`);
+						}
+					}
+					const uniq = [...new Set(ids.filter((x) => Number.isInteger(x)))].slice(0, 100);
+					if (uniq.length) { await db.prepare(`UPDATE questions SET due = ? WHERE id IN (${uniq.join(",")})`).bind(dueOf(p.d)).run(); n += uniq.length; }
+				}
+				if (n) out.push(`排期 ${n} 道`);
+			}
 			if (organize.length) {
 				let n = 0;
 				for (const it of organize) {
@@ -265,7 +287,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (ctx && fresh.length ? (bgRun(env, ctx, "refine:" + fresh.join(","), () => refine(env, fresh)), "（Max 后台复核中，几十秒后题目会自动补全）") : await refine(env, fresh)) + (await wrongPack(env)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (ctx && fresh.length ? (await enqueueNow(env, ctx, "refine", JSON.stringify(fresh)), "（Max 后台复核中，一两分钟内题目会自动补全）") : await refine(env, fresh)) + (await wrongPack(env)));
 		},
 	);
 
@@ -295,7 +317,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 					        CASE a.status WHEN '待批改' THEN '?' ELSE a.is_correct END ok, a.score sc, a.error_reason why, a.time_spent_sec sec
 					   FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 					   WHERE a.created_at >= datetime('now', ?1) AND (?2 IS NULL OR a.subject = ?2) AND ?3 IS NOT NULL ORDER BY a.id LIMIT 1000`
-					: `SELECT q.id, q.subject || COALESCE(q.no, '') no, q.subject s, q.category c, q.topic t, q.tag g, substr(q.stem, 1, 30) stem,
+					: `SELECT q.id, q.subject || COALESCE(q.no, '') no, q.subject s, q.category c, q.topic t, q.tag g, q.due d, substr(q.stem, 1, 30) stem,
 					        CASE WHEN r.question_id IS NOT NULL THEN '复习' WHEN EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) THEN '已做' ELSE '未做' END st
 					   FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
 					   WHERE ?1 IS NOT NULL AND (?2 IS NULL OR q.subject = ?2) AND (?3 OR (q.status = 'active' AND ${live()})) ORDER BY q.id LIMIT 2000`; // 默认只看网站上还看得到的题（隐藏的 24/48 小时外的不算）
