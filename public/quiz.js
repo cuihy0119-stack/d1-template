@@ -335,6 +335,7 @@ async function showResult(ids, got) {
 		}
 		if (r.status === "待批改" && !r.grader && r.max_score != null) // Max 的初评（作图题拿不准时给 Claude 参考）
 			card.append(el("div", { className: "ans", textContent: `Max 初评：${r.max_score} 分，${r.max_comment || ""}（把握不大，已交给 Claude 定）` }));
+		if (r.status === "已判" && r.is_correct === 0 && r.topic) card.append(noteLink(r.topic)); // 做错了：同考点的 Notion 笔记
 		if (r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max")) // 作图题 Max 批过的也能问
 			card.append(el("button", { type: "button", className: "btn small", style: "margin-top:8px", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }));
 		wrap.append(card);
