@@ -67,7 +67,7 @@ async function providers(env: Env, route: Route, must = false, only?: string): P
 	return list;
 }
 
-/** 两个引擎的状态（灵动岛顶部显示；DeepSeek 用一句极短的话试通，结果缓存 30 分钟） */
+/** 两个引擎的状态（灵动岛顶部显示；DeepSeek 用一句极短的话试通，结果缓存 12 小时） */
 export async function status(env: Env) {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const [cf, ds] = await Promise.all([used(db), meter(db, "ds:")]);
@@ -87,25 +87,30 @@ export async function status(env: Env) {
 export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (await meter(env.DB, "ds:")) < DS_DAILY;
 
 /** 一次问答，返回完整文本 */
-export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; ok?: (t: string) => boolean } = {}): Promise<string> {
-	let last: unknown;
+// 总管超时或额度用完：同一次里别再试总管的替补模型（多半也慢/也没额度），直接换 DeepSeek，免得两边都花
+const cfDown = (e: unknown) => /超时|3036|daily free allocation/i.test(String(e));
+
+export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; ok?: (t: string) => boolean; engine?: (n: string) => void } = {}): Promise<string> {
+	let last: unknown, skipCf = false;
 	for (const p of await providers(env, o.route ?? "work", o.must, o.only)) {
+		if (skipCf && p.name === "cf") continue;
 		try {
 			const r: any = await p.call(messages, o.max ?? 500, false);
 			const text = clean(String(r?.choices?.[0]?.message?.content ?? r?.response ?? ""));
 			await p.bill(r?.usage?.prompt_tokens ?? est(messages), r?.usage?.completion_tokens ?? text.length);
-			if (text && (!o.ok || o.ok(text))) return text; // 答得不像样（如该给 JSON 没给）：换下一个模型
+			if (text && (!o.ok || o.ok(text))) { o.engine?.(p.name); return text; } // 答得不像样（如该给 JSON 没给）：换下一个模型
 			last = new Error("回答格式不对");
-		} catch (e) { last = e; }
+		} catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
 	throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 }
 
 /** 流式问答：边生成边显示；结束后记用量、可选写缓存 */
 export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; done?: (t: string) => Promise<unknown>; engine?: (n: string) => void } = {}): Promise<ReadableStream<Uint8Array>> {
-	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown;
+	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown, skipCf = false;
 	for (const p of await providers(env, o.route ?? "work")) {
-		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; }
+		if (skipCf && p.name === "cf") continue;
+		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
 	if (!src || !used_) throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 	o.engine?.(used_.name);
@@ -175,9 +180,10 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 			"参考答案：" + arr(a.answer).join(" / "), a.explanation ? "评分要点：" + a.explanation : "", "学生作答：" + (a.answer_text || "（空）")].filter(Boolean).join("\n");
 		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS }, { role: "user", content: user }];
 		const valid = (t: string) => typeof json<any>(t)?.score === "number";
-		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, ok: valid }));
-		// 难题：总管拿不准（sure<0.6）或分数在及格线附近 → 交给 DeepSeek 复核一次
-		if (r && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
+		let by = "";
+		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, ok: valid, engine: (n) => (by = n) }));
+		// 难题：总管拿不准（sure<0.6）或分数在及格线附近 → 交给 DeepSeek 复核一次（已经是 DeepSeek 批的就不再问）
+		if (r && by === "cf" && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
 			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "hard", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
 		if (!r || typeof r.score !== "number") throw new Error("Max 没给出分数");
 		const score = Math.max(0, Math.min(100, Math.round(r.score))), ok = score >= PASS;
@@ -242,7 +248,7 @@ const BRIEF_SYS = `按数据给初三学生排今天的练习。只输出 JSON�
 
 export async function brief(env: Env, force = false) {
 	const db = env.DB, d = today();
-	const [stats, due, fresh, exams, n] = await Promise.all([
+	const [stats, due, fresh, exams] = await Promise.all([
 		db.prepare(`SELECT a.subject, COALESCE(q.topic, a.topic, q.category, '未分类') topic, COUNT(*) n, SUM(a.is_correct = 0) wrong
 			FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			WHERE a.status = '已判' AND a.created_at > datetime('now', '-30 days') GROUP BY 1, 2 HAVING wrong > 0 ORDER BY wrong * 1.0 / n DESC, wrong DESC LIMIT 8`).all<{ subject: string; topic: string; n: number; wrong: number }>(),
@@ -251,7 +257,6 @@ export async function brief(env: Env, force = false) {
 		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
 			WHERE q.status = 'active' AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id DESC LIMIT 20`).all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
-		db.prepare("SELECT (SELECT COUNT(*) FROM attempts) a, (SELECT COUNT(*) FROM questions WHERE status = 'active') q").first<{ a: number; q: number }>(),
 	]);
 	const weak = stats.results.slice(0, 5);
 	const soon = arr(exams?.v).map((e: any) => ({ ...e, days: Math.round((Date.parse(e.date) - Date.parse(d)) / 864e5) })).filter((e: any) => e.days >= 0 && e.days <= 7);
@@ -262,14 +267,13 @@ export async function brief(env: Env, force = false) {
 		: [];
 	const cands = [...due.results.map((q) => ({ ...q, kind: "复习" })), ...fresh.results.map((q) => ({ ...q, kind: "新题" }))];
 	const base = { topics: weak, weakIds, soon, cands: cands.length };
-	const sig = `${n?.a}:${n?.q}`;
 	const hit = await db.prepare("SELECT v, at > datetime('now', '-10 minutes') recent FROM max_cache WHERE k = ?").bind("br:" + d).first<{ v: string; recent: number }>();
 	const old = hit ? json<any>(hit.v) : null;
 	// 一天只让 Max 想一次（每天凌晨定时先想好）；刷新页面只读缓存，已经做掉的题从推荐里去掉（不花额度）。手动「重新看看」10 分钟内最多一次
-	if (old && (!force || hit!.recent)) {
-		const left = new Set(cands.map((q) => q.id));
-		return { ...base, ...old.r, order: (old.r.order as number[]).filter((id) => left.has(id)), cached: true };
-	}
+	// 推荐顺序：Max 排的（去掉已做的）在前，白天新进来的题按复习顺序补到 10 道
+	const fill = (order: number[]) => { const left = new Set(cands.map((q) => q.id)), o = order.filter((id) => left.has(id)); for (const q of cands) { if (o.length >= 10) break; if (!o.includes(q.id)) o.push(q.id); } return o; };
+	if (old && (!force || hit!.recent)) return { ...base, ...old.r, order: fill(old.r.order), cached: true };
+	if (!force && (await cacheGet(db, "brfail", 0.5))) return { ...base, say: "Max 暂时不在，先按复习顺序做", order: fill([]), weakTip: "", sprint: "" }; // 刚失败过：半小时内不重试，免得每次刷新都花额度
 	if (!cands.length && !weak.length) return { ...base, say: "题库还空着，拍照上传错题或让 Claude 出题吧", order: [], weakTip: "", sprint: "" };
 	try {
 		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
@@ -278,12 +282,13 @@ export async function brief(env: Env, force = false) {
 		const r = json<any>(await ask(env, [{ role: "system", content: BRIEF_SYS }, { role: "user", content: user }], { max: 400, ok: isObj })) ?? {};
 		const ok = new Set(cands.map((q) => q.id));
 		const out = { say: String(r.say || "").slice(0, 120), order: (Array.isArray(r.order) ? r.order : []).map(Number).filter((x: number) => ok.has(x)).slice(0, 10), weakTip: String(r.weak || "").slice(0, 160), sprint: soon.length ? String(r.sprint || "").slice(0, 160) : "" };
-		if (!out.order.length) out.order = cands.slice(0, 10).map((q) => q.id);
-		await cachePut(db, "br:" + d, JSON.stringify({ sig, r: out }));
+		out.order = fill(out.order);
+		await cachePut(db, "br:" + d, JSON.stringify({ r: out }));
 		return { ...base, ...out };
 	} catch (e) {
+		await cachePut(db, "brfail", "1");
 		const say = e instanceof MaxErr ? e.message : "Max 暂时不在，先按复习顺序做";
-		return { ...base, say, order: cands.slice(0, 10).map((q) => q.id), weakTip: "", sprint: "", ...(old?.r ? { ...old.r, say: old.r.say } : {}) };
+		return { ...base, say, weakTip: "", sprint: "", ...(old?.r ?? {}), order: fill(old?.r?.order ?? []) };
 	}
 }
 
@@ -336,7 +341,7 @@ async function bankIndexRaw(db: D1Database) {
 
 // 难题信号：学生说没懂/要详细/问为什么，聊得很长，或要讲数理化的解答题 → 直接让 DeepSeek 答
 const HARD = /难|不懂|没懂|看不懂|不明白|详细|为什么|证明|推导|再讲|换个讲法|一步步|怎么来的/;
-export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array>; engine?: string }> {
+export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () => Promise<boolean>): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array>; engine?: string }> {
 	const db = env.DB;
 	const [c, bank] = await Promise.all([context(db, ctx), ctx.q || ctx.a || ctx.explain || ctx.marked ? Promise.resolve("") : bankIndex(db)]); // 并行查
 	const oneShot = (ctx.explain || ctx.marked) && messages.length <= 1; // 一键讲解/解析：同一题同一结果只花一次额度
@@ -349,7 +354,8 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ 
 	const sys = [CHAT_SYS, c.text || bank || (await bankIndex(db)), page].filter(Boolean).join("\n\n"); // 讲具体题时不带题库概况，省额度
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
-	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 7 || c.hard;
+	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
+	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来"); // 只有真要问模型才算一次（缓存命中不算）
 	let engine = "";
 	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : hard ? 800 : 600, route: hard ? "hard" : "work",
 		done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : undefined, engine: (n) => (engine = n) });
@@ -371,7 +377,6 @@ export async function organize(env: Env, n = 10): Promise<number> {
 		WHERE q.status IN ('active', 'mastered') AND (q.source = '原错题' OR a.id IS NOT NULL) AND (q.max_at IS NULL OR q.max_at < a.created_at)
 		ORDER BY q.id DESC LIMIT ?`).bind(n).all<any>();
 	if (!rs.length) return 0;
-	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('org_at', datetime('now'))").run();
 	const subjects = [...new Set(rs.map((r) => r.subject))];
 	const { results: tops } = await db.prepare(`SELECT subject, topic FROM questions WHERE topic IS NOT NULL AND subject IN (${subjects.map(() => "?")}) GROUP BY 1, 2 LIMIT 80`).bind(...subjects).all<{ subject: string; topic: string }>();
 	const list = rs.map((r, i) => `${i}. [${r.subject}] ${r.stem.slice(0, 200)}${r.options ? "｜选项：" + arr(r.options).join(" ") : ""}｜正确：${arr(r.answer).join(" / ")}｜错答：${String(r.answer_text ?? "（照片录入的原错题）").slice(0, 150)}${r.time_spent_sec ? `｜用时${r.time_spent_sec}秒` : ""}`).join("\n");
@@ -391,22 +396,23 @@ export const unorganized = async (db: D1Database) => (await db.prepare(`SELECT C
 /** 错题本错因统计：脚本归类 vs Max 归类 + Max 一段总结（按统计变化缓存） */
 export async function wrongSummary(env: Env, force = false) {
 	const db = env.DB;
-	const { results: rs } = await db.prepare(`${WRONG_ROWS} WHERE q.status = 'active' AND (q.source = '原错题' OR a.id IS NOT NULL)`).all<any>();
-	const count = (f: (r: any) => string | null) => rs.reduce((m: Record<string, number>, r) => { const k = f(r); if (k) m[k] = (m[k] || 0) + 1; return m; }, {});
-	const max = count((r) => r.max_reason || (r.max_at ? null : "待分析"));
+	const { results: rs } = await db.prepare(`SELECT q.subject, q.topic, q.max_reason, q.max_note, q.max_at FROM questions q
+		WHERE q.status = 'active' AND (q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`).all<any>(); // 只取统计要的几列
+	const max: Record<string, number> = {};
+	for (const r of rs) { const k = r.max_reason || (r.max_at ? null : "待分析"); if (k) max[k] = (max[k] || 0) + 1; }
 	// 总结存一份，刷新只读它；只有第一次、每天定时、或手动「重新分析」才让 Max 重写
 	const saved = json<{ text: string; sig: string }>((await db.prepare("SELECT v FROM meta WHERE k = 'wsum'").first<{ v: string }>())?.v ?? "");
-	const sig = JSON.stringify(max);
+	const sig = JSON.stringify(Object.keys(max).sort().map((k) => [k, max[k]])); // 排好序，顺序不同不算变
 	let summary = saved?.text ?? null;
-	if ((!saved || (force && saved.sig !== sig)) && rs.length >= 3) {
+	if ((!saved || (force && saved.sig !== sig)) && rs.length >= 3 && (force || !(await cacheGet(db, "wsfail", 0.5)))) {
 		try {
 			const notes = rs.filter((r) => r.max_note).slice(0, 15).map((r) => `${r.subject}/${r.topic || "?"}：${r.max_note}`).join("\n");
 			summary = await ask(env, [{ role: "system", content: "据错因统计和诊断，≤80字说初三学生最主要的问题和下一步怎么练。" },
 				{ role: "user", content: `错因统计：${JSON.stringify(max)}\n诊断：\n${notes || "无"}` }], { max: 200 });
 			await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('wsum', ?)").bind(JSON.stringify({ text: summary, sig })).run();
-		} catch { summary = saved?.text ?? null; }
+		} catch { summary = saved?.text ?? null; await cachePut(db, "wsfail", "1"); } // 失败半小时内不自动重试
 	}
-	return { total: rs.length, max, summary, stale: !!saved && saved.sig !== sig, todo: await unorganized(db) };
+	return { total: rs.length, max, summary, stale: !!saved && saved.sig !== sig && rs.length >= 3, todo: await unorganized(db) };
 }
 
 // ---------- 错题文件夹：Max 总结，攒满 20 道发给 Claude 的就是这份总结（Claude 少读很多字） ----------
@@ -421,7 +427,8 @@ export async function folderSummary(env: Env, force = false): Promise<{ ids: num
 	const list = rs.map((r) => `${r.subject}/${r.topic || "?"}｜错因：${r.max_reason || "?"}${r.max_note ? "｜" + r.max_note : ""}`).join("\n");
 	const text = await ask(env, [{ role: "system", content: FOLDER_SYS }, { role: "user", content: list }], { max: 450 });
 	const v = { ids, text: text.slice(0, 600) };
-	await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run();
+	const still = (await db.prepare(`SELECT COUNT(*) n FROM questions WHERE status = 'mastered' AND id IN (${ids.join(",")})`).first<{ n: number }>())?.n;
+	if (still) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run(); // 写之前题已经发给 Claude 清掉了就不写
 	return v;
 }
 /** 发给 Claude 的一行（短）：题号、考点、题干开头、错因、诊断 */
@@ -448,6 +455,6 @@ export async function pregrade(env: Env, ids: number[]) {
 				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, ok: (t) => typeof json<any>(t)?.score === "number" }));
 			if (r) await env.DB.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ? WHERE id = ?")
 				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), Math.max(0, Math.min(1, r.sure ?? 0.5)), id).run();
-		} catch { return; } // 额度没了就算了，Claude 照常批
+		} catch (e) { if (e instanceof MaxErr && /额度/.test(e.message)) return; } // 额度没了就停；单题出错跳过
 	}
 }

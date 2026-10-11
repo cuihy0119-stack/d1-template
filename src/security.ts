@@ -6,7 +6,7 @@
 import type { Context, Next } from "hono";
 
 const ip = (c: Context) => c.req.header("cf-connecting-ip") || "?";
-const SCAN = /\.(php\d?|aspx?|jsp|cgi|env|git|sql|bak|ini|yml|ya?ml)(\/|$)|wp-(admin|login|content|includes)|phpmyadmin|\/\.well-known\/(?!oauth)|\.\.\//i;
+const SCAN = /\.(php\d?|aspx?|jsp|cgi|env|git|sql|bak|ini|ya?ml)(\/|$)|wp-(admin|login|content|includes)|phpmyadmin|\/\.well-known\/(?!oauth)|\.\.\//i;
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'inline-speculation-rules'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
 
 /** 记一次可疑事件（被限流、口令错）：只在出事时写库，平时不花用量 */
@@ -31,6 +31,7 @@ export async function guard(c: Context<{ Bindings: Env }>, next: Next) {
 		if (m === "POST" && p.startsWith("/api/max/") && (await over(c.env.RL_AI, "ai:" + ip(c)))) { flag(c, "ai"); return c.json({ error: "问得太快啦，歇一分钟再问 Max" }, 429); }
 	}
 	await next();
+	try { c.res.headers.get("x"); c.res.headers.set("X-Content-Type-Options", "nosniff"); } catch { c.res = new Response(c.res.body, c.res); } // 有的响应头是只读的：复制一份再改
 	const h = c.res.headers;
 	h.set("X-Content-Type-Options", "nosniff");
 	h.set("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -43,4 +44,12 @@ export async function chatQuota(db: D1Database) {
 	const k = "chat:" + new Date().toISOString().slice(0, 10);
 	const n = Number((await db.prepare("INSERT INTO meta (k, v) VALUES (?1, 1) ON CONFLICT(k) DO UPDATE SET v = CAST(v AS INTEGER) + 1 RETURNING v").bind(k).first<{ v: string }>())?.v ?? 0);
 	return n <= 300;
+}
+
+/** OAuth 自己处理的路径（/register、/token、/.well-known）不经过上面的 guard：在最外层先拦扫描器、限流 */
+export async function edge(req: Request, env: Env): Promise<Response | null> {
+	const p = new URL(req.url).pathname;
+	if (SCAN.test(p)) return new Response("Not Found", { status: 404 });
+	if ((p === "/register" || p === "/token") && (await over(env.RL_LOGIN, "oauth:" + (req.headers.get("cf-connecting-ip") || "?")))) return new Response("Too Many Requests", { status: 429 });
+	return null;
 }

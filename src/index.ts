@@ -7,7 +7,7 @@ import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { pick } from "./tags";
 import { loginPage } from "./login";
-import { chatQuota, flag, guard } from "./security";
+import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
@@ -66,7 +66,6 @@ app.use("/api/*", async (c, next) => {
 
 app.use("*", async (c, next) => {
 	const p = new URL(c.req.url).pathname;
-	if (p === "/style.css" || p.startsWith("/fonts/")) return next(); // 登录页要用的样式和字体
 	if (c.env.PASSCODE && (await getSignedCookie(c, c.env.PASSCODE, COOKIE)) === "ok") return next();
 	if (p.startsWith("/api/") || p.startsWith("/photo/")) return c.json({ error: "未登录" }, 401);
 	return c.redirect("/login");
@@ -292,6 +291,7 @@ app.post("/api/submit", async (c) => {
 				.run()).meta.last_row_id;
 		}
 		if (ok != null && ok !== old?.is_correct) await updateQueue(db, q.id, !!ok);
+		if (old && ok === 0) await db.prepare("UPDATE questions SET max_at = NULL WHERE id = ?").bind(q.id).run(); // 改了答案还是错：让 Max 重新分析错因
 		attemptIds.push(id!);
 		if (mx) toMax.push({ id: id!, fallback: q.type === "fill" ? site : null });
 		else if (ok == null) toClaude.push(id!);
@@ -368,7 +368,7 @@ app.post("/api/mark", async (c) => {
 	const { question_id, on } = await c.req.json<{ question_id: number; on: boolean }>();
 	const db = c.env.DB;
 	await (on
-		? db.prepare("INSERT OR REPLACE INTO marks (question_id) VALUES (?)").bind(question_id)
+		? db.prepare("INSERT INTO marks (question_id) VALUES (?) ON CONFLICT(question_id) DO NOTHING").bind(question_id) // 重复标记不清掉已关联的作答
 		: db.prepare("DELETE FROM marks WHERE question_id = ?").bind(question_id)).run();
 	return c.json({ ok: true });
 });
@@ -409,10 +409,9 @@ app.post("/api/max/chat", async (c) => {
 	const messages = (Array.isArray(body.messages) ? body.messages : []).filter((m: any) => m && typeof m.content === "string" && m.content.trim())
 		.slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content.slice(0, 800) }) as { role: "user" | "assistant"; content: string });
 	if (!messages.length) return c.json({ error: "说点什么吧" }, 400);
-	if (!(await chatQuota(c.env.DB))) return c.json({ error: "今天和 Max 聊得够多了，明天再来" }, 429);
 	const pg = ctx.page && typeof ctx.page === "object" ? { path: String(ctx.page.path ?? "").slice(0, 60), title: String(ctx.page.title ?? "").slice(0, 60), text: String(ctx.page.text ?? "").slice(0, 1500) } : undefined;
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg });
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg }, () => chatQuota(c.env.DB));
 		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "" } });
 	} catch (e) {
 		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
@@ -422,8 +421,7 @@ app.post("/api/max/chat", async (c) => {
 // 其余请求：已登录后交给静态页面
 app.all("*", async (c) => {
 	const res = await c.env.ASSETS.fetch(c.req.raw), r = new Response(res.body, res);
-	// 字体、KaTeX、MathLive 不会变：缓存一年；页面和脚本每次向服务器确认（没变只回 304，很快），改版后马上用上
-	r.headers.set("Cache-Control", /^\/(fonts|katex|mathlive)\//.test(new URL(c.req.url).pathname) ? "public, max-age=31536000, immutable" : "no-cache");
+	r.headers.set("Cache-Control", "no-cache"); // 页面每次向服务器确认（没变只回 304）；脚本、样式、字体由 Cloudflare 直接发（见 _headers）
 	return r;
 });
 
@@ -450,6 +448,6 @@ function providerFor(origin: string) {
 }
 
 export default {
-	fetch: (req, env, ctx) => providerFor(new URL(req.url).origin).fetch(req, env, ctx),
+	fetch: async (req, env, ctx) => (await edge(req, env)) ?? providerFor(new URL(req.url).origin).fetch(req, env, ctx),
 	scheduled: (_e, env, ctx) => ctx.waitUntil(dailyCleanup(env.DB).then(() => maxDaily(env))), // 每日清理 + Max 用剩下的额度整理错题
 } satisfies ExportedHandler<Env>;

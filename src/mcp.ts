@@ -145,8 +145,8 @@ export function buildServer(env: Env) {
 				def: z.object({ subject: z.string().optional(), category: z.string().optional(), topic: z.string().optional() }).optional().describe("本批题共用的科目/章节/考点"),
 				questions: z.array(Q.extend({ origin: z.number().int().optional().describe("对应原错题 id") })).optional(),
 				wrong: z.array(Q.extend({ upload: z.number().int().optional().describe("来自哪张照片") })).optional(),
-				done_uploads: z.array(z.number().int()).optional().describe("看过但没有错题的照片"),
-				ok: z.array(z.number().int()).optional().describe("同意 Max 初评的作答id"),
+				done_uploads: z.array(z.number().int()).max(100).optional().describe("看过但没有错题的照片"),
+				ok: z.array(z.number().int()).max(100).optional().describe("同意 Max 初评的作答id"),
 				grades: z
 					.array(z.object({ id: z.number().int().describe("attempt_id"), score: z.number().min(0).max(100), comment: z.string(), reason: z.enum(REASONS).optional() }))
 					.optional(),
@@ -160,7 +160,7 @@ export function buildServer(env: Env) {
 			const out: string[] = [];
 			const err: string[] = [];
 			if (agree.length) { // 同意 Max 初评：直接照初评打分
-				const { results } = await db.prepare(`SELECT id, max_score, max_comment FROM attempts WHERE max_score IS NOT NULL AND id IN (${agree.map(() => "?")})`).bind(...agree).all<{ id: number; max_score: number; max_comment: string | null }>();
+				const { results } = await db.prepare(`SELECT id, max_score, max_comment FROM attempts WHERE max_score IS NOT NULL AND status = '待批改' AND id IN (${agree.map(() => "?")})`).bind(...agree).all<{ id: number; max_score: number; max_comment: string | null }>();
 				grades = [...grades, ...results.filter((x) => !grades.some((g) => g.id === x.id)).map((x) => ({ id: x.id, score: x.max_score, comment: x.max_comment || "" }))];
 				if (results.length < agree.length) err.push(`${agree.length - results.length} 个作答没有 Max 初评，请用 grades`);
 			}
