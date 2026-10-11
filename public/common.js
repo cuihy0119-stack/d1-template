@@ -16,7 +16,7 @@ try {
 			last = t;
 			if (d.length < 30) return requestAnimationFrame(f);
 			d.sort((a, b) => a - b);
-			localStorage.perf2 = d[15] > 25 ? "lite" : "full";
+			localStorage.perf2 = d[15] > 40 ? "lite" : "full"; // 低电量模式锁 30 帧（33ms）不算卡
 			if (localStorage.perf2 === "lite") document.documentElement.classList.add("lite");
 		};
 		requestAnimationFrame(f);
@@ -31,6 +31,7 @@ function el(tag, props = {}, ...kids) {
 }
 // 文字用 textContent 写入，再让 KaTeX 渲染 $...$ 公式（含 \ce{} 化学式）
 function math(root) {
+	if (!window.renderMathInElement && document.readyState === "loading") return addEventListener("DOMContentLoaded", () => math(root), { once: true }); // KaTeX 是 defer 加载的
 	if (window.renderMathInElement) renderMathInElement(root, {
 		delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }],
 		throwOnError: false,
@@ -48,7 +49,7 @@ function compress(file, max = 1280) {
 			c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
 			c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
 			URL.revokeObjectURL(url);
-			c.toBlob((b) => resolve(b ? new File([b], "photo.jpg", { type: "image/jpeg" }) : file), "image/jpeg", 0.85);
+			c.toBlob((b) => { c.width = c.height = 0; resolve(b ? new File([b], "photo.jpg", { type: "image/jpeg" }) : file); }, "image/jpeg", 0.85);
 		};
 		img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
 		img.src = url;

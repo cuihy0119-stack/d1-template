@@ -28,7 +28,7 @@ body::after{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;p
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .25 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 @media(prefers-color-scheme:dark){body::after{opacity:.08}.tabbar::before{opacity:.12}}
 main{max-width:640px;margin:0 auto;padding:22px 18px 18px}
-h1,h2,.serif{font-family:var(--serif);font-weight:500;letter-spacing:.02em}
+h1,h2{font-family:var(--serif);font-weight:500;letter-spacing:.02em}
 h1{font-size:30px;line-height:1.25;margin:6px 0 4px}
 h2{font-size:19px;margin:0 0 10px}
 .sub{font-family:var(--serif);color:var(--mute);font-size:15px;margin:0 0 20px;font-style:italic}
@@ -77,7 +77,7 @@ textarea{min-height:120px}
 .opt{display:flex;width:100%;text-align:left;padding:12px 16px;margin:10px 0;border-radius:var(--r-l);color:var(--fg);font-size:16px;cursor:pointer;transition:transform .2s var(--ease),border-color .2s,background .2s;align-items:center;gap:12px;min-height:54px;font:17px/1.5 var(--serif)}
 .opt.on{border-color:var(--pri);background:color-mix(in srgb,var(--pri) 14%,var(--card));animation:pop .35s var(--ease)}
 @keyframes pop{50%{transform:scale(1.02)}}
-.keys{display:flex;gap:8px;margin:8px 0}.keys button{flex:1;padding:8px 0;font-size:18px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
+.keys{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.keys button{flex:1 0 13%;min-height:38px;padding:8px 0;font:17px var(--serif);border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--fg)}
 .tag{display:inline-block;font:13px/1.6 var(--serif);padding:2px 10px;border-radius:var(--r-s);background:color-mix(in srgb,var(--pri) 10%,transparent);color:color-mix(in srgb,var(--pri) 80%,var(--fg));margin-right:6px}
 .badge{font-family:var(--serif);font-weight:600}.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.badge.wait{color:var(--warn)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
@@ -101,7 +101,7 @@ body.has-tabs main{padding-bottom:110px}
 /* 各科概览 */
 .subjects{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
 .subj{display:block;text-decoration:none;color:var(--fg);border-radius:var(--r-l);padding:14px 16px;transition:transform .25s var(--ease)}
-.subj b{font:500 20px/1.4 var(--serif)}.subj .due{color:var(--bad);font-weight:600}
+.subj b{font:500 20px/1.4 var(--serif)}
 /* 题库 / 错题本 */
 #list{border-radius:var(--r-xl);overflow:hidden}
 #list:empty{display:none}
@@ -124,7 +124,7 @@ body.has-tabs main{padding-bottom:110px}
   :root{--r-xl:34px;--r-l:26px;--r-m:18px;--r-s:12px}
 }
 /* 题卡头：标签、时间、删题一行 */
-.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.qhead .time{flex:1}
+.qhead{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
 button.del{flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--bad);font:14px/1.3 var(--serif);transition:transform .2s var(--ease)}
 button.del:active{transform:scale(.95)}
 button.mark{flex:none;padding:5px 12px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute);font:14px/1.3 var(--serif);transition:transform .2s var(--ease),background .2s,color .2s}
@@ -176,7 +176,7 @@ button.mark.on{background:var(--warn);border-color:transparent;color:#fff;animat
 .cline math-field{flex:1;min-width:0;font-size:20px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--solid);color:var(--fg)}
 .cline math-field::part(menu-toggle){display:none}
 .cline button{flex:none;width:34px;height:34px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--card);color:var(--mute)}
-.forms{margin:8px 0 0}.forms .chip{font-size:15px}
+.forms{margin:8px 0 0}
 .att{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .att div{position:relative}.att img{width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .att button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:var(--bad);color:#fff;font-size:13px;line-height:1}
@@ -186,12 +186,10 @@ button.mark.on{background:var(--warn);border-color:transparent;color:#fff;animat
 .back{font-family:var(--serif);color:var(--mute);text-decoration:none;font-size:15px}
 .detail .row .btn{padding:10px 4px;font-size:15px;white-space:nowrap}
 [hidden]{display:none!important}
-.qhead .time{flex:1}
 .time{font-size:13px;color:var(--mute);margin-left:4px;white-space:nowrap}
 .item .side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .recent{display:flex;gap:10px;align-items:center;padding:8px 0}.recent+.recent{border-top:1px solid var(--line)}
 .recent a{flex:1;min-width:0;color:var(--fg);text-decoration:none}.recent .stem{font:16px/1.6 var(--serif);margin-top:2px}
-.forms .chip{font-size:15px}
 /* 长列表只渲染看得见的部分 */
 #list>.wrapitem,#list>.item{content-visibility:auto;contain-intrinsic-size:auto 76px}
 .row .btn.small{white-space:nowrap}
@@ -202,6 +200,10 @@ button.mark.on{background:var(--warn);border-color:transparent;color:#fff;animat
 @supports not (color:color-mix(in srgb,red,blue)){
   .btn,.chip,.opt,.calcpad,.tabbar,.board,.btools button,.keysg button{background:var(--solid)}
   .opt.on,.tabbar a.on,.ans,.tag{background:rgba(201,100,66,.12)}.tag{color:var(--pri)}
+  .ans{border-left-color:rgba(201,100,66,.45)}.opt .ol{background:rgba(128,128,128,.12)}
+  .rail,.pan{background:var(--solid)}.art .far{fill:var(--pri2);opacity:.35}.art .near{fill:var(--pri);opacity:.75}
+  .st.new{background:rgba(201,100,66,.15)}.st.due{background:rgba(200,60,60,.15)}.st.wait{background:rgba(220,150,40,.18)}.st.ok{background:rgba(60,150,90,.15)}
+  .item:active,.bhint .fab:active,.keysg button:active{background:rgba(201,100,66,.15)}
 }
 /* 不支持 aspect-ratio：用 padding 撑出正方形画布 */
 @supports not (aspect-ratio:1/1){.bwrap{height:0;padding-top:100%}.board.big .bwrap{padding-top:133%}}
@@ -251,11 +253,11 @@ body.drawing .rail.show{opacity:.3}
 .art{display:block;width:100%;height:auto;max-height:150px;margin-bottom:6px}
 .art .far{fill:color-mix(in srgb,var(--pri2) 28%,var(--bg))}.art .near{fill:color-mix(in srgb,var(--pri) 70%,var(--bg))}
 .art .sun{fill:#f2b46d;transform-box:fill-box;transform-origin:center;animation:sunrise 1.6s var(--ease) both}
-.art .cloud{fill:var(--solid);opacity:.9;animation:drift2 26s ease-in-out infinite alternate}
+.art .cloud{fill:var(--solid);opacity:.9;animation:drift2 26s ease-in-out 2 alternate}
 .art .trail{fill:none;stroke:var(--solid);stroke-width:2;stroke-dasharray:3 5;stroke-linecap:round}
 .art .pole{stroke:var(--fg);stroke-width:1.6}
-.art .flag{fill:#e0b060;transform-box:fill-box;transform-origin:left center;animation:wave 2.4s ease-in-out infinite}
-.art .star{fill:#e0b060;transform-box:fill-box;transform-origin:center;animation:twinkle 3s ease-in-out infinite}
+.art .flag{fill:#e0b060;transform-box:fill-box;transform-origin:left center;animation:wave 2.4s ease-in-out 3}
+.art .star{fill:#e0b060;transform-box:fill-box;transform-origin:center;animation:twinkle 3s ease-in-out 3}
 .art .s2{animation-delay:1s}.art .s3{animation-delay:2s}
 @keyframes sunrise{from{opacity:0;transform:translateY(30px) scale(.8)}to{opacity:1;transform:none}}
 @keyframes drift2{to{transform:translateX(30px)}}
@@ -276,7 +278,6 @@ body.drawing .rail.show{opacity:.3}
 .qhead button.mark,.qhead button.del{width:36px;height:34px;padding:0;font-size:16px;opacity:.75}
 .qhead button.mark.on{opacity:1}
 /* 答案快捷键、手写答案板 */
-.keys{flex-wrap:wrap}.keys button{flex:1 0 13%;min-height:38px;font:17px var(--serif);border-radius:var(--r-s)}
 .hand-open{margin-top:10px}
 .handpad .bwrap{aspect-ratio:5/2}.handpad .board{margin:0}.handpad .dock>.btools+.btools{display:none} /* 手写答案板只留画笔、橡皮、撤销 */
 /* ================= 结果页：可折叠题卡 + 结算特效 ================= */
@@ -294,3 +295,7 @@ body.drawing .rail.show{opacity:.3}
 .lite .burst{display:none}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* 输入框在不可选中的容器里：iOS 会继承 -webkit-user-select:none，光标和选字失灵 */
+.board input,.calcpad input,.bwrap input{-webkit-user-select:text;user-select:text}
+/* 落笔时浮岛不再实时模糊画布，写字更跟手 */
+body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}

@@ -3,7 +3,7 @@ const FROM_WRONG = new URLSearchParams(location.search).get("from") === "wrong";
 // 答案框快捷键：化学式、数学/物理方程常用符号（点一下插到光标处）
 const KEYS = { 化学: ["₂", "₃", "₄", "↑", "↓", "△", "="], 数学: ["x₁=", "x₂=", "/", "√", "²", "³", "±", "=", "，", "π", "≤", "≥"], 物理: ["/", "²", "³", "×10", "=", "，", "Ω", "℃", "π", "≈"] };
 function keyRow(field, keys) {
-	return el("div", { className: "keys" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onclick: () => {
+	return el("div", { className: "keys" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onpointerdown: (e) => e.preventDefault(), onclick: () => {
 		const s = field.selectionStart ?? field.value.length, e = field.selectionEnd ?? s;
 		field.value = field.value.slice(0, s) + k + field.value.slice(e);
 		field.focus(); field.setSelectionRange(s + k.length, s + k.length);
@@ -55,7 +55,7 @@ const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).
 // 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
 const work = (i) => [...boards[i].filter((b) => sends(i, b)).map((b) => BOARDS[b.kind][1] + " " + b.describe()), handed(i) ? "[手写答案] 见附图" : ""].filter(Boolean).join("\n");
 const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined, hand: !!handed(i) });
-const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].length, hands[i]?.objs.length]);
+const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].map((f) => f.name + f.size + f.lastModified), hands[i]?.ver, boards[i].map((b) => (b.pad || b).ver)]); // 擦掉重画、换照片也算改了
 const pending = (i) => answered(i) && done[i] !== "…" && (!done[i] || sigOf(i) !== sig[i]); // 没交过，或交过又改了
 async function save(i) {
 	if (!pending(i)) return;
@@ -65,10 +65,13 @@ async function save(i) {
 	try {
 		const photo_keys = [];
 		const up = async (f, kind) => {
+			if (!kind && f.key) return photo_keys.push(f.key); // 同一张照片改答案重交时不再上传
 			const fd = new FormData();
 			fd.append("file", kind ? f : await compress(f, 1024));
 			if (kind) fd.append("kind", kind);
-			photo_keys.push((await api("/api/attempt-photo", { method: "POST", body: fd })).key);
+			const key = (await api("/api/attempt-photo", { method: "POST", body: fd })).key;
+			if (!kind) f.key = key;
+			photo_keys.push(key);
 		};
 		for (const f of files[i]) await up(f);
 		// 画板图：动了画笔的、计算板的草纸 → 发给 Claude（kind=board）；其余只存一份自己看（kind=view），Claude 读文字描述就够
@@ -92,7 +95,7 @@ addEventListener("pagehide", () => {
 async function go(i) {
 	const btns = [...document.querySelectorAll(".nav .btn")];
 	btns.forEach((b) => (b.disabled = true));
-	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = false)); }
+	try { await save(cur); } catch (e) { alert("提交失败：" + e.message); return btns.forEach((b) => (b.disabled = b === btns[0] && cur === 0)); }
 	tick(); const dir = i > cur ? "fwd" : "prev"; cur = i; render(dir);
 }
 
@@ -107,7 +110,7 @@ function handPad(q) {
 
 // anim：只在换题时播放进场动画；点选项、加图片等局部更新不重播，避免闪烁
 function render(anim) {
-	shownAt = Date.now();
+	if (anim) shownAt = Date.now(); // 局部重绘（加图、开画板）不重置计时
 	app.className = anim || "";
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
@@ -123,8 +126,8 @@ function render(anim) {
 			el("button", { type: "button", className: "del", title: "删题", textContent: "🗑", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
 				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks, hands]) a.splice(cur, 1);
-				if (!qs.length) return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" }));
-				cur = Math.min(cur, qs.length - 1); render();
+				if (!qs.length) { isle.hide(); return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" })); }
+				cur = Math.min(cur, qs.length - 1); shownAt = Date.now(); render();
 			} })),
 		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }));
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
@@ -161,7 +164,7 @@ function render(anim) {
 			onchange: () => { files[cur].push(...pick.files); render(); } });
 		const att = el("div", { className: "att" });
 		files[cur].forEach((f, i) => att.append(el("div", {},
-			el("img", { src: (f.url ||= URL.createObjectURL(f)) }), // 同一张图只建一次预览地址
+			el("img", { src: (f.url = f.url || URL.createObjectURL(f)) }), // 同一张图只建一次预览地址
 			el("button", { type: "button", textContent: "×", onclick: () => { URL.revokeObjectURL(f.url); files[cur].splice(i, 1); render(); } }))));
 		box.append(ta, handPad(q),
 			el("div", { className: "row", style: "margin-top:8px" },
@@ -263,12 +266,14 @@ async function submit() {
 	}
 }
 
-let poll = 0;
+let poll = 0, seq = 0;
 let burstDone = false;
 async function showResult(ids) {
 	isle.hide();
-	clearInterval(poll);
+	const my = ++seq;
 	const rows = await api("/api/attempts?ids=" + ids);
+	if (my !== seq) return; // 同时触发了两次（返回缓存 + 切回页面）：只用最新那次
+	clearInterval(poll);
 	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语（只更新内容，展开状态保留）
 	if (rows.some((r) => r.status === "待批改")) {
 		const last = JSON.stringify(rows);

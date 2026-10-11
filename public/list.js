@@ -6,7 +6,12 @@ let subject = new URLSearchParams(location.search).get("subject") || "";
 tabbar("/" + MODE);
 
 const quizHref = (ids) => "/quiz?ids=" + ids.join(",") + (MODE === "wrong" ? "&from=wrong" : ""); // 错题重做不需要标记按钮
-const short = (s) => (s.length > 70 ? s.slice(0, 70) + "…" : s);
+const short = (s) => { // 截断但不切断 $公式$
+	if (s.length <= 70) return s;
+	let t = s.slice(0, 70);
+	if ((t.match(/\$/g) || []).length % 2) t = t.slice(0, t.lastIndexOf("$"));
+	return t + "…";
+};
 
 function state(q) {
 	if (q.pending) return ["待批改", "wait"];
@@ -64,8 +69,8 @@ function row(q) {
 	item.onclick = async () => {
 		detail.classList.toggle("hide");
 		if (detail.dataset.loaded) return;
-		detail.dataset.loaded = "1";
 		const d = await api("/api/question/" + q.id);
+		detail.dataset.loaded = "1"; // 加载成功才记，失败了再点还能重试
 		item.querySelector(".stem").textContent = d.stem;
 		if (d.options.length) detail.append(el("div", { className: "mute", textContent: d.options.join("\n"), style: "white-space:pre-wrap" }));
 		const wrong = d.attempts.find((a) => a.is_correct === 0);

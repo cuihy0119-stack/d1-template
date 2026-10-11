@@ -51,8 +51,8 @@ class CircuitBoard {
 		return [raw.map(Math.round), raw];
 	}
 
-	change(fn) { this.hist.push(JSON.stringify(this.objs)); this.fut = []; fn(); this.draw(); }
-	step(from, to) { if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.draw(); }
+	change(fn) { this.hist.push(JSON.stringify(this.objs)); if (this.hist.length > 50) this.hist.shift(); this.fut = []; fn(); this.ver = (this.ver || 0) + 1; this.draw(); }
+	step(from, to) { if (!from.length) return; to.push(JSON.stringify(this.objs)); this.objs = JSON.parse(from.pop()); this.ver = (this.ver || 0) + 1; this.draw(); }
 
 	// 元件只能横放或竖放，至少 2 格长
 	place(a, b) {

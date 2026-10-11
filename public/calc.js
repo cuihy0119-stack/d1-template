@@ -61,7 +61,6 @@ class CalcBoard {
 		this.el = el("div", { className: "calc" }, this.pad.el, this.forms, this.panel, el("div", { style: "margin-top:8px" }, more), this.lines);
 	}
 	isEmpty() { this.sync(); return this.pad.isEmpty() && !this.vals.some((v) => v.trim()); }
-	hasPen() { return this.pad.hasPen(); }
 	toFile(full) { return this.pad.toFile(full); }
 	describe() {
 		this.sync();
