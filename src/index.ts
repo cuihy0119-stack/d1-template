@@ -10,7 +10,7 @@ import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classify, cleanBank, gen, see, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
-import { live } from "./live";
+import { live, wrongSql } from "./live";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
 
@@ -338,7 +338,7 @@ app.get("/api/attempts", async (c) => {
 
 // ---------- 题库 / 错题本 ----------
 const WRONG_SQL = {
-	active: `q.status = 'active' AND ${live()} AND (q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0))`,
+	active: `q.status = 'active' AND ${live()} AND ${wrongSql()}`,
 	mastered: "q.status = 'mastered'", // 错题文件夹
 };
 
@@ -436,11 +436,6 @@ app.post("/api/max/do", async (c) => {
 	const b = await c.req.json<{ name?: string; arg?: string; dry?: boolean }>().catch(() => ({}) as { name?: string; arg?: string; dry?: boolean });
 	try { return c.json(await runAction(c.env, String(b.name ?? "").slice(0, 10), String(b.arg ?? "").slice(0, 80), !!b.dry)); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "失败：" + (e as Error).message }, e instanceof MaxErr ? 400 : 500); }
-});
-app.post("/api/max/clean", async (c) => {
-	const b = await c.req.json<{ spec?: string; dry?: boolean }>().catch(() => ({}) as { spec?: string; dry?: boolean });
-	try { return c.json(await cleanBank(c.env.DB, String(b.spec ?? "").slice(0, 60), !b.dry)); }
-	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "清理失败：" + (e as Error).message }, e instanceof MaxErr ? 400 : 500); }
 });
 app.post("/api/max/chat", async (c) => {
 	const body = await c.req.json<{ messages?: unknown; ctx?: any }>().catch(() => ({}) as { messages?: unknown; ctx?: any });
