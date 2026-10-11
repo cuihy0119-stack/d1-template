@@ -340,3 +340,13 @@ body.drawing .maxball{opacity:0;pointer-events:none}
 @media(max-width:420px){.why2{grid-template-columns:1fr}}
 .bars>div{display:grid;grid-template-columns:5.5em 1fr 1.8em;align-items:center;gap:6px;font-size:13px;margin-top:4px}
 .bars i{height:8px;border-radius:4px;background:var(--pri2);min-width:4px}.bars b{font-weight:500;text-align:right}
+/* Max 标志动画：思考/回答时光芒错落伸缩 + 慢慢转（只动 transform） */
+.mlogo svg g,.mlogo line{transform-box:view-box;transform-origin:0 0} /* 标志的中心就是坐标原点 */
+.max-busy .mlogo svg g,.mb.thinking .mlogo svg g{animation:mspin 3.2s linear infinite}
+.max-busy .mlogo line,.mb.thinking .mlogo line{animation:mray .9s ease-in-out infinite alternate}
+@keyframes mspin{to{transform:rotate(360deg)}}
+@keyframes mray{from{transform:scale(.45)}to{transform:scale(1)}}
+.mb.thinking{display:flex;align-items:center;gap:8px}.mlogo.big svg{width:28px;height:28px}
+.maxball.drag{transition:none}
+.msend.stop{background:#3a3733;font-size:14px}
+@media(prefers-reduced-motion:reduce){.mlogo svg g,.mlogo line{animation:none!important}}

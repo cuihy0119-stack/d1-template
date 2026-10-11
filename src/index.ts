@@ -400,9 +400,14 @@ app.post("/api/max/organize", async (c) => {
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
 });
 app.post("/api/max/chat", async (c) => {
-	const { messages = [], ctx = {} } = await c.req.json<{ messages?: { role: "user" | "assistant"; content: string }[]; ctx?: any }>();
+	const body = await c.req.json<{ messages?: unknown; ctx?: any }>().catch(() => ({}) as { messages?: unknown; ctx?: any });
+	const ctx = body.ctx && typeof body.ctx === "object" ? body.ctx : {};
+	const messages = (Array.isArray(body.messages) ? body.messages : []).filter((m: any) => m && typeof m.content === "string" && m.content.trim())
+		.slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content.slice(0, 800) }) as { role: "user" | "assistant"; content: string });
+	if (!messages.length) return c.json({ error: "说点什么吧" }, 400);
+	const pg = ctx.page && typeof ctx.page === "object" ? { path: String(ctx.page.path ?? "").slice(0, 60), title: String(ctx.page.title ?? "").slice(0, 60), text: String(ctx.page.text ?? "").slice(0, 1500) } : undefined;
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: ctx.page });
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg });
 		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
 	} catch (e) {
 		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
