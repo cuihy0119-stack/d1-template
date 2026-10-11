@@ -133,7 +133,7 @@ const Max = (() => {
 	}
 	idle(makeBall);
 	// ⌘K / Ctrl+K 随时呼出或收起 Max（iPad 外接键盘、电脑）
-	addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); ui?.island.classList.contains("open") ? close() : open(); } });
+	addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && String(e.key).toLowerCase() === "k") { e.preventDefault(); ui?.island.classList.contains("open") ? close() : open(); } });
 
 	// ---------- 提示小气泡（贴在球旁边） ----------
 	function hidePeek() { peek?.classList.remove("on"); }
@@ -187,7 +187,7 @@ const Max = (() => {
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
 			log, chips, tags, attBox, el("div", { className: "min" }, picB, input, sendB), set);
 		sendB.onclick = () => (job ? stop() : send());
-		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !composing(e)) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
 		document.addEventListener("pointerdown", (e) => { if (island.classList.contains("open") && !island.contains(e.target) && !ball?.contains(e.target)) close(); }, { passive: true });
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && island.classList.contains("open")) close(); });

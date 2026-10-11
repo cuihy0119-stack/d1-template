@@ -55,7 +55,8 @@ export async function dailyCleanup(db: D1Database) {
 	};
 	// 1. 一次做对的题 超过 30 天：删题（attempts 保留）；错题文件夹里的等打包发给 Claude 后再清；题库里隐藏（超过 24/48 小时）满 30 天的也清掉
 	await db.batch([
-		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days')"),
+		// 排到以后才做的题（due）从那天起算，别在还没出现前就被删掉（和 live.ts 的计时起点一致）
+		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days') AND (due IS NULL OR datetime(due, '-8 hours') < datetime('now','-30 days'))"),
 		db.prepare("DELETE FROM questions WHERE status = 'done' AND status_at < datetime('now','-30 days')"),
 		db.prepare("DELETE FROM review_queue WHERE question_id NOT IN (SELECT id FROM questions WHERE status = 'active')"),
 		db.prepare("DELETE FROM attempts WHERE status = '待批改' AND question_id NOT IN (SELECT id FROM questions)"), // 题删了，待批改的作答没法批

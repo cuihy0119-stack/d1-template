@@ -35,7 +35,7 @@ let uploading = false, lastHome = "", waitBrief = 0;
 async function loadHome() {
 	if (uploading) return;
 	const h = await cachedApi("/api/home?brief=1", 60000), sig = JSON.stringify(h); // 1 分钟内刷新直接用缓存，不发请求
-	if (h.brief) { showBrief(h.brief); if (h.brief.thinking && waitBrief++ < 8) setTimeout(() => { dropCache(); loadHome(); }, 15000); } // Max 还在后台想：过一会儿再看（最多等 2 分钟，之后交给定时任务，下次打开再看）
+	if (h.brief) { showBrief(h.brief); if (h.brief.thinking && waitBrief++ < 8) setTimeout(() => { dropCache(); refresh(); }, 15000); } // Max 还在后台想：过一会儿再看（最多等 2 分钟，之后交给定时任务，下次打开再看）
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);
@@ -81,7 +81,7 @@ $("#pick").onchange = async (e) => {
 			msg.textContent = `上传中… ${i + 1}/${files.length}`;
 		}
 		uploading = false;
-		await loadHome();
+		await loadHome().catch(() => {}); // 照片已经传上去了：刷新首页失败不算上传失败
 		msg.textContent = `已上传 ${files.length} 张。` + msg.textContent;
 	} catch (err) {
 		uploading = false;
@@ -117,6 +117,8 @@ function showBrief(b) {
 	math(box);
 }
 
-addEventListener("max:changed", () => { lastHome = ""; loadHome(); }); // Max 清理了题库：首页重新读
-loadHome();
-autoRefresh(loadHome, 120000); // 页面开着时 2 分钟看一次（Claude 推了新题会更新）；有缓存时不发请求
+// 读不到首页数据（断网、服务器出错）：第一次就失败时在页面上说一声，之后的自动刷新失败不打扰
+const refresh = () => loadHome().catch((e) => { if (!lastHome) $("#recent").textContent = "加载失败：" + e.message + "（切回页面会自动重试）"; });
+addEventListener("max:changed", () => { lastHome = ""; refresh(); }); // Max 清理了题库：首页重新读
+refresh();
+autoRefresh(refresh, 120000); // 页面开着时 2 分钟看一次（Claude 推了新题会更新）；有缓存时不发请求

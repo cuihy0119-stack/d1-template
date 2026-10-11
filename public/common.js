@@ -42,6 +42,8 @@ try {
 		requestAnimationFrame(f);
 	}, 800));
 } catch {}
+// 中文输入法正在选字时按的回车不算「确定」（Safari 选字的回车 isComposing 是 false，只能靠 keyCode 229 认出来）
+const composing = (e) => e.isComposing || e.keyCode === 229;
 // 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);
 function el(tag, props = {}, ...kids) {
@@ -50,8 +52,12 @@ function el(tag, props = {}, ...kids) {
 	return e;
 }
 // 文字用 textContent 写入，再让 KaTeX 渲染 $...$ 公式（含 \ce{} 化学式）
+// KaTeX 三个脚本是 defer 加载的，DOMContentLoaded 时才保证都执行完（页面解析完、脚本还没下载完的空档里，readyState 已经不是 loading 了，
+// 第一次打开、接口先回来时公式会漏渲染；mhchem 也可能还没到，\ce 渲染不出），所以以 DOMContentLoaded 为准
+let domReady = document.readyState !== "loading";
+if (!domReady) addEventListener("DOMContentLoaded", () => (domReady = true), { once: true });
 function math(root) {
-	if (!window.renderMathInElement && document.readyState === "loading") return addEventListener("DOMContentLoaded", () => math(root), { once: true }); // KaTeX 是 defer 加载的
+	if (!domReady) return addEventListener("DOMContentLoaded", () => math(root), { once: true });
 	if (window.renderMathInElement) renderMathInElement(root, {
 		delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }],
 		throwOnError: false,

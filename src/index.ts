@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classifyState, cleanBank, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classifyState, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
@@ -228,12 +228,15 @@ app.post("/api/attempt-photo", async (c) => {
 });
 
 app.get("/photo/*", async (c) => {
-	const key = decodeURIComponent(new URL(c.req.url).pathname.slice("/photo/".length));
+	let key: string;
+	try { key = decodeURIComponent(new URL(c.req.url).pathname.slice("/photo/".length)); } catch { return c.notFound(); } // 地址里 % 编码坏了：当作没有，不报 500
 	const row = await c.env.DB.prepare("SELECT content_type, data FROM photos WHERE key = ?")
 		.bind(key)
 		.first<{ content_type: string; data: string }>();
 	if (!row) return c.notFound();
-	return new Response(Uint8Array.from(atob(row.data), (ch) => ch.charCodeAt(0)), {
+	const bin = atob(row.data), bytes = new Uint8Array(bin.length); // 普通循环解码：比 Uint8Array.from(…, 回调) 快，大图省 CPU
+	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+	return new Response(bytes, {
 		headers: { "content-type": row.content_type, "cache-control": "private, max-age=31536000, immutable" }, // 文件名随机，内容不会变
 	});
 });
@@ -367,7 +370,7 @@ app.get("/api/wrong", async (c) => {
 	const env = c.env, tab = c.req.query("tab") === "mastered" ? "mastered" : "active";
 	const out: Record<string, unknown> = await listQuestions(env.DB, tab);
 	// 看页面不触发 Max（不花额度）：整理在交卷后攒够 5 道、每天凌晨定时、或手动点按钮时才做
-	if (tab === "mastered") out.folder = JSON.parse((await env.DB.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? "null")?.text ?? null;
+	if (tab === "mastered") out.folder = parse<{ text?: string } | null>((await env.DB.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? null, null)?.text ?? null; // 存坏了也不让整页 500
 	return c.json(out);
 });
 // 标记 / 取消标记（临时文件夹，24 小时过期）

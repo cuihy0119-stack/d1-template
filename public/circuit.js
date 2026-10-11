@@ -69,7 +69,7 @@ class CircuitBoard {
 		guardCanvas(cv); // 先挂：防选中/放大、防手掌误触
 		cv.addEventListener("pointerdown", (e) => {
 			if (!e.isPrimary) return;
-			cv.setPointerCapture(e.pointerId);
+			try { cv.setPointerCapture(e.pointerId); } catch {} // 指针已失效时（如系统手势抢走）Safari 会抛错，别让这一笔整个失灵
 			const [p, raw] = this.at(e), t = this.tool, i = this.hit(raw);
 			if (this.check && this.objs[i]?.t === "sw") return this.toggle(i); // 通电时直接点开关
 			if (["erase", "flip", "name", "text"].includes(t)) return this.tapAct(p, raw);
@@ -112,7 +112,7 @@ class CircuitBoard {
 		const inp = el("input", { type: "text", value: def, className: "btext", style: `left:${Math.min(x, this.W - 120)}px;top:${Math.max(0, y - 30)}px` });
 		let ok = true;
 		const close = () => { if (!inp.isConnected) return; const v = inp.value.trim(); inp.remove(); ok ? done(v) : this.draw(); };
-		inp.onkeydown = (e) => { if (e.key === "Enter") inp.blur(); if (e.key === "Escape") { ok = false; inp.blur(); } };
+		inp.onkeydown = (e) => { if (e.key === "Enter" && !composing(e)) inp.blur(); if (e.key === "Escape") { ok = false; inp.blur(); } };
 		inp.onblur = close;
 		this.wrap.append(inp);
 		setTimeout(() => { inp.focus(); inp.select(); });

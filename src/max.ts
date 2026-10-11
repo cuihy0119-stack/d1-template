@@ -154,27 +154,30 @@ export async function askStream(env: Env, messages: Msg[], o: { max?: number; ro
 	o.engine?.(used_.name);
 	const p = used_, dec = new TextDecoder(), enc = new TextEncoder();
 	let buf = "", all = "", usage: any = null, think = false;
+	const line = (l: string, ctl: TransformStreamDefaultController<Uint8Array>) => {
+		const d = l.startsWith("data:") ? l.slice(5).trim() : "";
+		if (!d || d === "[DONE]") return;
+		try {
+			const j = JSON.parse(d);
+			if (j.usage) usage = j.usage;
+			let t: string = j.choices?.[0]?.delta?.content ?? j.response ?? "";
+			if (!t) return;
+			if (t.includes("<think>")) think = true; // 个别模型把思考写在 <think> 里：不显示
+			if (think) { if (t.includes("</think>")) { think = false; t = t.split("</think>").pop()!; } else return; }
+			all += t;
+			ctl.enqueue(enc.encode(t));
+		} catch {}
+	};
 	return src.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
 		transform(chunk, ctl) {
 			buf += dec.decode(chunk, { stream: true });
 			const lines = buf.split("\n");
 			buf = lines.pop()!;
-			for (const l of lines) {
-				const d = l.startsWith("data:") ? l.slice(5).trim() : "";
-				if (!d || d === "[DONE]") continue;
-				try {
-					const j = JSON.parse(d);
-					if (j.usage) usage = j.usage;
-					let t: string = j.choices?.[0]?.delta?.content ?? j.response ?? "";
-					if (!t) continue;
-					if (t.includes("<think>")) think = true; // 个别模型把思考写在 <think> 里：不显示
-					if (think) { if (t.includes("</think>")) { think = false; t = t.split("</think>").pop()!; } else continue; }
-					all += t;
-					ctl.enqueue(enc.encode(t));
-				} catch {}
-			}
+			for (const l of lines) line(l, ctl);
 		},
-		async flush() { // 记账/缓存失败不影响已经发出去的回答
+		async flush(ctl) { // 最后一行没以换行结尾也别丢（含用量）；记账/缓存失败不影响已经发出去的回答
+			buf += dec.decode();
+			if (buf) { line(buf, ctl); buf = ""; }
 			try { await p.bill(usage, est(messages), all.length); } catch {}
 			try { if (all && o.done) await o.done(all.trim()); } catch {}
 		},
