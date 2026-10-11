@@ -7,18 +7,20 @@ const Fig = (() => {
 
 	// 描述 → 作图板对象
 	function objs(spec) {
-		const named = {};
-		for (const o of spec.items) if (o.t === "pt" && o.n && isP(o.p)) named[o.n] = num2(o.p);
+		const named = {}, items = [...spec.items];
+		for (const [n, p] of Object.entries(spec.P || {})) if (isP(p)) { named[n] = num2(p); if (!items.some((o) => o.t === "pt" && o.n === n)) items.unshift({ t: "pt", p, n }); } // P 里定义的点自动画出来
+		for (const o of items) if (o.t === "pt" && o.n && isP(o.p)) named[o.n] = num2(o.p);
 		const P = (v) => (typeof v === "string" ? named[v.trim()] : isP(v) ? num2(v) : null);
+		const list = (v) => (typeof v === "string" ? ([...v].every((ch) => named[ch]) ? [...v] : v.split(/[,，\s]+/)) : v || []); // pts:"ABC" 或 ["A1","B1"]
 		const out = [];
-		for (const o of spec.items) {
+		for (const o of items) {
 			const s = { c: COL[o.c] || (/^#[0-9a-f]{3,6}$/i.test(o.c || "") ? o.c : "#111"), w: Math.min(4, +o.w || 2), d: !!o.d };
 			const a = P(o.a), b = P(o.b);
 			switch (o.t) {
 				case "pt": if (isP(o.p)) out.push({ ...s, t: "pt", p: num2(o.p), name: o.n || "", noxy: !(o.xy ?? spec.axes) }); break;
 				case "seg": case "line": case "ray": case "force": case "light": case "normal": case "mirror": case "lens": case "lens2":
 					if (a && b) out.push({ ...s, t: o.t, a, b, name: o.n }); break;
-				case "poly": case "curve": { const pts = (o.pts || []).map(P).filter(Boolean); if (pts.length > 1) out.push({ ...s, t: o.t, pts }); break; }
+				case "poly": case "curve": { const pts = list(o.pts).map(P).filter(Boolean); if (pts.length > 1) out.push({ ...s, t: o.t, pts }); break; }
 				case "circle": { const c = P(o.o ?? o.a), r = +o.r || (c && b ? Math.hypot(b[0] - c[0], b[1] - c[1]) : 0); if (c && r > 0) out.push({ ...s, t: "circle", a: c, b: [c[0] + r, c[1]], nodot: !o.o }); break; }
 				case "fn": if (o.expr) out.push({ ...s, t: "fn", expr: /^\s*y\s*=/i.test(o.expr) ? o.expr : "y = " + o.expr, label: o.n || "" }); break; // 解析式标签只在给了 n 时写（题目常常就是要你求它）
 				case "text": if (isP(o.p) && o.s != null) out.push({ ...s, t: "text", p: num2(o.p), s: String(o.s) }); break;
@@ -76,6 +78,35 @@ const Fig = (() => {
 		cv.dataset.ratio = W / H;
 		return cv;
 	}
+	// 电路图：用电路板同一套元件符号；导线不在一条线上自动折直角，三线交汇自动画连接点
+	const PARTS_OK = new Set(["cell", "batt", "sw", "lamp", "res", "rheo", "am", "vm", "motor", "bell", "led", "fuse"]);
+	function circuit(spec, maxW, maxH, sMax) {
+		if (typeof CircuitBoard === "undefined") return null;
+		const P = (v) => (isP(v) ? num2(v) : null), os = [];
+		for (const o of spec.items) {
+			if (o.t === "wire") {
+				const pts = (o.pts || [o.a, o.b]).map(P).filter(Boolean), w = [];
+				pts.forEach((q, i) => { if (i && pts[i - 1][0] !== q[0] && pts[i - 1][1] !== q[1]) w.push([q[0], pts[i - 1][1]]); w.push(q); });
+				if (w.length > 1) os.push({ t: "wire", pts: w });
+			} else if (o.t === "text" && P(o.p)) os.push({ t: "text", p: P(o.p), s: String(o.s ?? "") });
+			else if (PARTS_OK.has(o.t) && P(o.a) && P(o.b)) os.push({ t: o.t, a: P(o.a), b: P(o.b), name: o.n || "", on: !!o.on });
+		}
+		const all = os.flatMap((o) => o.pts || (o.p ? [o.p, [o.p[0] + o.s.length * 0.6, o.p[1]]] : [o.a, o.b]));
+		if (!all.length) return null;
+		const x0 = Math.min(...all.map((p) => p[0])) - 1, y0 = Math.min(...all.map((p) => p[1])) - 1, x1 = Math.max(...all.map((p) => p[0])) + 1, y1 = Math.max(...all.map((p) => p[1])) + 1;
+		const mv = (p) => [p[0] - x0, p[1] - y0], CCc = 28;
+		const objs2 = os.map((o) => (o.pts ? { ...o, pts: o.pts.map(mv) } : o.p ? { ...o, p: mv(o.p) } : { ...o, a: mv(o.a), b: mv(o.b) }));
+		const W = (x1 - x0) * CCc + CCc, H = (y1 - y0) * CCc + CCc;
+		const b = Object.assign(Object.create(CircuitBoard.prototype), { objs: objs2, W, H, check: false, clean: true, stat: {} });
+		const s = Math.max(0.5, Math.min(maxW / W, maxH / H, sMax)), dpr = Math.min(devicePixelRatio || 1, 3) * (sMax > 2 ? 1.5 : 1);
+		const cv = el("canvas", { width: Math.round(W * s * dpr), height: Math.round(H * s * dpr) }), c = cv.getContext("2d");
+		c.setTransform(s * dpr, 0, 0, s * dpr, 0, 0);
+		b.paint(c, false);
+		cv.style.width = Math.round(W * s) + "px";
+		cv.dataset.ratio = W / H;
+		return cv;
+	}
+	const draw = (spec, maxW, maxH, sMax) => (spec.circuit ? circuit : canvas)(spec, maxW, maxH, sMax);
 	const svgImg = (f) => {
 		const svg = /xmlns=/.test(f.svg) ? f.svg : f.svg.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
 		return el("img", { src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg), alt: "题图" });
@@ -83,23 +114,36 @@ const Fig = (() => {
 
 	// 放大：全屏浮层，按屏幕重画一张更大的；点任意处关闭
 	function zoom(spec) {
-		const pic = spec.svg ? svgImg(spec) : canvas(spec, innerWidth - 32, innerHeight * 0.82, 4);
+		const pic = spec.svg ? svgImg(spec) : draw(spec, innerWidth - 32, innerHeight * 0.82, 4);
 		if (!pic) return;
 		if (spec.svg) pic.style.width = Math.min(innerWidth - 32, (spec.w || 480) * 2) + "px";
 		const box = el("div", { className: "figzoom", onclick: () => box.remove() }, pic, el("p", { textContent: "点任意处关闭" }));
 		document.body.append(box);
 	}
 
-	/** 题图元素（spec 为空返回 ""，可直接 append）。where：main 题目卡片 / side 平板左栏和题干浮窗 / small 结果页、错题本 */
+	/** 题图元素（spec 为空返回 ""，可直接 append）。where：main 题目卡片 / side 平板左栏和题干浮窗 / small 结果页、错题本 / chat Max 回答里 */
+	const memo = new WeakMap(); // 同一道题重绘（点选项、开画板）时复用画好的图，不重画
 	function view(spec, where = "main") {
 		if (!spec || (!spec.svg && !spec.items?.length)) return "";
-		const maxH = where === "small" ? 220 : where === "side" ? 260 : Math.min(360, innerHeight * 0.46);
-		const pic = spec.svg ? svgImg(spec) : canvas(spec, where === "side" ? 340 : 560, maxH, 1.6);
+		const key = memo.get(spec) || {};
+		if (key[where]) return key[where];
+		memo.set(spec, key);
+		return (key[where] = build(spec, where));
+	}
+	function build(spec, where) {
+		const maxH = where === "small" ? 220 : where === "side" || where === "chat" ? 260 : Math.min(360, innerHeight * 0.46);
+		const pic = spec.svg ? svgImg(spec) : draw(spec, where === "side" || where === "chat" ? 320 : 560, maxH, 1.6);
 		if (!pic) return "";
 		// 宽度三选一取最小：容器宽、画布原本大小、按高度上限反推的宽 → 等比缩放不变形，不占满半屏以上
 		if (spec.svg) pic.style.width = `min(100%, ${spec.w || 480}px)`;
 		else pic.style.width = `min(100%, ${pic.style.width}, ${maxH * +pic.dataset.ratio}px)`;
 		return el("figure", { className: "qfig " + where, title: "点一下放大", onclick: (e) => { e.stopPropagation(); zoom(spec); } }, pic);
 	}
-	return { view };
+	/** 宽容解析模型写的 JSON：去掉代码块记号、单引号、结尾多余逗号、没加引号的键 */
+	function parse(s) {
+		s = String(s).trim().replace(/^```(json)?|```$/g, "");
+		try { return JSON.parse(s); } catch {}
+		try { return JSON.parse(s.replace(/'/g, '"').replace(/,\s*([\]}])/g, "$1").replace(/([{,]\s*)([A-Za-z_]\w*)\s*:/g, '$1"$2":')); } catch { return null; }
+	}
+	return { view, parse };
 })();

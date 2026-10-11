@@ -262,15 +262,33 @@ const Max = (() => {
 	// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
 	const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 	const PAGES = { "/": "首页", "/wrong": "错题本", "/bank": "题库" };
+	// Max 画的图：[[图:{JSON}]] → 用题图画板画出来（和 Claude 推题的画板同一套）。
+	// 画图组件（board/circuit/fig.js）平时不加载；回答里一出现「[[图」就提前加载，写完时直接画；同一条回答只画一次
+	const FIG = /\[\[图[:：]\s*(\{[\s\S]*?\})\s*\]\]/g;
+	let figReady;
+	const need = (src, ok) => (ok() ? null : new Promise((res, rej) => document.head.append(el("script", { src, onload: res, onerror: rej }))));
+	const needFig = () => (figReady ||= ["/board.js", "/circuit.js", "/fig.js"].reduce((p, src) => p.then(() => need(src, () =>
+		src === "/board.js" ? typeof Board !== "undefined" : src === "/circuit.js" ? typeof CircuitBoard !== "undefined" : typeof Fig !== "undefined")), Promise.resolve())
+		.catch((e) => { figReady = null; throw e; }));
 	function paint(div, text, final) {
+		const figs = [];
+		text = text.replace(FIG, (_, j) => `\u0001${figs.push(j) - 1}\u0001`);
+		const k = text.search(/\[\[图/); // 还没写完的图
+		if (k >= 0) text = text.slice(0, k) + "\u0002";
+		if (figs.length || k >= 0) needFig().catch(() => {}); // 提前加载，写完就能马上画
 		const h = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*/gm, "")
 			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
 			.replace(/\[\[清理[:：]([^\]]+)\]\]/g, (_, t) => `<button type="button" class="mgo" data-act="clean" data-spec="${t.trim()}">清理题库：${t.trim().replace("|", " · ")}</button>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
 			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
-			.replace(/\[\[[^\]]*$/, ""); // 流式输出时半截的 [[…：先不显示
+			.replace(/\[\[[^\]]*$/, "") // 流式输出时半截的 [[…：先不显示
+			.replace(/\u0001(\d+)\u0001/g, '<span class="mfigslot" data-i="$1">画图中…</span>').replace(/\u0002/, `<span class="mfigslot">${final ? "（图没写完，换个问法再试）" : "画图中…"}</span>`);
 		div.innerHTML = h;
+		if (final && figs.length) needFig().then(() => {
+			for (const s of div.querySelectorAll(".mfigslot[data-i]")) { const spec = Fig.parse(figs[+s.dataset.i]), f = spec && Fig.view(spec, "chat"); f ? s.replaceWith(f) : (s.textContent = "（这张图没画出来）"); }
+			scroll();
+		}, () => div.querySelectorAll(".mfigslot").forEach((s) => (s.textContent = "（画图组件没加载上）")));
 		if (final) try { math(div); } catch {}
 		if (final) for (const a of div.querySelectorAll("a[data-note]")) // 去 Notion 找同考点笔记，找到才显示
 			api("/api/notion?subject=" + encodeURIComponent(a.dataset.note.includes("/") ? a.dataset.note.split("/")[0] : "") + "&topic=" + encodeURIComponent(a.dataset.note.split("/").pop())).then((r) => { if (r?.note) { a.href = r.note.url; a.textContent = "Notion 笔记：" + r.note.title; a.hidden = false; } }).catch(() => {});

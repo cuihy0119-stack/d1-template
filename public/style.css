@@ -460,3 +460,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .matt button{flex:none;width:28px;height:28px;border:0;border-radius:50%;background:var(--mg-field);color:var(--fg);font-size:16px;line-height:1}
 .mb .mimg{display:block;max-width:180px;max-height:180px;border-radius:12px;margin:2px 0 6px;cursor:zoom-in}
 .island.setting>.matt{visibility:hidden}
+/* Max 回答里画的图：贴着文字、左对齐，宽度不超过气泡 */
+.qfig.chat{justify-content:flex-start;margin:8px 0 4px}
+.mfigslot{display:block;margin:8px 0;padding:18px 0;text-align:center;font-size:13px;color:var(--mute);border-radius:12px;background:var(--mg-btn)}
+.mb.assistant:has(.qfig){max-width:94%}

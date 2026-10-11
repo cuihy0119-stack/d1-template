@@ -228,7 +228,7 @@ class CircuitBoard {
 		const { W, H } = this;
 		c.fillStyle = "#fff"; c.fillRect(0, 0, W, H);
 		c.fillStyle = "#cfd5df";
-		for (let x = CC / 2; x < W; x += CC) for (let y = CC / 2; y < H; y += CC) c.fillRect(x - 1, y - 1, 2, 2);
+		if (!this.clean) for (let x = CC / 2; x < W; x += CC) for (let y = CC / 2; y < H; y += CC) c.fillRect(x - 1, y - 1, 2, 2);
 		const sim = this.check ? this.sim() : null;
 		this.stat.textContent = this.check ? "🔍 " + (sim ? sim.text : "先放一个电源") : "";
 		const list = [...this.objs];
