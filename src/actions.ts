@@ -1,6 +1,6 @@
 // Max 的网站动作：学生让 Max 做事（清空标记、清空错题文件夹、设考试…）时，Max 给一个 [[做:动作]] 按钮。
 // 点了先 dry=1 数一数、弹确认，确认后才真做。作答记录是统计数据，不删；整站清空不做（要删题用「清理题库」按科目/考点）。
-import { cleanBank, organize, startClassify, unorganized, MaxErr } from "./max";
+import { cleanBank, describeClean, organize, startClassify, unorganized, MaxErr } from "./max";
 import { wrongSql } from "./live";
 
 type Res = { msg: string; n: number; empty?: boolean; done?: boolean };
@@ -52,7 +52,7 @@ export async function runAction(env: Env, ctx: ExecutionContext, name: string, a
 		case "清理题库": { // 按「科目/考点」删（可加 |未做 或 |已做）；先数、确认才删
 			const { n, sample } = await cleanBank(db, arg, !dry);
 			if (!n) return { msg: "题库里没有符合的题", n, empty: true };
-			if (dry) return { msg: `删除题库里「${arg.replace("|", " · ")}」的 ${n} 道题？例如：${sample.join("；")}。做题记录会保留，删了不能恢复。`, n };
+			if (dry) return { msg: `删除题库里 ${n} 道题（${describeClean(arg)}）？例如：${sample.join("；") || "无"}。做题记录会保留，删了不能恢复。`, n };
 			return { msg: `已删除 ${n} 道题`, n, done: true };
 		}
 		case "设考试": {

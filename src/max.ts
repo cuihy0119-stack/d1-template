@@ -357,7 +357,11 @@ const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受�
  元件 t：cell 电源/sw 开关/lamp 灯/res 电阻/rheo 滑动变阻器/am 电流表/vm 电压表/motor/bell/led/fuse；横放或竖放；导线把各端连成回路。`;
 // 网站动作：学生明确要 Max 做事（清空、设考试、整理）时才附上；按钮点了先确认
 const ACT_RE = /清|删|标记|文件夹|收件箱|照片|总结|整理|分类|考试|倒计时/;
-const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]]，网站会先弹确认再执行：[[做:清空标记]] 标记的题 · [[做:清空错题本]] 复习中的错题 · [[做:清空错题文件夹]] 重做做对、还没发给Claude的题 · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]] · [[做:清理题库|科目/考点]]（可加 |未做 或 |已做）。
+const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]] 或 [[做:动作|参数]]，网站会先弹确认、数清楚数量再执行：
+[[做:清空标记]] 标记的题 · [[做:清空错题本]] · [[做:清空错题文件夹]] · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]]
+[[做:清理题库|{"groups":[…]}]] 删题：先想清楚学生要删哪些，翻成条件组，组与组是「或」，组内同时满足。条件：subject 科目（数学/物理/化学/语文/道法/历史/英语）；topic 考点关键词；tags 题型标签，逗号分隔，可用 选择,填空,计算,解答,证明,作图,函数,电路,光路,受力,简答；pending:true 有待批改的作答；undone:true 没做过；done:true 做过。
+例：清掉待批改的题、数学题和物理作图题 → [[做:清理题库|{"groups":[{"pending":true},{"subject":"数学"},{"subject":"物理","tags":"作图,函数,电路,光路,受力,证明"}]}]]
+待批改的题默认保护，学生没说删待批改就别加 pending。学生说的范围含糊（如「那些没用的」）就先问清楚，不要猜着删。
 作答记录是统计，不删；整站清空不做。`;
 const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结尾写“来源：网站名”；结果不相关或没搜到就如实说，不编造。";
 
@@ -504,23 +508,55 @@ export async function gen(env: Env, topic: string, n: number, allow?: () => Prom
 
 // ---------- 清理题库：Max 根据对话给出「科目/考点」，网站先数一数、学生确认后才删 ----------
 // spec：科目/考点[|未做|已做]。只动还在显示的题（status=active），不碰待批改的，作答记录都保留
-export async function cleanBank(db: D1Database, spec: string, apply: boolean): Promise<{ n: number; sample: string[]; left?: number }> {
-	const [sp, mode] = spec.split("|"), [sub, tp] = (sp || "").split("/").map((x) => x.trim());
-	if (!sub || sub === "全部") throw new MaxErr("要指明是哪一科的题");
-	const { results } = await db.prepare(`SELECT q.id, COALESCE(q.subject || q.no || '：', '') || substr(q.stem, 1, 24) t FROM questions q
-		WHERE q.status = 'active' AND ${live()} AND q.subject = ?1
-		  AND (?2 = '' OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%')
-		  AND (?3 = '' OR (?3 = '未做') = NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id))
-		  AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
-		ORDER BY q.id LIMIT 200`).bind(sub, tp || "", mode === "未做" || mode === "已做" ? mode : "").all<{ id: number; t: string }>();
+// 清理题库：Max 把学生的话翻成条件组（JSON），网站数题、学生确认才删。组内条件同时满足，组与组之间是「或」。
+// 条件：subject 科目；topic 考点（含）；tags 题型标签（逗号分隔，如 作图,电路）；pending 有待批改的作答；undone 没做过；done 做过。
+// 待批改的题默认不删（免得丢了没批的作答），要删必须写 pending:true。旧写法「科目/考点|未做」也认。
+export type Group = { subject?: string; topic?: string; tags?: string; pending?: boolean; undone?: boolean; done?: boolean };
+export function parseClean(arg: string): Group[] {
+	const t = arg.trim();
+	if (!t.startsWith("{")) { // 旧写法
+		const [sp, mode] = t.split("|"), [sub, tp] = (sp || "").split("/").map((x) => x.trim());
+		return [{ subject: sub, topic: tp || undefined, undone: mode === "未做", done: mode === "已做" }];
+	}
+	let j: any;
+	try { j = JSON.parse(t); } catch { throw new MaxErr("没看懂要删哪些题，换个说法再试"); }
+	return (Array.isArray(j.groups) ? j.groups : [j]).map((g: any) => ({ subject: g.subject, topic: g.topic, tags: g.tags, pending: !!g.pending, undone: !!g.undone, done: !!g.done }));
+}
+/** 给人看的条件说明（确认框用） */
+export function describeClean(arg: string): string {
+	try {
+		return parseClean(arg).map((g) => [g.subject, g.topic, g.tags?.replace(/,/g, "、") && `题型${g.tags.replace(/,/g, "、")}`, g.pending && "待批改", g.undone && "没做过", g.done && "做过"].filter(Boolean).join("·")).join("；");
+	} catch { return arg; }
+}
+export async function cleanBank(db: D1Database, arg: string, apply: boolean): Promise<{ n: number; sample: string[] }> {
+	const groups = parseClean(arg).slice(0, 6);
+	const pend = "EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')";
+	const args: unknown[] = [];
+	const cond = (g: Group): string => {
+		const c: string[] = [], p: unknown[] = [];
+		if (g.subject) { c.push("q.subject = ?"); p.push(g.subject.trim().slice(0, 10)); }
+		if (g.topic) { c.push("(COALESCE(q.topic, q.category, '未分类') LIKE ? OR COALESCE(q.tag, '') LIKE ?)"); p.push(`%${g.topic.trim()}%`, `%${g.topic.trim()}%`); }
+		const tags = (g.tags ?? "").split(/[,，\s]+/).filter(Boolean).slice(0, 12);
+		if (tags.length) { c.push(`q.tag IN (${tags.map(() => "?").join(",")})`); p.push(...tags); }
+		if (g.undone) c.push("NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id)");
+		if (g.done) c.push("EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id)");
+		if (g.pending) c.push(pend); else c.push(`NOT ${pend}`);
+		if (!g.subject && !g.topic && !tags.length && !g.pending && !g.undone && !g.done) throw new MaxErr("没说清楚范围，全删太危险，请指明科目、考点、题型或待批改");
+		args.push(...p);
+		return "(" + c.join(" AND ") + ")";
+	};
+	const where = groups.map(cond).join(" OR ");
+	const base = `q.status = 'active' AND ${live()} AND (${where})`;
+	const { results } = await db.prepare(`SELECT q.id, COALESCE(q.subject || q.no || '：', '') || substr(q.stem, 1, 24) t FROM questions q WHERE ${base} ORDER BY q.id LIMIT 300`).bind(...args).all<{ id: number; t: string }>();
 	const ids = results.map((r) => r.id);
-	if (apply && ids.length) {
-		const list = ids.join(",");
-		await db.batch([
-			db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
-			db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
-			db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
-		]);
+	if (apply && ids.length) { // 先定下 id，再分批删（删待批改的作答不能改变要删的题）
+		const stmts: D1PreparedStatement[] = [];
+		for (let i = 0; i < ids.length; i += 90) {
+			const list = ids.slice(i, i + 90).join(",");
+			stmts.push(db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`), db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
+				db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (${list})`), db.prepare(`DELETE FROM questions WHERE id IN (${list})`));
+		}
+		await db.batch(stmts);
 	}
 	return { n: ids.length, sample: results.slice(0, 3).map((r) => r.t) };
 }
