@@ -29,29 +29,35 @@ const clean = (t: string) => t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
 type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (inTok: number, outTok: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
+// 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
+const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
+
 async function providers(env: Env, route: Route, must = false): Promise<Prov[]> {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
-	const cf: Prov[] = (await used(db)) < (must ? DAILY : SOFT) ? CF.map((model) => ({
+	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
+	const cf: Prov[] = cfUsed < (must ? DAILY : SOFT) ? CF.map((model) => ({
 		name: "cf",
-		call: (messages, max, stream) => env.AI.run(model as any, {
+		call: (messages, max, stream) => within(env.AI.run(model as any, {
 			messages, max_completion_tokens: max, temperature: 0.3, stream,
 			...(stream ? { stream_options: { include_usage: true } } : {}),
 			...(model.includes("qwen") ? { reasoning_effort: "low" } : {}),
 		} as any).catch(async (e) => {
 			if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
 			throw e;
-		}),
+		}), stream ? 25000 : 40000),
 		bill: (i, o) => add(db, "max:", neurons(i, o)),
 	})) : [];
-	const ds: Prov[] = key && (await meter(db, "ds:")) < DS_DAILY ? [{
+	const ds: Prov[] = key && dsUsed < DS_DAILY ? [{
 		name: "ds",
 		call: async (messages, max, stream) => {
+			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? 20000 : 40000);
 			const r = await fetch("https://api.deepseek.com/chat/completions", {
-				method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key },
+				method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, signal: ac.signal,
 				body: JSON.stringify({ model: (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages, max_tokens: max, temperature: 0.3, stream, ...(stream ? { stream_options: { include_usage: true } } : {}) }),
 			});
-			if (!r.ok) throw new Error(`DeepSeek ${r.status} ${(await r.text()).slice(0, 80)}`);
-			return stream ? r.body : r.json();
+			if (!r.ok) { clearTimeout(t); throw new Error(`DeepSeek ${r.status} ${(await r.text()).slice(0, 80)}`); }
+			if (stream) { clearTimeout(t); return r.body; } // 开始输出就不再计时
+			try { return await r.json(); } finally { clearTimeout(t); }
 		},
 		bill: (i, o) => add(db, "ds:", i + o),
 	}] : [];
@@ -103,9 +109,9 @@ export async function askStream(env: Env, messages: Msg[], o: { max?: number; ro
 				} catch {}
 			}
 		},
-		async flush() {
-			await p.bill(usage?.prompt_tokens ?? est(messages), usage?.completion_tokens ?? all.length);
-			if (all && o.done) await o.done(all.trim());
+		async flush() { // 记账/缓存失败不影响已经发出去的回答
+			try { await p.bill(usage?.prompt_tokens ?? est(messages), usage?.completion_tokens ?? all.length); } catch {}
+			try { if (all && o.done) await o.done(all.trim()); } catch {}
 		},
 	}));
 }
@@ -162,7 +168,7 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 }
 /** 批一批（交卷后在后台跑；结果页轮询时也会补批没批完的） */
 export async function gradeAll(env: Env, ids: { id: number; fallback: number | null }[]) {
-	for (const x of ids) await grade(env, x.id, x.fallback);
+	for (let i = 0; i < ids.length; i += 3) await Promise.all(ids.slice(i, i + 3).map((x) => grade(env, x.id, x.fallback))); // 3 道一起批，交卷后结果出得快
 }
 
 // ---------- Claude 推题后：Max 扫一遍，补等价答案/考点/简短解析，发现答案可疑就提醒 ----------
@@ -287,7 +293,14 @@ async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: 
 }
 
 /** 题库概况（按科目/考点计数、近 30 天错题），让 Max 能「看到」题库 */
+let bankMemo: { at: number; v: string } | null = null; // 同一个 Worker 实例里 3 分钟内复用，聊天开得更快
 async function bankIndex(db: D1Database) {
+	if (bankMemo && Date.now() - bankMemo.at < 180000) return bankMemo.v;
+	const v = await bankIndexRaw(db);
+	bankMemo = { at: Date.now(), v };
+	return v;
+}
+async function bankIndexRaw(db: D1Database) {
 	const { results } = await db.prepare(
 		`SELECT q.subject s, COALESCE(q.topic, q.category, '未分类') t, COUNT(*) n,
 		        SUM(EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0)) w,
@@ -298,7 +311,7 @@ async function bankIndex(db: D1Database) {
 
 export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array> }> {
 	const db = env.DB;
-	const c = await context(db, ctx);
+	const [c, bank] = await Promise.all([context(db, ctx), ctx.q || ctx.a || ctx.explain || ctx.marked ? Promise.resolve("") : bankIndex(db)]); // 并行查
 	const oneShot = (ctx.explain || ctx.marked) && messages.length <= 1; // 一键讲解/解析：同一题同一结果只花一次额度
 	if (oneShot && c.key) {
 		const hit = await cacheGet(db, c.key, 24 * 14);
@@ -306,7 +319,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ 
 	}
 	const hist = messages.slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content).slice(0, 800) }) as Msg);
 	const page = !oneShot && ctx.page?.text ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1500)}` : "";
-	const sys = [CHAT_SYS, c.text || (await bankIndex(db)), page].filter(Boolean).join("\n\n"); // 讲具体题时不带题库概况，省额度
+	const sys = [CHAT_SYS, c.text || bank || (await bankIndex(db)), page].filter(Boolean).join("\n\n"); // 讲具体题时不带题库概况，省额度
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
 	return { stream: await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : 600, done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : undefined }) };
