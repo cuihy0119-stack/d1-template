@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { cause } from "./cause";
 import { loginPage } from "./login";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, gradeAll, MaxErr, used } from "./max";
+import { brief, bucket, byMax, chat, folderSummary, gradeAll, MaxErr, maxDaily, organize, unorganized, used, wrongSummary } from "./max";
 
 type Q = {
 	id: number;
@@ -328,20 +328,38 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
 			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
+			        q.max_reason, q.max_note, q.answer, la.answer_text, la.error_reason, la.comment, la.time_spent_sec,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
 			        (SELECT is_correct FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) last
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
+			 LEFT JOIN attempts la ON la.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
 			 WHERE ${wrong ? WRONG_SQL[wrong] : "q.status = 'active'"}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
-		.all();
-	return { items: results, today: today() };
+		.all<Record<string, any>>();
+	// 错因：脚本按作答推断一份（cause），Max 整理后再给一份（max_reason + max_note）
+	const items = results.map(({ answer, answer_text, error_reason, comment, time_spent_sec, ...q }) => ({
+		...q, cause: wrong && answer_text != null ? bucket(cause({ ...q, answer, answer_text, error_reason, comment, time_spent_sec } as any)) : wrong && q.source === "原错题" ? "原错题" : null,
+	}));
+	return { items, today: today() };
 }
 
 app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB)));
-app.get("/api/wrong", async (c) => c.json(await listQuestions(c.env.DB, c.req.query("tab") === "mastered" ? "mastered" : "active")));
+app.get("/api/wrong", async (c) => {
+	const env = c.env, tab = c.req.query("tab") === "mastered" ? "mastered" : "active";
+	const out: Record<string, unknown> = await listQuestions(env.DB, tab);
+	// Max 在后台自动整理：有没整理的错题且 5 分钟内没整理过 → 整理一批；文件夹新进 5 道以上 → 重写总结
+	const last = (await env.DB.prepare("SELECT v > datetime('now', '-5 minutes') busy FROM meta WHERE k = 'org_at'").first<{ busy: number }>())?.busy;
+	if (!last && (await unorganized(env.DB))) c.executionCtx.waitUntil(organize(env, 10).catch(() => 0));
+	if (tab === "mastered") {
+		const fs = JSON.parse((await env.DB.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? "null");
+		out.folder = fs?.text ?? null;
+		if ((out.items as unknown[]).length >= 5) c.executionCtx.waitUntil(folderSummary(env).catch(() => null));
+	}
+	return c.json(out);
+});
 // 标记 / 取消标记（临时文件夹，24 小时过期）
 app.post("/api/mark", async (c) => {
 	const { question_id, on } = await c.req.json<{ question_id: number; on: boolean }>();
@@ -376,10 +394,15 @@ app.get("/api/question/:id", async (c) => {
 
 // ---------- Max 助手 ----------
 app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1")), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
+app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env)));
+app.post("/api/max/organize", async (c) => {
+	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }
+});
 app.post("/api/max/chat", async (c) => {
 	const { messages = [], ctx = {} } = await c.req.json<{ messages?: { role: "user" | "assistant"; content: string }[]; ctx?: any }>();
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked });
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: ctx.page });
 		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
 	} catch (e) {
 		return c.json({ error: e instanceof MaxErr ? e.message : "Max 出错了：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500);
@@ -418,5 +441,5 @@ function providerFor(origin: string) {
 
 export default {
 	fetch: (req, env, ctx) => providerFor(new URL(req.url).origin).fetch(req, env, ctx),
-	scheduled: (_e, env, ctx) => ctx.waitUntil(dailyCleanup(env.DB)), // 每日清理
+	scheduled: (_e, env, ctx) => ctx.waitUntil(dailyCleanup(env.DB).then(() => maxDaily(env))), // 每日清理 + Max 用剩下的额度整理错题
 } satisfies ExportedHandler<Env>;

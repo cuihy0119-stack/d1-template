@@ -5,7 +5,7 @@ import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
-import { refine } from "./max";
+import { folderSummary, refine, shortLine } from "./max";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -13,7 +13,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
-批改：get_inbox → save({grades})；返回里出现【错题本打包】就照附言讲解并问是否归档 Notion。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+批改：get_inbox → save({grades})；返回里出现【错题文件夹·Max 已整理】就照附言处理。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
 分工：网站自带助手 Max（免费小模型）批选择/填空/文字解答，get_inbox 只给你作图、照片、手写的题；你推题后 Max 会补等价答案和考点，返回里有「⚠ 请核对」就检查那几题。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
@@ -64,29 +64,31 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 
 // ---------- 错题文件夹打包推送 ----------
 // 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：错题重做做对后进错题文件夹，
-// 攒满 20 道就整包附上（后端整理好题干、选项、错答、正确答案、错因、解析），请 Claude 整理并问是否归档进 Notion。
-// 发出去就从题库清掉（作答记录保留，Claude 照样能用作答 id 补错因）。
+// 攒满 20 道就附上 Max 的整理（总结 + 每题一行短记录），Claude 只做后续：讲评建议、归档、出巩固题。发出去就从题库清掉。
 const PACK_SIZE = 20;
-async function wrongPack(db: D1Database): Promise<string> {
+async function wrongPack(env: Env): Promise<string> {
+	const db = env.DB;
 	const n = (await db.prepare("SELECT COUNT(*) n FROM questions WHERE status = 'mastered'").first<{ n: number }>())?.n ?? 0;
 	if (n < PACK_SIZE) return "";
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation,
+			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note,
 			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
 			 FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
 			 WHERE q.status = 'mastered' ORDER BY q.subject, topic LIMIT 40`,
 		)
 		.all<any>();
 	if (!results.length) return "";
+	const sum = await Promise.race([folderSummary(env).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 20000))]);
 	const list = results.map((r) => r.id).join(",");
 	await db.batch([ // 发出即清
 		db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
 		db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
 		db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (${list})`),
 		db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
+		db.prepare("DELETE FROM meta WHERE k = 'folder_sum'"),
 	]);
-	return `\n\n【错题文件夹】${results.length} 道错题已重做做对（后端已整理题干、选项、当初的错答、正确答案、错因、解析），已从题库清掉：\n${results.map((r) => wrongLine(r) + (r.aid ? `｜作答id=${r.aid}` : "（照片录入的原错题）")).join("\n")}\n→ 先回答完学生（提到题时用题号，如 数学1），再：①按科目/考点整理，指出反复错的点；错因不准的 save({grades:[{id:作答id,score:0,comment,reason}]}) 补上；②问学生要不要归档进 Notion，同意后按 科目/章节/考点 照抄上面字段归档。`;
+	return `\n\n【错题文件夹·Max 已整理】${results.length} 道错题已重做做对，已从题库清掉。${sum ? "\nMax 总结：" + sum.text : ""}\n明细：\n${results.map(shortLine).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄明细归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
 }
 
 export function buildServer(env: Env) {
@@ -124,7 +126,7 @@ export function buildServer(env: Env) {
 				...(await images(db, keys)),
 			);
 		}
-		const dg = await wrongPack(db);
+		const dg = await wrongPack(env);
 		if (dg) out.push({ type: "text", text: dg });
 		return { content: out };
 	});
@@ -216,7 +218,7 @@ export function buildServer(env: Env) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await refine(env, fresh)) + (await wrongPack(db)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await refine(env, fresh)) + (await wrongPack(env)));
 		},
 	);
 

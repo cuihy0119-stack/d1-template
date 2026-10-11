@@ -29,6 +29,7 @@ async function loadHome() {
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);
+	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了 🎉");
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	if (h.summary) $("#summary").textContent = h.summary.text;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
