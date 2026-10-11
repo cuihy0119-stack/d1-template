@@ -79,6 +79,10 @@ const Max = (() => {
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
+		const sub = body.querySelector(".msub");
+		api("/api/max/status").then((s) => { // 两个引擎的状态
+			sub.textContent = `Cloudflare 额度已用 ${s.cf}% · DeepSeek ${s.ds.on ? "✓ 备用就绪" : "未接上（" + s.ds.msg + "）"}`;
+		}).catch(() => {});
 		return (ui = { island, body, log, input, sendB, chips, tipEl: pill.querySelector(".mtip") });
 	}
 
@@ -112,9 +116,10 @@ const Max = (() => {
 		if (!hist.length) bubble("assistant", ctx.q ? "我是 Max。卡住了问我要提示（不会直接给答案）。" : "我是 Max，管错题本的助手。可以让我总结这页、整理错题、安排今天先做什么，或者讲一道做错的题。");
 	}
 	function quick() { // 按页面给几个常用问题
-		const list = ctx.q ? ["给我一点提示", "这题考什么？"] : ctx.a ? ["讲讲这道题", "类似的易错点？"]
-			: location.pathname === "/wrong" ? ["总结这页的错题", "整理错题本", "最该先补哪块？"]
-			: ["总结这页", "今天先做什么？", "我的薄弱点？"];
+		const more = hist.length && hist[hist.length - 1].role === "assistant" ? ["没懂，再讲详细点"] : []; // 「没懂」会交给 DeepSeek
+		const list = ctx.q ? [...more, "给我一点提示", "这题考什么？"] : ctx.a ? [...more, "讲讲这道题", "类似的易错点？"]
+			: location.pathname === "/wrong" ? [...more, "总结这页的错题", "整理错题本", "最该先补哪块？"]
+			: [...more, "总结这页", "今天先做什么？", "我的薄弱点？"];
 		ui.chips.replaceChildren(...list.map((t) => el("button", { type: "button", textContent: t, onclick: () => (t === "整理错题本" ? orgNow() : send(t)) })));
 	}
 	function open(c, text) {
@@ -179,7 +184,7 @@ const Max = (() => {
 		hist.push({ role: "user", content: text });
 		bubble("user", text);
 		const out = thinking();
-		let all = "", raf = 0, ok = false;
+		let all = "", raf = 0, ok = false, eng = "";
 		job = new AbortController();
 		const ctl = job, t = setTimeout(() => ctl.abort("timeout"), TIMEOUT); // 一分钟没说完就停，免得卡住
 		lock(true);
@@ -189,6 +194,7 @@ const Max = (() => {
 				body: JSON.stringify({ messages: one ? hist.slice(-1) : hist.slice(-6), ctx: { ...ctx, ...extra, page: one ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
 			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "服务器开小差了（" + r.status + "）");
+			eng = r.headers.get("x-max-engine") || "";
 			const draw = () => { raf = 0; out.classList.remove("thinking"); paint(out, all, false); scroll(); };
 			if (r.body?.getReader) { // 边生成边显示（每帧最多画一次）
 				const rd = r.body.getReader(), dec = new TextDecoder();
@@ -209,7 +215,12 @@ const Max = (() => {
 			out.classList.remove("thinking");
 			all = all.trim() || "（Max 没说话，换个问法试试）";
 			paint(out, all, true);
-			if (ok) { hist.push({ role: "assistant", content: all }); keep(); }
+			if (ok) {
+				hist.push({ role: "assistant", content: all }); keep();
+				const by = { cf: "Cloudflare 回答", ds: "DeepSeek 回答", cache: "之前讲过（没花额度）" }[eng];
+				if (by) out.append(el("div", { className: "meng", textContent: by }));
+				quick(); // 出现「没懂，再讲详细点」
+			}
 			else { hist.pop(); out.append(el("button", { type: "button", className: "mgo", textContent: "↻ 重试", onclick: () => send(text, extra) })); } // 失败的问题不留在上下文里
 			job = null;
 			lock(false);

@@ -1,6 +1,7 @@
 // Max 助手 = 两个模型：
-//   总管：Cloudflare Workers AI（免费额度每天 1 万神经元，UTC 0 点重置）→ 批改、整理错题、总结等后台活
-//   备用：DeepSeek API（要在 Cloudflare 里设密钥 DEEPSEEK_API_KEY）→ 聊天；总管额度用完时也顶上后台活
+//   总管：Cloudflare Workers AI（免费额度每天 1 万神经元，UTC 0 点重置）→ 默认干所有活
+//   备用：DeepSeek API（Worker 运行时密钥 DEEPSEEK_API_KEY）→ 遇到难题直接上；总管额度用完、出错、超时、答得不靠谱时顶上
+// 同一件事只由一个模型答（按顺序试，成功就停），不会两边重复花钱；批改有抢占标记，不会重复批。
 // 省用量：关掉深度思考、限制输出长度、只发必要字段、能缓存的都缓存；作图/照片/手写题不碰，照旧交给 Claude。
 import { today, updateQueue } from "./review";
 import { pick } from "./tags";
@@ -14,7 +15,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const DRAW = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图题：Max 不批，交给 Claude
 
 type Msg = { role: "system" | "user" | "assistant"; content: string };
-type Route = "work" | "chat"; // work=后台活（总管优先），chat=聊天（备用优先）
+type Route = "work" | "hard"; // work=平常（总管优先），hard=难题（备用优先）
 export class MaxErr extends Error {}
 
 // ---------- 用量 ----------
@@ -32,7 +33,7 @@ type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Pr
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
 const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
 
-async function providers(env: Env, route: Route, must = false): Promise<Prov[]> {
+async function providers(env: Env, route: Route, must = false, only?: string): Promise<Prov[]> {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
 	const cf: Prov[] = cfUsed < (must ? DAILY : SOFT) ? CF.map((model) => ({
@@ -61,32 +62,52 @@ async function providers(env: Env, route: Route, must = false): Promise<Prov[]> 
 		},
 		bill: (i, o) => add(db, "ds:", i + o),
 	}] : [];
-	const list = route === "chat" ? [...ds, ...cf] : [...cf, ...ds];
+	const list = (route === "hard" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
 	if (!list.length) throw new MaxErr("Max 今天的额度用完了，明天再来" + (key ? "" : "（可以接 DeepSeek 备用）"));
 	return list;
 }
 
+/** 两个引擎的状态（灵动岛顶部显示；DeepSeek 用一句极短的话试通，结果缓存 30 分钟） */
+export async function status(env: Env) {
+	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
+	const [cf, ds] = await Promise.all([used(db), meter(db, "ds:")]);
+	let dsOk: string | null = key ? await cacheGet(db, "dsping", 0.5) : "未设置密钥";
+	if (key && !dsOk) {
+		try {
+			const r = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", signal: AbortSignal.timeout(10000),
+				headers: { "content-type": "application/json", authorization: "Bearer " + key },
+				body: JSON.stringify({ model: (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages: [{ role: "user", content: "回复ok" }], max_tokens: 3 }) });
+			dsOk = r.ok ? "ok" : r.status === 401 ? "密钥不对" : r.status === 402 ? "余额不足" : `出错 ${r.status}`;
+		} catch { dsOk = "连不上"; }
+		await cachePut(db, "dsping", dsOk);
+	}
+	return { cf: Math.min(100, Math.round((cf / DAILY) * 100)), ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY } };
+}
+export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (await meter(env.DB, "ds:")) < DS_DAILY;
+
 /** 一次问答，返回完整文本 */
-export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route } = {}): Promise<string> {
+export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; ok?: (t: string) => boolean } = {}): Promise<string> {
 	let last: unknown;
-	for (const p of await providers(env, o.route ?? "work", o.must)) {
+	for (const p of await providers(env, o.route ?? "work", o.must, o.only)) {
 		try {
 			const r: any = await p.call(messages, o.max ?? 500, false);
 			const text = clean(String(r?.choices?.[0]?.message?.content ?? r?.response ?? ""));
 			await p.bill(r?.usage?.prompt_tokens ?? est(messages), r?.usage?.completion_tokens ?? text.length);
-			if (text) return text;
+			if (text && (!o.ok || o.ok(text))) return text; // 答得不像样（如该给 JSON 没给）：换下一个模型
+			last = new Error("回答格式不对");
 		} catch (e) { last = e; }
 	}
 	throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 }
 
 /** 流式问答：边生成边显示；结束后记用量、可选写缓存 */
-export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; done?: (t: string) => Promise<unknown> } = {}): Promise<ReadableStream<Uint8Array>> {
+export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; done?: (t: string) => Promise<unknown>; engine?: (n: string) => void } = {}): Promise<ReadableStream<Uint8Array>> {
 	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown;
-	for (const p of await providers(env, o.route ?? "chat")) {
+	for (const p of await providers(env, o.route ?? "work")) {
 		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; }
 	}
 	if (!src || !used_) throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
+	o.engine?.(used_.name);
 	const p = used_, dec = new TextDecoder(), enc = new TextEncoder();
 	let buf = "", all = "", usage: any = null, think = false;
 	return src.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
@@ -123,6 +144,7 @@ export async function cacheGet(db: D1Database, k: string, hours: number) {
 export const cachePut = (db: D1Database, k: string, v: string) =>
 	db.prepare("INSERT OR REPLACE INTO max_cache (k, v, at) VALUES (?, ?, datetime('now'))").bind(k, v).run();
 
+const isArr = (t: string) => Array.isArray(json(t)), isObj = (t: string) => { const j = json(t); return !!j && typeof j === "object" && !Array.isArray(j); }; // 格式校验：不对就换模型
 const json = <T>(t: string): T | null => {
 	const m = t.match(/[[{][\s\S]*[\]}]/);
 	try { return m ? JSON.parse(m[0]) : null; } catch { return null; }
@@ -138,7 +160,7 @@ export function byMax(q: { subject: string; stem: string; tag?: string | null; b
 
 const GRADE_SYS = `你是 Max，初三错题练习站的批改助手。按参考答案和评分要点给学生作答打分（0-100，≥80 算对）。
 等价写法算对：0.5 与 1/2、x=2 与 2、顺序不同的多个根、单位写法不同但数值正确、意思相同的文字表述。
-只输出 JSON：{"score":数字,"comment":"≤40字，指出关键对错","reason":"概念不清|表述不规范|审题失误|计算错误|不会做|空（对的留空）"}`;
+只输出 JSON：{"score":数字,"comment":"≤40字，指出关键对错","reason":"概念不清|表述不规范|审题失误|计算错误|不会做|空（对的留空）","sure":0到1，你对这个判分有多确定}`;
 
 /** 批改一条作答（先抢占，避免重复批）。失败：填空退回网站判，简答留给 Claude */
 export async function grade(env: Env, id: number, fallback: number | null) {
@@ -151,7 +173,12 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 		if (!a) throw new Error("题目不在了");
 		const user = [`题（${a.subject}·${a.type === "fill" ? "填空" : "解答"}）：${a.stem}`, a.options ? "选项：" + arr(a.options).join(" ") : "",
 			"参考答案：" + arr(a.answer).join(" / "), a.explanation ? "评分要点：" + a.explanation : "", "学生作答：" + (a.answer_text || "（空）")].filter(Boolean).join("\n");
-		const r = json<{ score: number; comment?: string; reason?: string }>(await ask(env, [{ role: "system", content: GRADE_SYS }, { role: "user", content: user }], { max: 200, must: true }));
+		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS }, { role: "user", content: user }];
+		const valid = (t: string) => typeof json<any>(t)?.score === "number";
+		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, ok: valid }));
+		// 难题：总管拿不准（sure<0.6）或分数在及格线附近 → 交给 DeepSeek 复核一次
+		if (r && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
+			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "hard", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
 		if (!r || typeof r.score !== "number") throw new Error("Max 没给出分数");
 		const score = Math.max(0, Math.min(100, Math.round(r.score))), ok = score >= PASS;
 		await db.prepare("UPDATE attempts SET score = ?, comment = ?, error_reason = ?, is_correct = ?, status = '已判', grader = 'max' WHERE id = ?")
@@ -190,7 +217,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 		const known = subjects.map((s) => `${s}：${tops.filter((t) => t.subject === s).map((t) => t.topic).join("、") || "无"}`).join("\n");
 		const out = json<{ i: number; topic?: string; alt?: string[]; exp?: string; warn?: string }[]>(
 			await Promise.race([
-				ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100 }),
+				ask(env, [{ role: "system", content: REFINE_SYS }, { role: "user", content: `已有考点：\n${known}\n\n题目：\n${list}` }], { max: 120 * qs.length + 100, ok: isArr }),
 				new Promise<string>((_, rej) => setTimeout(() => rej(new MaxErr("超时")), 25000)),
 			]));
 		if (!Array.isArray(out)) return "";
@@ -248,7 +275,7 @@ export async function brief(env: Env, force = false) {
 		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
 			`近30天错得多的考点：${weak.map((w) => `${w.subject}/${w.topic} 错${w.wrong}/${w.n}`).join("；") || "无"}`,
 			`候选题（题号｜类型｜科目考点｜题干开头）：\n${cands.map((q) => `${q.id}｜${q.kind}${q.stage != null ? "第" + (q.stage + 1) + "轮" : ""}｜${q.subject}/${q.topic || "?"}｜${q.stem}`).join("\n")}`].join("\n");
-		const r = json<any>(await ask(env, [{ role: "system", content: BRIEF_SYS }, { role: "user", content: user }], { max: 400 })) ?? {};
+		const r = json<any>(await ask(env, [{ role: "system", content: BRIEF_SYS }, { role: "user", content: user }], { max: 400, ok: isObj })) ?? {};
 		const ok = new Set(cands.map((q) => q.id));
 		const out = { say: String(r.say || "").slice(0, 120), order: (Array.isArray(r.order) ? r.order : []).map(Number).filter((x: number) => ok.has(x)).slice(0, 10), weakTip: String(r.weak || "").slice(0, 160), sprint: soon.length ? String(r.sprint || "").slice(0, 160) : "" };
 		if (!out.order.length) out.order = cands.slice(0, 10).map((q) => q.id);
@@ -269,21 +296,21 @@ const CHAT_SYS = `你是 Max，「错题练习站」里的常驻学习助手，�
 
 type Ctx = { q?: number; a?: number; explain?: number; marked?: boolean; page?: { path?: string; title?: string; text?: string } };
 
-async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: string }> {
+async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: string; hard?: boolean }> {
 	if (ctx.marked) {
 		const { results } = await db.prepare(
 			`SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec
 			 FROM marks m JOIN questions q ON q.id = m.question_id LEFT JOIN attempts a ON a.id = m.attempt_id
 			 WHERE m.attempt_id IS NOT NULL AND m.created_at > datetime('now','-1 day') ORDER BY m.created_at LIMIT 12`).all<any>();
 		if (!results.length) return { text: "（没有标记的题，或已过 24 小时）" };
-		return { text: "学生标记的题：\n" + results.map((r) => (r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】") + wrongLine(r)).join("\n"), key: "mk:" + results.map((r) => r.aid + ":" + (r.is_correct ?? "")).join(",") };
+		return { text: "学生标记的题：\n" + results.map((r) => (r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】") + wrongLine(r)).join("\n"), key: "mk:" + results.map((r) => r.aid + ":" + (r.is_correct ?? "")).join(","), hard: results.length >= 5 };
 	}
 	const aid = ctx.explain ?? ctx.a;
 	if (aid) {
 		const r = await db.prepare(
 			`SELECT a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.score, a.time_spent_sec, q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation
 			 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?`).bind(aid).first<any>();
-		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}` };
+		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
 	}
 	if (ctx.q) {
 		const q = await db.prepare("SELECT subject, no, stem, options, topic FROM questions WHERE id = ?").bind(ctx.q).first<any>();
@@ -309,7 +336,9 @@ async function bankIndexRaw(db: D1Database) {
 	return results.length ? "题库（科目/考点：题数，错过，今天到期）：\n" + results.map((r) => `${r.s}/${r.t}：${r.n}题${r.w ? "，错" + r.w : ""}${r.d ? "，到期" + r.d : ""}`).join("\n") : "题库还是空的";
 }
 
-export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array> }> {
+// 难题信号：学生说没懂/要详细/问为什么，聊得很长，或要讲数理化的解答题 → 直接让 DeepSeek 答
+const HARD = /难|不懂|没懂|看不懂|不明白|详细|为什么|证明|推导|再讲|换个讲法|一步步|怎么来的/;
+export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array>; engine?: string }> {
 	const db = env.DB;
 	const [c, bank] = await Promise.all([context(db, ctx), ctx.q || ctx.a || ctx.explain || ctx.marked ? Promise.resolve("") : bankIndex(db)]); // 并行查
 	const oneShot = (ctx.explain || ctx.marked) && messages.length <= 1; // 一键讲解/解析：同一题同一结果只花一次额度
@@ -322,7 +351,11 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}): Promise<{ 
 	const sys = [CHAT_SYS, c.text || bank || (await bankIndex(db)), page].filter(Boolean).join("\n\n"); // 讲具体题时不带题库概况，省额度
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
-	return { stream: await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : 600, done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : undefined }) };
+	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 7 || c.hard;
+	let engine = "";
+	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], { max: ctx.marked ? 900 : hard ? 800 : 600, route: hard ? "hard" : "work",
+		done: oneShot && c.key ? (t) => cachePut(db, c.key!, t) : undefined, engine: (n) => (engine = n) });
+	return { stream, engine };
 }
 
 // ---------- 错题本：Max 整理（错因 + 一句话诊断 + 统一考点） ----------
@@ -348,7 +381,7 @@ export async function organize(env: Env, n = 10): Promise<number> {
 	const { results: tops } = await db.prepare(`SELECT subject, topic FROM questions WHERE topic IS NOT NULL AND subject IN (${subjects.map(() => "?")}) GROUP BY 1, 2 LIMIT 80`).bind(...subjects).all<{ subject: string; topic: string }>();
 	const list = rs.map((r, i) => `${i}. [${r.subject}] ${r.stem.slice(0, 200)}${r.options ? "｜选项：" + arr(r.options).join(" ") : ""}｜正确：${arr(r.answer).join(" / ")}｜错答：${String(r.answer_text ?? "（照片录入的原错题）").slice(0, 150)}｜脚本初判：${cause(r)}${r.time_spent_sec ? `｜用时${r.time_spent_sec}秒` : ""}`).join("\n");
 	const known = subjects.map((s) => `${s}：${tops.filter((t) => t.subject === s).map((t) => t.topic).join("、") || "无"}`).join("\n");
-	const out = json<{ i: number; reason?: string; note?: string; topic?: string }[]>(await ask(env, [{ role: "system", content: ORG_SYS }, { role: "user", content: `已有考点：\n${known}\n\n错题：\n${list}` }], { max: 60 * rs.length + 80 }));
+	const out = json<{ i: number; reason?: string; note?: string; topic?: string }[]>(await ask(env, [{ role: "system", content: ORG_SYS }, { role: "user", content: `已有考点：\n${known}\n\n错题：\n${list}` }], { max: 60 * rs.length + 80, ok: isArr }));
 	if (!Array.isArray(out)) return 0;
 	const stmts = out.filter((r) => rs[r.i]).map((r) => db.prepare("UPDATE questions SET max_reason = ?, max_note = ?, topic = COALESCE(?, topic), max_at = datetime('now') WHERE id = ?")
 		.bind(REASONS.includes(r.reason ?? "") ? r.reason : null, (r.note || "").slice(0, 60) || null, r.topic && r.topic.length <= 12 ? r.topic : null, rs[r.i].id));
