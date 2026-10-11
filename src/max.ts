@@ -38,32 +38,39 @@ const add = (db: D1Database, k: string, n: number) =>
 	db.prepare("INSERT INTO meta (k, v) VALUES (?1, ?2) ON CONFLICT(k) DO UPDATE SET v = CAST(v AS INTEGER) + ?2").bind(k + day(), Math.round(n)).run();
 export const used = (db: D1Database) => meter(db, "max:"); // Cloudflare 神经元
 const est = (m: Msg[]) => Math.ceil(m.reduce((n, x) => n + x.content.length, 0) * 1.1); // 中文约 1 字 1 token
-const clean = (t: string) => t.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+const clean = (t: string) => t.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim(); // 没写完的思考（被截断）也去掉
 
 type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
-const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("超时")), ms))]);
+// 到点真的中止请求（不再白白生成、花额度）；计时器用完就清
+const within = <T>(f: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> => {
+	const ac = new AbortController();
+	let t: any;
+	return Promise.race([f(ac.signal), new Promise<never>((_, rej) => { t = setTimeout(() => { ac.abort(); rej(new Error("超时")); }, ms); })]).finally(() => clearTimeout(t));
+};
+// 一次性回答的超时按要写多长算（出 10 道题、整理几十个考点要更久）：20~90 秒
+const waitFor = (max: number) => Math.min(90000, Math.max(20000, 12000 + max * 35));
 
 async function providers(env: Env, route: Route, must = false, only?: string, deep = false): Promise<Prov[]> {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
 	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? CF.map((model) => ({
 		name: "cf",
-		call: (messages, max, stream) => within(env.AI.run(model as any, {
+		call: (messages, max, stream) => within((signal) => env.AI.run(model as any, {
 			messages, max_completion_tokens: max, temperature: 0.3, stream,
 			...(stream ? { stream_options: { include_usage: true } } : {}),
 			...(model.includes("qwen") ? { reasoning_effort: "low" } : {}),
-		} as any).catch(async (e) => {
+		} as any, { signal }).catch(async (e) => {
 			if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
 			throw e;
-		}), stream ? 25000 : 40000),
+		}), stream ? 25000 : waitFor(max)),
 		bill: (u, i, o) => Promise.all([add(db, "max:", neurons(model, u, i, o)), add(db, "maxn:", 1)]), // 神经元 + 调用次数
 	})) : [];
 	const ds: Prov[] = key && dsUsed < DS_DAILY ? [{
 		name: "ds",
 		call: async (messages, max, stream) => {
-			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? 20000 : 40000);
+			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? (deep ? 40000 : 20000) : waitFor(max));
 			const r = await fetch("https://api.deepseek.com/chat/completions", {
 				method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, signal: ac.signal,
 				body: JSON.stringify({ model: deep ? (env as any).DEEPSEEK_REASONER_MODEL || "deepseek-reasoner" : (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages, max_tokens: max, ...(deep ? {} : { temperature: 0.3 }), stream, ...(stream ? { stream_options: { include_usage: true } } : {}) }),
@@ -240,9 +247,18 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 		} else await db.prepare("UPDATE attempts SET grader = NULL WHERE id = ?").bind(id).run(); // 交给 Claude
 	}
 }
-/** 批一批（交卷后在后台跑；结果页轮询时也会补批没批完的） */
-export async function gradeAll(env: Env, ids: { id: number; fallback: number | null }[]) {
-	for (let i = 0; i < ids.length; i += 3) await Promise.all(ids.slice(i, i + 3).map((x) => grade(env, x.id, x.fallback))); // 3 道一起批，交卷后结果出得快
+/** 批改任务（在 jobs.ts 的队列里跑）：把等 Max 批的作答都批完，3 道一起批。
+ * 同一时间只有一个批改任务，所以开头先把上次被平台切断、卡在「批改中」的放回去重批（以前要等到凌晨）。
+ * 时间不够就停，返回 true = 还有没批的，队列会再排一轮 */
+export async function gradeJob(env: Env, ms: number): Promise<boolean> {
+	const db = env.DB, end = Date.now() + ms;
+	await db.prepare("UPDATE attempts SET grader = 'max' WHERE status = '待批改' AND grader = 'maxing'").run();
+	for (;;) {
+		const { results } = await db.prepare("SELECT a.id, q.type FROM attempts a LEFT JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' AND a.grader = 'max' ORDER BY a.id LIMIT 3").all<{ id: number; type: string | null }>();
+		if (!results.length) return false;
+		if (Date.now() > end) return true;
+		await Promise.all(results.map((r) => grade(env, r.id, r.type === "fill" ? 0 : null))); // 填空 Max 不在：网站已判过不对，退回 0 分
+	}
 }
 
 // ---------- Claude 推题后：Max 扫一遍，补等价答案/考点/简短解析，发现答案可疑就提醒 ----------
@@ -423,20 +439,22 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const db = env.DB;
 	const fresh = !!(ctx.web || ctx.deep); // 联网搜索/深度思考：每次都重新问，不读不写同问缓存
 	if (ctx.deep && !(await hasDs(env))) throw new MaxErr("深度思考只能用 DeepSeek，现在没接上或今天的额度用完了");
-	const [c, bank] = await Promise.all([context(db, ctx), ctx.q || ctx.a || ctx.explain || ctx.marked || ctx.tmp ? Promise.resolve("") : bankIndex(db)]); // 并行查
+	const q = messages[messages.length - 1]?.content ?? "";
 	const oneShot = (ctx.explain || ctx.marked) && messages.length <= 1; // 一键讲解/解析：同一题同一结果只花一次额度
+	// 页面内容只在问到「这页/总结/分析…」时才带；题库概况只在问题和题目有关、又没带题目/页面时才查（查它要扫全库，不需要就不查）
+	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
+	const needBank = !(ctx.q || ctx.a || ctx.explain || ctx.marked || ctx.tmp) && !page && BANK_RE.test(q);
+	const [c, bank] = await Promise.all([context(db, ctx), needBank ? bankIndex(db) : ""]); // 并行查
 	if (oneShot && c.key && !fresh) {
 		const hit = await cacheGet(db, c.key, 24 * 14);
 		if (hit) return { cached: hit };
 	}
-	// 省额度：历史里 Max 的旧回答只留开头；页面内容只在问到「这页/总结/分析…」时才带；带了页面就不再带题库概况
+	// 省额度：历史里 Max 的旧回答只留开头
 	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
 	const hist = messages.slice(hard ? -6 : -4).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
-	const q = messages[messages.length - 1]?.content ?? "";
-	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
 	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
-	const bankText = c.text || page || !BANK_RE.test(q) ? "" : bank || (await bankIndex(db)); // 题库概况只在问题和题目有关时才附
+	const bankText = c.text ? "" : bank;
 	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : "") + (NOTE_RE.test(q) ? "\n" + NOTE_DOC : "") + (ACT_RE.test(q) ? "\n" + ACT_DOC : ""), c.text || bankText, page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
@@ -468,7 +486,7 @@ export async function see(env: Env, image: string, q: string, allow?: () => Prom
 	let last: unknown;
 	for (const model of VISION) {
 		try {
-			const r: any = await within(env.AI.run(model as any, { messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 800, temperature: 0.1 } as any), 45000);
+			const r: any = await within((signal) => env.AI.run(model as any, { messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: image } }] }], max_tokens: 800, temperature: 0.1 } as any, { signal }), 45000);
 			const text = clean(String(r?.choices?.[0]?.message?.content ?? r?.response ?? ""));
 			await Promise.all([add(env.DB, "max:", neurons(model, r?.usage, 1600, text.length)), add(env.DB, "maxn:", 1)]);
 			if (text) return text.slice(0, 1800);

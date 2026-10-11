@@ -118,12 +118,12 @@ function row(q) {
 }
 
 // 错题本顶部：错因统计（脚本归类 vs Max 归类）+ Max 总结 + 一键整理
-let lastSum = "";
+let lastSum = "", waitSum = 0;
 async function loadSum() {
 	if (MODE !== "wrong") return; // 题库页没有错因卡片
 	if (tab !== "active") { lastSum = ""; return $("#maxsum").replaceChildren(); }
 	const s = await cachedApi("/api/max/wrongsum", 120000).catch(() => null);
-	if (s?.thinking) setTimeout(() => { dropCache(); loadSum(); }, 15000); // Max 后台重写总结中：过一会儿再看
+	if (s?.thinking && waitSum++ < 8) setTimeout(() => { dropCache(); loadSum(); }, 15000); // Max 后台重写总结中：过一会儿再看（最多等 2 分钟）
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
 	if (JSON.stringify(s) === lastSum) return; // 没变不重画、不再弹提示
 	lastSum = JSON.stringify(s);
