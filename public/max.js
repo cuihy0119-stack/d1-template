@@ -287,7 +287,7 @@ const Max = (() => {
 			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
-			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|([^\]]*))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">⚡ ${n.trim()}${a.trim() ? "：" + a.trim().replace(/\|/g, " ") : ""}</button>`)
+			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|(.*?))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">⚡ ${n.trim()}${a.trim() ? "：" + actLabel(n.trim(), a.trim()) : ""}</button>`)
 			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
 			.replace(/\[\[[^\]]*$/, "") // 流式输出时半截的 [[…：先不显示
 			.replace(/\u0001(\d+)\u0001/g, '<span class="mfigslot" data-i="$1">画图中…</span>').replace(/\u0002/, `<span class="mfigslot">${final ? "（图没写完，换个问法再试）" : "画图中…"}</span>`);
@@ -376,6 +376,15 @@ const Max = (() => {
 		finally { out.classList.remove("thinking"); job = null; lock(false); }
 	}
 
+	// 按钮上的说明：JSON 条件组读成人话，其它参数照原样
+	function actLabel(name, arg) {
+		const raw = arg.replace(/&quot;/g, '"').replace(/&amp;/g, "&"); // 文本已转义过，先还原再读
+		if (!raw.startsWith("{")) return arg.replace(/\|/g, " ");
+		try {
+			const j = JSON.parse(raw);
+			return (j.groups || [j]).map((g) => [g.subject, g.topic, g.tags && "题型" + g.tags.replace(/,/g, "、"), g.pending && "待批改", g.undone && "没做过", g.done && "做过"].filter(Boolean).join("·")).join("；");
+		} catch { return "（条件看不懂）"; }
+	}
 	// Max 给的网站动作（[[做:…]]）：先数一数、弹确认，确认才做；做完刷新题库/错题本/首页
 	async function act(b) {
 		if (b.disabled) return;
