@@ -8,6 +8,8 @@ export const TEMPLATES = `save({def:{subject,topic}, questions:[…]})。公式 
 照片原错题放 wrong 带 upload:照片id；同类题 questions 带 origin:原题id；复习旧题 save({review:[id]})。
 topic/exp/等价答案可省，Max 会补；返回有 ⚠ 才核对。
 题图 fig（题目需要图时给，网站自动裁边居中画出）：{axes?:坐标系,grid?:方格,x?:[a,b],y?:[a,b],items:[…]}，单位=格，y 向上。
- items：{t:"pt",p:[0,0],n:"A",xy?:标坐标} 后面可用名字代坐标；{t:"seg"|"line"|"ray",a:"A",b:"B",d?:虚线,c?:"red"|"blue"}；{t:"poly",pts:["A","B","C"]}；
+ 点先在 P 里定义（省字）：P:{A:[0,3],B:[0,0]}，之后用名字；要标坐标用 {t:"pt",p:[1,2],n:"P",xy:1}。{t:"seg"|"line"|"ray",a:"A",b:"B",d?:虚线,c?:"red"|"blue"}；{t:"poly",pts:"ABC"}；
  {t:"circle",o:"O",r:2}；{t:"fn",expr:"y=x^2-2x"}；{t:"text",p:[1,2],s:"60°"}；{t:"right",at:"C",a:"A",b:"B"} 直角；{t:"angle",at:"B",a:"A",b:"C",s:"α"} 角弧；
- 物理 {t:"force"|"light"|"normal"|"mirror"|"lens",a,b,n?}；其它图（电路、实验装置、图表）直接 fig:{svg:"<svg viewBox=…>…</svg>"}。organize 可带 fig 补图。`;
+ 物理 {t:"force"|"light"|"normal"|"mirror"|"lens",a,b,n?}。
+电路图 fig:{circuit:true,items:[…]}（格点坐标，y 向下）：元件 {t:"cell"|"batt"|"sw"|"lamp"|"res"|"rheo"|"am"|"vm"|"motor"|"bell"|"led"|"fuse",a:[0,0],b:[2,0],n:"L1",on?:开关闭合}（横放或竖放，两端=接线点，≥2 格）；导线 {t:"wire",pts:[[2,0],[6,0],[6,4]]}（不在一条线上自动折直角，三线交汇自动画连接点）；{t:"text",p,s}。
+其它图（实验装置、图表）直接 fig:{svg:"<svg viewBox=…>…</svg>"}。organize 可带 fig 补图。`;

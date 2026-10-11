@@ -348,6 +348,13 @@ const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学�
 学生想练某类题就给 [[练:科目/考点]]（题库有同类题就直接跳过去，没有网站会让你现场出题，不用你出）。
 讲解学生做错的题时，末尾加一行 [[笔记:科目/考点]]（网站会去学生的 Notion 找同考点笔记，没有就不显示）。
 学生想删/清理题库里的题时给 [[清理:科目/考点]]（可加 |未做 或 |已做，如 [[清理:数学/集合|已做]]；科目/考点用题库概况里的写法）；点按钮学生还要再确认，你别说“已删除”。`;
+// 画图说明：只在问题和图有关时才附上（平时不发，省 token）。写法尽量短：点用 P 一次定义，pts 可写成 "ABC"
+const DRAW_RE = /画|图|几何|三角形|四边形|多边形|圆|角|线段|射线|垂直|平行|函数|抛物线|坐标|电路|串联|并联|电流|电压|受力|光路|示意/;
+const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受力/光路、电路），单独一行写 [[图:JSON]]，网站会画出来；一次一张，越简单越好，坐标用整数。
+几何（单位=格，y 向上）：{"P":{"A":[0,3],"B":[0,0],"C":[4,0]},"items":[{"t":"poly","pts":"ABC"},{"t":"right","at":"B","a":"A","b":"C"},{"t":"text","p":[2,-1],"s":"4"}]}
+ 其它 t：seg/line/ray（a,b 写点名，"d":1 虚线，"c":"red"）、circle（o,r）、angle（at,a,b,s 角弧标注）、fn（expr:"y=x^2-2x"，配 "axes":1）、force（a,b,n）。
+电路（格点，y 向下）：{"circuit":1,"items":[{"t":"cell","a":[0,0],"b":[2,0]},{"t":"sw","a":[4,0],"b":[6,0],"on":1},{"t":"lamp","a":[6,2],"b":[6,4],"n":"L1"},{"t":"wire","pts":[[2,0],[4,0]]},{"t":"wire","pts":[[6,0],[6,2]]},{"t":"wire","pts":[[6,4],[0,4],[0,0]]}]}
+ 元件 t：cell 电源/sw 开关/lamp 灯/res 电阻/rheo 滑动变阻器/am 电流表/vm 电压表/motor/bell/led/fuse；横放或竖放；导线把各端连成回路。`;
 const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结尾写“来源：网站名”；结果不相关或没搜到就如实说，不编造。";
 
 // len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
@@ -420,7 +427,8 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const q = messages[messages.length - 1]?.content ?? "";
 	const page = !oneShot && ctx.page?.text && PAGEQ.test(q) ? `学生当前页面（${String(ctx.page.title || ctx.page.path || "").slice(0, 30)}）的内容：\n${String(ctx.page.text).slice(0, 1200)}` : "";
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
-	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
+	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
+	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : ""), c.text || (page ? "" : bank || (await bankIndex(db))), page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
@@ -437,7 +445,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	}
 	let engine = "";
 	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], {
-		max: ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : hard ? Math.max(len[1], 800) : len[1], // 深度思考的思考过程也算在 max 里，要给足
+		max: (ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : hard ? Math.max(len[1], 800) : len[1]) + (drawing ? 400 : 0), // 深度思考的思考过程也算在 max 里，要给足
 		route: ctx.deep || ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
 		done: !ctx.web && oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream, engine, web: ctx.web ? web : undefined };
