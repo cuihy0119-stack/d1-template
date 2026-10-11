@@ -100,7 +100,7 @@ function row(q) {
 async function loadSum() {
 	if (MODE !== "wrong") return; // 题库页没有错因卡片
 	if (tab !== "active") return $("#maxsum").replaceChildren();
-	const s = await api("/api/max/wrongsum").catch(() => null);
+	const s = await cachedApi("/api/max/wrongsum", 120000).catch(() => null);
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
 	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
 		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
@@ -112,7 +112,9 @@ async function loadSum() {
 		el("h2", { textContent: `错因分析（${s.total} 道错题）` }),
 		s.summary ? el("p", { textContent: "🤖 " + s.summary }) : "",
 		Object.keys(s.max).length ? el("div", { className: "why2" }, el("div", {}, el("b", { textContent: "Max 看题分析的错因" }), bars(s.max))) : "",
-		el("div", { className: "row" }, org, el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}, "总结这页的错题，最该先补哪块？") }))));
+		el("div", { className: "row" }, org,
+			s.stale ? el("button", { type: "button", className: "btn small", textContent: "↻ 让 Max 重新总结", onclick: async (e) => { e.target.disabled = true; await api("/api/max/wrongsum?force=1").catch(() => {}); dropCache(); load(); } }) : "",
+			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}, "总结这页的错题，最该先补哪块？") }))));
 	const top = Object.entries(s.max).filter(([k]) => k !== "待分析").sort((a, b) => b[1] - a[1])[0];
 	Max.tip(`错题 ${s.total} 道` + (top ? `，最多的错因：${top[0]}` : s.todo ? `，Max 正在分析错因` : ""));
 }
@@ -120,7 +122,7 @@ addEventListener("max:changed", () => load());
 
 function load() {
 	loadSum();
-	api(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank").then((d) => { data = d; render(); });
+	cachedApi(MODE === "wrong" ? "/api/wrong?tab=" + tab : "/api/bank", 60000).then((d) => { data = d; render(); });
 }
 load();
 autoRefresh(load); // 切回页面时更新（不定时刷新，免得收起正在看的题）

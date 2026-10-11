@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, pregrade, folderSummary, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, pregrade, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
 type Q = {
 	id: number;
@@ -154,7 +154,13 @@ async function subjectQuestions(db: D1Database, subject: string): Promise<Q[]> {
 
 // ---------- 首页 ----------
 app.get("/api/home", async (c) => {
-	const db = c.env.DB;
+	if (c.req.query("brief") === "1") { // 首页一次拿全（数据 + Max 建议），少一次请求
+		const [h, b] = await Promise.all([homeData(c.env.DB), brief(c.env).catch(() => null)]);
+		return c.json({ ...h, brief: b && { ...b, budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) } });
+	}
+	return c.json(await homeData(c.env.DB));
+});
+async function homeData(db: D1Database) {
 	const [qs, summary, pending, wrong, subjects, ungraded, marked, recent, exams, days_, right7] = await Promise.all([
 		todayQuestions(db),
 		db.prepare("SELECT text, created_at FROM summaries ORDER BY id DESC LIMIT 1").first(),
@@ -181,7 +187,7 @@ app.get("/api/home", async (c) => {
 	const days = new Set(days_.results.map((r) => r.d));
 	let streak = 0;
 	for (let d = days.has(today()) ? today() : addDays(today(), -1); days.has(d); d = addDays(d, -1)) streak++; // 今天还没做不算断
-	return c.json({
+	return {
 		today_count: qs.length,
 		summary,
 		pending_uploads: pending?.n ?? 0,
@@ -195,8 +201,8 @@ app.get("/api/home", async (c) => {
 		done_today: days.has(today()),
 		right7: right7?.n ?? 0,
 		recent: recent.results.map((q) => ({ id: q.id, subject: q.subject, tag: pick({ ...q, opts: !!q.options }).tag, stem: (label(q) + q.stem).slice(0, 60), created_at: q.created_at })),
-	});
-});
+	};
+}
 
 app.post("/api/uploads", async (c) => {
 	const form = await c.req.formData();
@@ -293,6 +299,7 @@ app.post("/api/submit", async (c) => {
 	}
 	if (toMax.length) c.executionCtx.waitUntil(gradeAll(c.env, toMax)); // Max 在后台批，结果页轮询会显示
 	if (toClaude.length) c.executionCtx.waitUntil(pregrade(c.env, toClaude)); // 交给 Claude 的：Max 先写初评，Claude 看得少
+	c.executionCtx.waitUntil((async () => { if ((await unorganized(db)) >= 5) await organize(c.env, 10); })().catch(() => {})); // 新错题攒够 5 道才让 Max 分析一次（一次批量，省额度）
 	return c.json({ attempt_ids: attemptIds });
 });
 
@@ -352,14 +359,8 @@ app.get("/api/bank", async (c) => c.json(await listQuestions(c.env.DB)));
 app.get("/api/wrong", async (c) => {
 	const env = c.env, tab = c.req.query("tab") === "mastered" ? "mastered" : "active";
 	const out: Record<string, unknown> = await listQuestions(env.DB, tab);
-	// Max 在后台自动整理：有没整理的错题且 5 分钟内没整理过 → 整理一批；文件夹新进 5 道以上 → 重写总结
-	const last = (await env.DB.prepare("SELECT v > datetime('now', '-5 minutes') busy FROM meta WHERE k = 'org_at'").first<{ busy: number }>())?.busy;
-	if (!last && (await unorganized(env.DB))) c.executionCtx.waitUntil(organize(env, 10).catch(() => 0));
-	if (tab === "mastered") {
-		const fs = JSON.parse((await env.DB.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? "null");
-		out.folder = fs?.text ?? null;
-		if ((out.items as unknown[]).length >= 5) c.executionCtx.waitUntil(folderSummary(env).catch(() => null));
-	}
+	// 看页面不触发 Max（不花额度）：整理在交卷后攒够 5 道、每天凌晨定时、或手动点按钮时才做
+	if (tab === "mastered") out.folder = JSON.parse((await env.DB.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>())?.v ?? "null")?.text ?? null;
 	return c.json(out);
 });
 // 标记 / 取消标记（临时文件夹，24 小时过期）
@@ -397,7 +398,7 @@ app.get("/api/question/:id", async (c) => {
 // ---------- Max 助手 ----------
 app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1")), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
 app.get("/api/max/status", async (c) => c.json(await status(c.env)));
-app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env)));
+app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1")));
 app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "整理失败：" + (e as Error).message }, 429); }

@@ -71,7 +71,7 @@ async function providers(env: Env, route: Route, must = false, only?: string): P
 export async function status(env: Env) {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const [cf, ds] = await Promise.all([used(db), meter(db, "ds:")]);
-	let dsOk: string | null = key ? await cacheGet(db, "dsping", 0.5) : "未设置密钥";
+	let dsOk: string | null = key ? await cacheGet(db, "dsping", 12) : "未设置密钥"; // 12 小时试一次密钥
 	if (key && !dsOk) {
 		try {
 			const r = await fetch("https://api.deepseek.com/chat/completions", { method: "POST", signal: AbortSignal.timeout(10000),
@@ -263,9 +263,13 @@ export async function brief(env: Env, force = false) {
 	const cands = [...due.results.map((q) => ({ ...q, kind: "复习" })), ...fresh.results.map((q) => ({ ...q, kind: "新题" }))];
 	const base = { topics: weak, weakIds, soon, cands: cands.length };
 	const sig = `${n?.a}:${n?.q}`;
-	const hit = await db.prepare("SELECT v, at > datetime('now', '-3 hours') fresh FROM max_cache WHERE k = ?").bind("br:" + d).first<{ v: string; fresh: number }>();
+	const hit = await db.prepare("SELECT v, at > datetime('now', '-10 minutes') recent FROM max_cache WHERE k = ?").bind("br:" + d).first<{ v: string; recent: number }>();
 	const old = hit ? json<any>(hit.v) : null;
-	if (old && !force && (old.sig === sig || hit!.fresh)) return { ...base, ...old.r, cached: true };
+	// 一天只让 Max 想一次（每天凌晨定时先想好）；刷新页面只读缓存，已经做掉的题从推荐里去掉（不花额度）。手动「重新看看」10 分钟内最多一次
+	if (old && (!force || hit!.recent)) {
+		const left = new Set(cands.map((q) => q.id));
+		return { ...base, ...old.r, order: (old.r.order as number[]).filter((id) => left.has(id)), cached: true };
+	}
 	if (!cands.length && !weak.length) return { ...base, say: "题库还空着，拍照上传错题或让 Claude 出题吧", order: [], weakTip: "", sprint: "" };
 	try {
 		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
@@ -385,22 +389,24 @@ export const unorganized = async (db: D1Database) => (await db.prepare(`SELECT C
 
 
 /** 错题本错因统计：脚本归类 vs Max 归类 + Max 一段总结（按统计变化缓存） */
-export async function wrongSummary(env: Env) {
+export async function wrongSummary(env: Env, force = false) {
 	const db = env.DB;
 	const { results: rs } = await db.prepare(`${WRONG_ROWS} WHERE q.status = 'active' AND (q.source = '原错题' OR a.id IS NOT NULL)`).all<any>();
 	const count = (f: (r: any) => string | null) => rs.reduce((m: Record<string, number>, r) => { const k = f(r); if (k) m[k] = (m[k] || 0) + 1; return m; }, {});
 	const max = count((r) => r.max_reason || (r.max_at ? null : "待分析"));
-	const sig = "ws:" + JSON.stringify(max);
-	let summary = await cacheGet(db, sig, 24 * 7);
-	if (!summary && rs.length >= 3) {
+	// 总结存一份，刷新只读它；只有第一次、每天定时、或手动「重新分析」才让 Max 重写
+	const saved = json<{ text: string; sig: string }>((await db.prepare("SELECT v FROM meta WHERE k = 'wsum'").first<{ v: string }>())?.v ?? "");
+	const sig = JSON.stringify(max);
+	let summary = saved?.text ?? null;
+	if ((!saved || (force && saved.sig !== sig)) && rs.length >= 3) {
 		try {
 			const notes = rs.filter((r) => r.max_note).slice(0, 15).map((r) => `${r.subject}/${r.topic || "?"}：${r.max_note}`).join("\n");
 			summary = await ask(env, [{ role: "system", content: "据错因统计和诊断，≤80字说初三学生最主要的问题和下一步怎么练。" },
 				{ role: "user", content: `错因统计：${JSON.stringify(max)}\n诊断：\n${notes || "无"}` }], { max: 200 });
-			await cachePut(db, sig, summary);
-		} catch { summary = null; }
+			await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('wsum', ?)").bind(JSON.stringify({ text: summary, sig })).run();
+		} catch { summary = saved?.text ?? null; }
 	}
-	return { total: rs.length, max, summary, todo: await unorganized(db) };
+	return { total: rs.length, max, summary, stale: !!saved && saved.sig !== sig, todo: await unorganized(db) };
 }
 
 // ---------- 错题文件夹：Max 总结，攒满 20 道发给 Claude 的就是这份总结（Claude 少读很多字） ----------
@@ -423,9 +429,11 @@ export const shortLine = (r: any) =>
 	`${r.subject}${r.no ?? ""}（${r.topic || "?"}）：${String(r.stem).slice(0, 60)}${r.stem.length > 60 ? "…" : ""}｜正确：${arr(r.answer).join(" / ").slice(0, 40)}${r.max_reason ? "｜错因：" + r.max_reason : ""}${r.max_note ? "｜" + r.max_note : ""}${r.aid ? "｜作答id=" + r.aid : ""}`;
 
 /** 每天定时：用掉总管当天剩下的额度做整理（UTC 19 点后，额度 0 点重置） */
-export async function maxDaily(env: Env) {
+export async function maxDaily(env: Env) { // 北京时间凌晨 3 点：Max 把当天要用的都先想好，白天刷新页面不再花额度
 	try { for (let i = 0; i < 4 && (await organize(env, 10)); i++); } catch {}
 	try { await folderSummary(env); } catch {}
+	try { await wrongSummary(env, true); } catch {}
+	try { await brief(env, true); } catch {}
 }
 
 // ---------- 给 Claude 减负：交给 Claude 的题（作图/电路等有文字描述的），Max 先写初评 ----------

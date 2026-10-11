@@ -82,11 +82,16 @@ const Max = (() => {
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
 		const sub = body.querySelector(".msub");
-		const show = (s) => { sub.textContent = `Cloudflare 额度 ${s.cf}% · DeepSeek ${s.ds.on ? "✓" : "未接上（" + s.ds.msg + "）"}${s.sec ? ` · 今天拦截 ${s.sec} 次可疑访问` : ""}`; };
-		let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
-		if (st && Date.now() - st.at < 600000) show(st.s); // 10 分钟内不重复查
-		else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
-		return (ui = { island, body, log, input, sendB, chips, tipEl: pill.querySelector(".mtip") });
+		ui = { island, body, log, input, sendB, chips, tipEl: pill.querySelector(".mtip") };
+		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
+			if (ui.statusDone) return;
+			ui.statusDone = true;
+			const show = (s) => { sub.textContent = `Cloudflare 额度 ${s.cf}% · DeepSeek ${s.ds.on ? "✓" : "未接上（" + s.ds.msg + "）"}${s.sec ? ` · 今天拦截 ${s.sec} 次可疑访问` : ""}`; };
+			let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
+			if (st && Date.now() - st.at < 600000) show(st.s);
+			else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
+		};
+		return ui;
 	}
 
 	// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
@@ -130,6 +135,7 @@ const Max = (() => {
 		if (c) ctx = c;
 		ui.island.classList.remove("peek");
 		ui.island.classList.add("open");
+		ui.status();
 		ball?.classList.add("hide");
 		if (!ui.log.childElementCount) { hist.forEach((m) => bubble(m.role, m.content)); hello(); }
 		quick();
