@@ -302,58 +302,6 @@ body.drawing .rail.show{opacity:.3}
 .board input,.calcpad input,.bwrap input{-webkit-user-select:text;user-select:text}
 /* 落笔时浮岛不再实时模糊画布，写字更跟手 */
 body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
-/* ---------- Max 助手：悬浮球 + 灵动岛 ---------- */
-.maxball{position:fixed;z-index:40;right:10px;top:62%;width:48px;height:48px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;
-  background:#1c1a18;box-shadow:0 6px 20px rgba(0,0,0,.28);touch-action:none;-webkit-tap-highlight-color:transparent;transition:transform .25s var(--ease),opacity .2s}
-.maxball:active{transform:scale(.9)}.maxball.hide{opacity:0;transform:scale(.6);pointer-events:none}
-.island{position:fixed;z-index:45;left:50%;top:calc(8px + env(safe-area-inset-top));width:min(94vw,440px);transform:translateX(-50%) scale(.3,.12);transform-origin:top center;
-  opacity:0;pointer-events:none;background:#121110;color:#f2ede6;border-radius:30px;box-shadow:0 14px 44px rgba(0,0,0,.35);overflow:hidden;
-  transition:transform .42s cubic-bezier(.2,.9,.25,1.15),opacity .2s,border-radius .3s}
-.island.peek{opacity:1;transform:translateX(-50%) scale(1);pointer-events:auto;width:auto;max-width:min(94vw,440px)}
-.island.open{opacity:1;transform:translateX(-50%) scale(1);pointer-events:auto;border-radius:26px}
-.mpill{display:flex;align-items:center;gap:8px;padding:8px 16px 8px 10px;font-size:14px;cursor:pointer;white-space:nowrap}
-.mtip{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.island.open .mpill{display:none}.island:not(.open) .mbody{display:none}
-.mlogo{display:inline-grid;place-items:center;flex:none}.mlogo svg{width:22px;height:22px}
-.mbody{display:flex;flex-direction:column;max-height:min(74vh,620px)}
-.mhead{display:flex;align-items:center;gap:8px;padding:12px 14px 8px}.mhead b{font:600 17px var(--serif)}
-.mhead .msub{flex:1;font-size:11px;color:#a59d93;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mhead button{border:0;background:#2a2826;color:#d8d1c7;font-size:12px;padding:5px 10px;border-radius:12px}
-.mlog{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px;display:flex;flex-direction:column;gap:8px;min-height:140px}
-.mb{max-width:88%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
-.mb.user{align-self:flex-end;background:#D97757;color:#fff;border-bottom-right-radius:5px}
-.mb.assistant{align-self:flex-start;background:#24221f;border-bottom-left-radius:5px}
-.mb.thinking{color:#a59d93}
-.mgo{display:inline-block;margin:6px 6px 0 0;padding:5px 12px;border-radius:12px;border:0;background:#33302c;color:#f5c9b5;font-size:14px;text-decoration:none;white-space:normal}
-.mchips{display:flex;gap:6px;overflow-x:auto;padding:4px 14px 6px;scrollbar-width:none}
-.mchips button{flex:none;border:1px solid #3a3733;background:none;color:#d8d1c7;font-size:13px;padding:5px 11px;border-radius:14px}
-.min{display:flex;gap:8px;align-items:flex-end;padding:6px 12px 12px}
-.min textarea{flex:1;min-height:40px;max-height:110px;resize:none;margin:0;font-size:16px;background:#1f1d1b;color:#f2ede6;border:1px solid #3a3733;border-radius:18px;padding:9px 14px}
-.msend{flex:none;width:40px;height:40px;border-radius:50%;border:0;background:#D97757;color:#fff;font-size:18px}
-@media(prefers-reduced-motion:reduce){.island,.maxball{transition:none}}
-.lite .island{box-shadow:none}
-.maxcard .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.maxcard .row .btn{margin:0;text-decoration:none}
-.maxcard p{margin:6px 0}.maxcard .weak{font-size:14px}.maxcard .weak span{display:inline-block;margin:2px 6px 2px 0}
-.maxtag{font-size:12px;color:var(--pri);margin-left:4px}
-/* 做题页：悬浮球放左边、小一点，避开右侧画板工具条；落笔时隐藏 */
-body.focus .maxball{right:auto;left:8px;width:40px;height:40px;opacity:.85}
-body.drawing .maxball{opacity:0;pointer-events:none}
-/* 错题本：错因（脚本推断 / Max 诊断） */
-.item .why{margin-top:4px;font-size:12px;color:var(--mute);display:flex;flex-wrap:wrap;gap:4px 10px}.item .why .mx{color:var(--pri)}
-.why2{display:grid;grid-template-columns:1fr;gap:12px;margin-top:6px}.why2>div>b{font-size:13px;color:var(--mute);font-weight:500}
-.bars>div{display:grid;grid-template-columns:minmax(4em,8em) 1fr 1.8em;align-items:center;gap:6px;font-size:13px;margin-top:4px}
-.bars i{height:8px;border-radius:4px;background:var(--pri2);min-width:4px}.bars b{font-weight:500;text-align:right}
-/* Max 标志动画：思考/回答时光芒错落伸缩 + 慢慢转（只动 transform） */
-.mlogo svg g,.mlogo line{transform-box:view-box;transform-origin:0 0} /* 标志的中心就是坐标原点 */
-.max-busy .mlogo svg g,.mb.thinking .mlogo svg g{animation:mspin 3.2s linear infinite}
-.max-busy .mlogo line,.mb.thinking .mlogo line{animation:mray .9s ease-in-out infinite alternate}
-@keyframes mspin{to{transform:rotate(360deg)}}
-@keyframes mray{from{transform:scale(.45)}to{transform:scale(1)}}
-.mb.thinking{display:flex;align-items:center;gap:8px}.mlogo.big svg{width:28px;height:28px}
-.maxball.drag{transition:none}
-.msend.stop{background:#3a3733;font-size:14px}
-@media(prefers-reduced-motion:reduce){.mlogo svg g,.mlogo line{animation:none!important}}
-.meng{margin-top:4px;font-size:11px;color:#8d857b}
 
 /* ---------- 动效：列表/结果卡片依次浮现，Max 气泡弹入（只动 transform/opacity；精简模式和减少动态时关闭） ---------- */
 .item,.rcard{animation:rise .42s var(--ease) both;animation-delay:calc(var(--i,0) * 32ms)}
@@ -362,25 +310,8 @@ body.drawing .maxball{opacity:0;pointer-events:none}
 .stat b{animation:pop .5s var(--ease) both .2s}
 .lite .item,.lite .rcard,.lite .mb,.lite .stat b{animation:none}
 
-/* ---------- 灵动岛动画：弹性展开（支持 linear() 的用弹簧曲线），内容随后淡入；收起更快 ---------- */
-.island{--spring:cubic-bezier(.2,.9,.25,1.15)}
-@supports (transition-timing-function:linear(0,1)){.island{--spring:linear(0,.009,.035 2.1%,.141,.281 6.7%,.723 12.9%,.938 16.7%,1.017,1.077,1.121,1.149 24.3%,1.159,1.163,1.161,1.154 29.9%,1.129 32.8%,1.051 39.6%,1.017 43.1%,.991,.977 51%,.974 53.8%,.975 57.1%,.997 69.8%,1.003 76.9%,1)}}
-.island{transition:transform .5s var(--spring),opacity .18s}
-.island:not(.open):not(.peek){transition:transform .26s var(--ease),opacity .2s}
-.island.open .mbody>*{animation:mdrop .34s var(--ease) both}
-.island.open .mhead{animation-delay:.06s}.island.open .mlog{animation-delay:.1s}.island.open .mchips,.island.open .min{animation-delay:.14s}
-@keyframes mdrop{from{opacity:0;transform:translateY(-8px)}}
-.island.peek .mpill{animation:mbin .35s var(--ease) both}
-body.max-busy .island.peek .mlogo svg g{animation:mspin 3.2s linear infinite}
 
 /* ---------- iPad / 大屏 ---------- */
-.maxball{right:calc(10px + env(safe-area-inset-right))}
-@media(min-width:744px){
-  .island{left:auto;right:calc(16px + env(safe-area-inset-right));width:420px;transform:scale(.3,.12);transform-origin:top right}
-  .island.peek,.island.open{transform:scale(1)}
-  .island .mbody{max-height:min(80vh,720px)}
-  .maxball{width:54px;height:54px}.maxball svg{width:30px;height:30px}
-}
 @media(min-width:1024px){main{max-width:920px}.subjects{grid-template-columns:repeat(4,1fr)}}
 /* 触控板/鼠标悬停（iPad 妙控键盘、电脑） */
 @media(hover:hover) and (pointer:fine){
@@ -388,10 +319,79 @@ body.max-busy .island.peek .mlogo svg g{animation:mspin 3.2s linear infinite}
   .btn:hover,.subj:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.08)}
   .chip:hover,.opt:hover{transform:translateY(-1px)}
   .item:hover{background:color-mix(in srgb,var(--pri) 5%,transparent)}
-  .maxball:hover{transform:scale(1.06)}
-  .mchips button:hover,.mhead button:hover,.mgo:hover{filter:brightness(1.25)}
 }
-@media(prefers-reduced-motion:reduce){.island{transition:none!important}.island .mbody>*{animation:none!important}}
 /* 提示条：自己的进场动画，保持居中 */
 .toast{animation:toastin .3s var(--ease) both}
 @keyframes toastin{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translateX(-50%)}}
+
+/* ---------- Max 助手：悬浮球（可拖动、贴边、闲置变淡）+ 跟着球展开的液态玻璃窗口 ----------
+   位置全用 transform 定位（不触发重排），动画只动 transform/opacity；精简模式和不支持模糊的浏览器用实色 */
+:root{--sat:env(safe-area-inset-top);--sab:env(safe-area-inset-bottom);--sal:env(safe-area-inset-left);--sar:env(safe-area-inset-right);
+  --spring:cubic-bezier(.2,.9,.25,1.15);
+  --mg-bg:rgba(252,249,244,.78);--mg-edge:rgba(255,255,255,.55);--mg-hi:rgba(255,255,255,.7);--mg-bubble:rgba(255,255,255,.62);--mg-field:rgba(255,255,255,.55);--mg-btn:rgba(120,100,80,.12)}
+@media(prefers-color-scheme:dark){:root{--mg-bg:rgba(30,28,26,.74);--mg-edge:rgba(255,255,255,.14);--mg-hi:rgba(255,255,255,.16);--mg-bubble:rgba(255,255,255,.08);--mg-field:rgba(0,0,0,.25);--mg-btn:rgba(255,255,255,.1)}}
+@supports (transition-timing-function:linear(0,1)){:root{--spring:linear(0,.009,.035 2.1%,.141,.281 6.7%,.723 12.9%,.938 16.7%,1.017,1.077,1.121,1.149 24.3%,1.159,1.163,1.161,1.154 29.9%,1.129 32.8%,1.051 39.6%,1.017 43.1%,.991,.977 51%,.974 53.8%,.975 57.1%,.997 69.8%,1.003 76.9%,1)}}
+
+.maxball{position:fixed;z-index:60;left:0;top:0;width:50px;height:50px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;
+  background:rgba(28,26,24,.82);-webkit-backdrop-filter:blur(12px) saturate(160%);backdrop-filter:blur(12px) saturate(160%);
+  box-shadow:0 6px 20px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.18);touch-action:none;-webkit-tap-highlight-color:transparent;cursor:pointer;
+  transition:transform .45s var(--spring),opacity .5s ease,scale .2s var(--ease);will-change:transform}
+.maxball:active{scale:.9}
+.maxball *{touch-action:none;pointer-events:none} /* 按住的是球本身，不是里面的标志（拖动不会被当成滚动） */
+.maxball.drag{transition:opacity .2s,scale .2s}                         /* 拖动时跟手，不要位移动画 */
+.maxball.idle{opacity:.2}                                             /* 不用时淡到 20%（80% 透明）*/
+.maxball.hide{opacity:0;pointer-events:none}
+body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字时让开 */
+.max-busy .maxball:not(.hide){opacity:1}
+@media(min-width:744px){.maxball{width:56px;height:56px}.maxball svg{width:30px;height:30px}}
+
+/* 提示小气泡：贴在球旁边 */
+.mpeek{position:fixed;z-index:61;left:0;top:0;max-width:min(70vw,320px);display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:18px;font-size:14px;color:var(--fg);
+  background:var(--mg-bg);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);
+  border:1px solid var(--mg-edge);box-shadow:0 8px 24px rgba(0,0,0,.14),inset 0 1px 0 var(--mg-hi);
+  opacity:0;pointer-events:none;transition:opacity .3s}
+.mpeek.on{opacity:1;pointer-events:auto;animation:peekin .4s var(--spring) both}
+@keyframes peekin{from{scale:.85}}
+.mpeek span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 窗口：从球的位置弹开（transform-origin 由脚本设成球心），液态玻璃 */
+.island{position:fixed;z-index:62;left:0;top:0;width:400px;height:560px;display:flex;flex-direction:column;border-radius:26px;overflow:hidden;color:var(--fg);
+  background:var(--mg-bg);-webkit-backdrop-filter:blur(30px) saturate(190%);backdrop-filter:blur(30px) saturate(190%);
+  border:1px solid var(--mg-edge);box-shadow:0 20px 60px rgba(0,0,0,.24),inset 0 1px 0 var(--mg-hi),inset 0 -1px 0 rgba(255,255,255,.08);
+  opacity:0;transform:scale(.1);pointer-events:none;visibility:hidden;
+  transition:transform .26s var(--ease),opacity .2s,visibility 0s .26s}
+.island::before{content:"";position:absolute;left:0;right:0;top:0;height:45%;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(170deg,rgba(255,255,255,.32),rgba(255,255,255,0) 60%)}          /* 玻璃上沿的高光 */
+.island.open{opacity:1;transform:none;pointer-events:auto;visibility:visible;transition:transform .5s var(--spring),opacity .18s,visibility 0s}
+.island.open>*{animation:mdrop .34s var(--ease) both}
+.island.open>.mlog{animation-delay:.06s}.island.open>.mchips,.island.open>.min{animation-delay:.1s}
+@keyframes mdrop{from{opacity:0;transform:translateY(6px)}}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.island,.mpeek{background:var(--solid)}}
+.lite .island,.lite .mpeek{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+
+.mlogo{display:inline-grid;place-items:center;flex:none}.mlogo svg{width:22px;height:22px}
+.mhead{position:relative;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}.mhead b{font:600 17px var(--serif)}
+.mhead .msub{flex:1;font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mhead button{border:0;background:var(--mg-btn);color:var(--fg);font-size:12px;padding:5px 10px;border-radius:12px}
+.mlog{position:relative;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+.mb{max-width:88%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
+.mb.user{align-self:flex-end;background:#D97757;color:#fff;border-bottom-right-radius:5px}
+.mb.assistant{align-self:flex-start;background:var(--mg-bubble);border-bottom-left-radius:5px;box-shadow:inset 0 0 0 1px var(--mg-edge)}
+.mb.thinking{color:var(--mute);display:flex;align-items:center;gap:8px}.mlogo.big svg{width:28px;height:28px}
+.mgo{display:inline-block;margin:6px 6px 0 0;padding:5px 12px;border-radius:12px;border:0;background:rgba(217,119,87,.14);color:var(--pri);font-size:14px;text-decoration:none;white-space:normal}
+.meng{margin-top:4px;font-size:11px;color:var(--mute)}
+.mchips{position:relative;display:flex;gap:6px;overflow-x:auto;padding:4px 14px 6px;scrollbar-width:none}
+.mchips::-webkit-scrollbar{display:none}
+.mchips button{flex:none;border:1px solid var(--mg-edge);background:var(--mg-btn);color:var(--fg);font-size:13px;padding:5px 11px;border-radius:14px}
+.min{position:relative;display:flex;gap:8px;align-items:flex-end;padding:6px 12px 12px}
+.min textarea{flex:1;min-height:40px;max-height:110px;resize:none;margin:0;font-size:16px;background:var(--mg-field);color:var(--fg);border:1px solid var(--mg-edge);border-radius:18px;padding:9px 14px}
+.msend{flex:none;width:40px;height:40px;border-radius:50%;border:0;background:#D97757;color:#fff;font-size:18px}
+.msend.stop{background:var(--mg-btn);color:var(--fg);font-size:14px}
+
+/* 思考动画：光芒错落伸缩 + 慢转 */
+.mlogo svg g,.mlogo line{transform-box:view-box;transform-origin:0 0}
+.max-busy .mlogo svg g,.mb.thinking .mlogo svg g{animation:mspin 3.2s linear infinite}
+.max-busy .mlogo line,.mb.thinking .mlogo line{animation:mray .9s ease-in-out infinite alternate}
+@keyframes mspin{to{transform:rotate(360deg)}}
+@keyframes mray{from{transform:scale(.45)}to{transform:scale(1)}}
+@media(hover:hover) and (pointer:fine){.maxball:hover{opacity:1}.mchips button:hover,.mhead button:hover,.mgo:hover{filter:brightness(1.1)}}

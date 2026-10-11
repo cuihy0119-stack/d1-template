@@ -1,13 +1,14 @@
-// Max 助手（悬浮球 + 灵动岛）。不拖慢网站：页面空闲时才放出悬浮球，第一次用到才搭窗口；动画只用 transform/opacity。
-// 悬浮球可上下拖动（位置会记住）；点一下展开成顶部的灵动岛。Max 能读当前页面文字，随时总结分析。
-// 思考/回答时标志的光芒一伸一缩、慢慢转（像老版 Claude 的思考动画）。
-// 其它脚本：Max.open(ctx, 问题) 带上下文提问；Max.setCtx(ctx) 换上下文；Max.tip(文字) 在灵动岛上短暂提示（本地算的，不花额度）。
+// Max 助手：悬浮球 + 跟着球展开的液态玻璃窗口。
+// 不拖慢网站：页面空闲时才放出悬浮球，第一次用到才搭窗口；位置和动画全用 transform/opacity（不触发重排）。
+// 悬浮球：任意拖动，松手自动贴到最近的左/右边（位置会记住）；3 秒不用淡到 20%，一碰就亮。点一下，窗口从球的位置弹开。
+// 思考/回答时标志的光芒一伸一缩、慢慢转。Max 能读当前页面文字，随时总结分析。
+// 其它脚本：Max.open(ctx, 问题) 带上下文提问；Max.setCtx(ctx) 换上下文；Max.tip(文字) 在球旁边短暂提示（本地算的，不花额度）。
 // ctx：{ q: 正在做的题 } { a: 已交的作答 } { explain: 作答id（一键讲解，有缓存）} { marked: true（解析标记的题）}
 const Max = (() => {
-	const KEY = "max_chat", POS = "max_y", TIMEOUT = 60000;
+	const KEY = "max_chat", POS = "max_pos", TIMEOUT = 60000, IDLE = 3000, M = 10; // M：离屏幕边的距离
 	const ss = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch {} return null; };
 	const ls = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch {} return null; };
-	let hist = [], ctx = {}, base = {}, ui = null, ball = null, tipT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
+	let hist = [], ctx = {}, base = {}, ui = null, ball = null, peek = null, tipT = 0, idleT = 0, pendingTip = "", job = null; // job：正在进行的请求（可停止）
 	try { hist = JSON.parse(ss(KEY) || "[]"); if (!Array.isArray(hist)) hist = []; } catch { hist = []; }
 	const keep = () => ss(KEY, JSON.stringify(hist.slice(-12)));
 	const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
@@ -19,77 +20,118 @@ const Max = (() => {
 			return `<line x1="${f(Math.cos(a) * 2.2)}" y1="${f(Math.sin(a) * 2.2)}" x2="${f(Math.cos(a) * r)}" y2="${f(Math.sin(a) * r)}" style="animation-delay:-${f(((i * 5) % 12) * 0.09)}s"/>`;
 		}).join("")}</g></svg>`;
 	const logo = (cls = "") => el("span", { className: "mlogo " + cls, innerHTML: LOGO });
-	const setBusy = (on) => { document.body.classList.toggle("max-busy", on); };
+	const setBusy = (on) => { document.body.classList.toggle("max-busy", on); if (!on) wake(); };
+
+	// ---------- 位置 ----------
+	// 刘海屏安全区（CSS 变量里读出来）
+	const safe = () => { const cs = getComputedStyle(document.documentElement), n = (k) => parseFloat(cs.getPropertyValue(k)) || 0; return { t: n("--sat"), b: n("--sab"), l: n("--sal"), r: n("--sar") }; };
+	const size = () => ball.offsetWidth || 50;
+	const bottomGap = () => (document.body.classList.contains("has-tabs") ? 96 : 24); // 别挡底栏
+	// pos：{ side: "l" | "r", y: 0~1 屏幕高度比例 }；做题页默认在左边（右边有画板工具条）
+	let pos = (() => { try { const p = JSON.parse(ls(POS) || "null"); if (p && (p.side === "l" || p.side === "r") && p.y >= 0 && p.y <= 1) return p; } catch {} return { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; })();
+	function xy(p = pos) { // 球左上角坐标
+		const s = safe(), w = size(), top = s.t + 60, bot = innerHeight - s.b - bottomGap() - w;
+		return { x: p.side === "l" ? s.l + M : innerWidth - s.r - M - w, y: Math.round(Math.min(Math.max(p.y * innerHeight, top), Math.max(top, bot))) };
+	}
+	const place = (x, y) => { ball.style.transform = `translate3d(${x}px,${y}px,0)`; };
+	const snap = () => { const p = xy(); place(p.x, p.y); };
+	// 闲置变淡：碰一下就亮，3 秒不碰淡下去
+	function wake() {
+		if (!ball) return;
+		ball.classList.remove("idle");
+		clearTimeout(idleT);
+		idleT = setTimeout(() => { if (!document.body.classList.contains("max-busy")) ball.classList.add("idle"); }, IDLE);
+	}
 
 	// ---------- 悬浮球 ----------
-	const clampY = (y) => Math.min(Math.max(y, 60), innerHeight - 120);
 	function makeBall() {
-		ball = el("button", { type: "button", className: "maxball", title: "Max 助手" }, logo());
-		const y = Number(ls(POS)) || 0;
-		if (y) ball.style.top = clampY(y) + "px";
-		let sy = 0, oy = 0, moved = false, down = false;
-		ball.addEventListener("pointerdown", (e) => { down = true; sy = e.clientY; oy = ball.getBoundingClientRect().top; moved = false; try { ball.setPointerCapture(e.pointerId); } catch {} });
+		ball = el("button", { type: "button", className: "maxball", title: "Max 助手（可拖动）" }, logo());
+		ball.style.visibility = "hidden";
+		document.body.append(ball);
+		snap();
+		requestAnimationFrame(() => { ball.style.visibility = ""; });
+		let sx = 0, sy = 0, ox = 0, oy = 0, moved = false, down = false;
+		ball.addEventListener("pointerdown", (e) => {
+			down = true; moved = false; wake();
+			sx = e.clientX; sy = e.clientY;
+			const r = ball.getBoundingClientRect(); ox = r.left; oy = r.top;
+			try { ball.setPointerCapture(e.pointerId); } catch {}
+		});
 		ball.addEventListener("pointermove", (e) => {
 			if (!down) return;
-			const d = e.clientY - sy;
-			if (!moved && Math.abs(d) > 6) { moved = true; ball.classList.add("drag"); }
-			if (moved) ball.style.transform = `translateY(${clampY(oy + d) - oy}px)`; // 拖动只改 transform，不触发重排
+			const dx = e.clientX - sx, dy = e.clientY - sy;
+			if (!moved && Math.hypot(dx, dy) > 6) { moved = true; ball.classList.add("drag"); hidePeek(); }
+			if (moved) place(Math.min(Math.max(ox + dx, 0), innerWidth - size()), Math.min(Math.max(oy + dy, 0), innerHeight - size()));
 		});
 		const end = (tap) => {
 			if (!down) return;
 			down = false;
-			if (moved) { // 先落位再恢复动画，免得松手时弹一下
-				const t = ball.getBoundingClientRect().top;
-				ball.style.transform = ""; ball.style.top = t + "px"; ls(POS, String(Math.round(t)));
-				requestAnimationFrame(() => ball.classList.remove("drag"));
-			}
-			else if (tap) open();
+			if (moved) { // 松手：贴到最近的一边，弹一下落位
+				const r = ball.getBoundingClientRect();
+				pos = { side: r.left + r.width / 2 < innerWidth / 2 ? "l" : "r", y: r.top / innerHeight };
+				ball.classList.remove("drag");
+				requestAnimationFrame(snap);
+				ls(POS, JSON.stringify(pos));
+			} else if (tap) open();
+			wake();
 		};
 		ball.addEventListener("pointerup", () => end(true));
-		ball.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }); // 外接键盘也能打开
 		ball.addEventListener("pointercancel", () => end(false));
-		addEventListener("resize", () => { if (ball.style.top) ball.style.top = clampY(parseFloat(ball.style.top)) + "px"; }, { passive: true });
-		document.body.append(ball);
+		ball.addEventListener("pointerenter", wake);
+		ball.addEventListener("touchmove", (e) => e.cancelable && e.preventDefault(), { passive: false }); // iOS：拖球时页面别跟着滚
+		ball.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }); // 外接键盘也能打开
+		let rt = 0;
+		addEventListener("resize", () => { cancelAnimationFrame(rt); rt = requestAnimationFrame(() => { snap(); if (ui?.island.classList.contains("open")) layout(); }); }, { passive: true });
+		wake();
 		if (pendingTip) tip(pendingTip);
 	}
 	idle(makeBall);
 	// ⌘K / Ctrl+K 随时呼出或收起 Max（iPad 外接键盘、电脑）
 	addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); ui?.island.classList.contains("open") ? close() : open(); } });
 
-	// ---------- 灵动岛 ----------
+	// ---------- 提示小气泡（贴在球旁边） ----------
+	function hidePeek() { peek?.classList.remove("on"); }
+	function tip(text) {
+		if (!text) return;
+		if (!ball) return void (pendingTip = text); // 页面还在加载：等悬浮球出来再说
+		pendingTip = "";
+		if (ui?.island.classList.contains("open")) return;
+		if (!peek) { peek = el("div", { className: "mpeek" }, logo(), el("span")); peek.onclick = () => open(); document.body.append(peek); }
+		peek.lastChild.textContent = text;
+		const b = ball.getBoundingClientRect(), w = Math.min(peek.offsetWidth || 240, innerWidth - 2 * M - b.width - 8);
+		const x = pos.side === "l" ? b.right + 8 : b.left - 8 - w, y = b.top + (b.height - (peek.offsetHeight || 36)) / 2;
+		peek.style.transform = `translate3d(${Math.max(M, x)}px,${y}px,0)`;
+		peek.classList.add("on");
+		wake();
+		clearTimeout(tipT);
+		tipT = setTimeout(hidePeek, 3800);
+	}
+
+	// ---------- 窗口（第一次用到才搭） ----------
 	function build() {
 		if (ui) return ui;
 		const log = el("div", { className: "mlog" });
 		const input = el("textarea", { rows: 1, placeholder: "问 Max…", enterKeyHint: "send", maxLength: 800 });
 		const sendB = el("button", { type: "button", className: "msend", textContent: "↑", title: "发送" });
 		const chips = el("div", { className: "mchips" });
-		const pill = el("div", { className: "mpill" }, logo(), el("span", { className: "mtip" }));
-		const body = el("div", { className: "mbody" },
-			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), el("span", { className: "msub", textContent: "能看到当前页面 · 难题找 Claude" }),
+		const sub = el("span", { className: "msub", textContent: "能看到当前页面 · 难题找 Claude" });
+		const island = el("section", { className: "island" },
+			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub,
 				el("button", { type: "button", textContent: "清空", onclick: () => { stop(); hist = []; keep(); oneOff(); log.replaceChildren(); hello(); quick(); } }),
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
 			log, chips, el("div", { className: "min" }, input, sendB));
-		const island = el("section", { className: "island" }, pill, body);
-		pill.onclick = () => open();
 		sendB.onclick = () => (job ? stop() : send());
 		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
 		document.addEventListener("pointerdown", (e) => { if (island.classList.contains("open") && !island.contains(e.target) && !ball?.contains(e.target)) close(); }, { passive: true });
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && island.classList.contains("open")) close(); });
-		// 弹出键盘时（iOS）窗口高度跟着可见区域缩，输入框不被挡
+		// 弹出键盘（iOS）：窗口挪进可见区域、高度跟着缩，输入框不被挡；键盘收起回到球旁边
 		const vv = window.visualViewport;
-		const fit = () => { // 键盘弹出：窗口缩到可见区域里（扣掉顶部位置）；键盘收起恢复
-			if (!island.classList.contains("open")) return;
-			const room = vv.height - island.getBoundingClientRect().top - 12;
-			body.style.maxHeight = vv.height < innerHeight - 80 ? Math.max(200, Math.min(room, 620)) + "px" : "";
-		};
-		vv?.addEventListener("resize", fit);
-		vv?.addEventListener("scroll", fit);
+		if (vv) { const fit = () => { if (island.classList.contains("open")) layout(); }; vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); }
 		// 动作按钮：整理错题（事件委托，只挂一次）
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
-		const sub = body.querySelector(".msub");
-		ui = { island, body, log, input, sendB, chips, tipEl: pill.querySelector(".mtip") };
+		ui = { island, log, input, sendB, chips };
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
@@ -100,8 +142,23 @@ const Max = (() => {
 		};
 		return ui;
 	}
-
-	// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
+	// 窗口贴着球：球在右边就右对齐，在下半屏就往上展开；transform-origin 设在球心，从球里「长」出来
+	function layout() {
+		const s = safe(), vv = window.visualViewport, vh = vv ? vv.height : innerHeight, vt = vv ? vv.offsetTop : 0;
+		const kb = vv && vv.height < innerHeight - 80; // 键盘弹出
+		const W = Math.min(innerWidth - 2 * M - s.l - s.r, innerWidth >= 744 ? 420 : 400);
+		const H = Math.max(240, Math.min(kb ? vh - 16 : vh * 0.72, kb ? 9999 : 620));
+		const b = ball ? ball.getBoundingClientRect() : { left: innerWidth - 60, right: innerWidth - M, top: innerHeight * 0.6, bottom: innerHeight * 0.6 + 50, width: 50, height: 50 };
+		let x = pos.side === "l" ? b.left : b.right - W;
+		x = Math.min(Math.max(x, s.l + M), innerWidth - s.r - M - W);
+		let y = kb ? vt + 8 : b.top + b.height / 2 > innerHeight / 2 ? b.bottom - H : b.top;
+		y = Math.min(Math.max(y, vt + s.t + 8), vt + vh - H - 8);
+		const st = ui.island.style;
+		st.width = W + "px"; st.height = H + "px";
+		st.left = x + "px"; st.top = y + "px";
+		st.transformOrigin = `${b.left + b.width / 2 - x}px ${b.top + b.height / 2 - y}px`;
+	}
+// 回答排版：转义后只认 **加粗**、动作按钮，公式交给 KaTeX
 	const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 	const PAGES = { "/": "首页", "/wrong": "错题本", "/bank": "题库" };
 	function paint(div, text, final) {
@@ -140,7 +197,8 @@ const Max = (() => {
 	function open(c, text) {
 		build();
 		if (c) ctx = c;
-		ui.island.classList.remove("peek");
+		hidePeek();
+		layout();
 		ui.island.classList.add("open");
 		ui.status();
 		ball?.classList.add("hide");
@@ -150,25 +208,14 @@ const Max = (() => {
 		if (text) send(text, c || {});
 	}
 	const oneOff = () => { if (ctx.explain || ctx.marked) ctx = base; }; // 一键讲解/解析用完回到页面本来的上下文
-	function close() {
+	function close() { // 窗口缩回球里，球重新出现
 		if (!ui) return;
 		oneOff();
+		if (ball) layout(); // 球可能被拖过：缩回去的方向跟着球
 		ui.island.classList.remove("open");
-		ui.body.style.maxHeight = "";
 		ui.input.blur();
 		ball?.classList.remove("hide");
-	}
-	/** 在灵动岛上短暂提示一句（本地生成，不花额度） */
-	function tip(text) {
-		if (!text) return;
-		if (!ball) return void (pendingTip = text); // 页面还在加载：等悬浮球出来再说
-		pendingTip = "";
-		build();
-		if (ui.island.classList.contains("open")) return;
-		ui.tipEl.textContent = text;
-		ui.island.classList.add("peek");
-		clearTimeout(tipT);
-		tipT = setTimeout(() => ui.island.classList.remove("peek"), 3800);
+		wake();
 	}
 	// 当前页面内容：Max 的「眼睛」（只取主区域文字，最多 1500 字；只在发问时读一次）
 	const page = () => ({ path: location.pathname, title: document.title, text: (document.querySelector("main")?.innerText || "").replace(/\n{2,}/g, "\n").slice(0, 1500) });
