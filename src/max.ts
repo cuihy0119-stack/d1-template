@@ -81,7 +81,8 @@ export async function status(env: Env) {
 		} catch { dsOk = "连不上"; }
 		await cachePut(db, "dsping", dsOk);
 	}
-	return { cf: Math.min(100, Math.round((cf / DAILY) * 100)), ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY } };
+	const sec = (await db.prepare("SELECT COALESCE(SUM(CAST(v AS INTEGER)), 0) n FROM meta WHERE k LIKE ?").bind(`sec:${day()}:%`).first<{ n: number }>())?.n ?? 0; // 今天拦下的可疑访问
+	return { cf: Math.min(100, Math.round((cf / DAILY) * 100)), ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY }, sec };
 }
 export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (await meter(env.DB, "ds:")) < DS_DAILY;
 

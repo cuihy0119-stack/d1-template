@@ -280,7 +280,7 @@ async function submit() {
 	}
 }
 
-let poll = 0, seq = 0;
+let poll = 0, seq = 0, pollFrom = 0;
 let burstDone = false, resultShown = false;
 async function showResult(ids) {
 	isle.hide();
@@ -289,7 +289,8 @@ async function showResult(ids) {
 	if (my !== seq) return; // 同时触发了两次（返回缓存 + 切回页面）：只用最新那次
 	clearInterval(poll);
 	// 有待批改的题：每 10 秒查一次，Claude 批完自动显示评语（只更新内容，展开状态保留）
-	if (rows.some((r) => r.status === "待批改")) {
+	if (!pollFrom) pollFrom = Date.now();
+	if (rows.some((r) => r.status === "待批改") && Date.now() - pollFrom < 900000) { // 最多盯 15 分钟，之后回来再看
 		const last = JSON.stringify(rows);
 		poll = setInterval(async () => {
 			if (document.visibilityState !== "visible") return;

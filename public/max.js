@@ -82,9 +82,10 @@ const Max = (() => {
 		log.addEventListener("click", (e) => { if (e.target.closest(".mgo[data-act=org]")) orgNow(); });
 		document.body.append(island);
 		const sub = body.querySelector(".msub");
-		api("/api/max/status").then((s) => { // 两个引擎的状态
-			sub.textContent = `Cloudflare 额度已用 ${s.cf}% · DeepSeek ${s.ds.on ? "✓ 备用就绪" : "未接上（" + s.ds.msg + "）"}`;
-		}).catch(() => {});
+		const show = (s) => { sub.textContent = `Cloudflare 额度 ${s.cf}% · DeepSeek ${s.ds.on ? "✓" : "未接上（" + s.ds.msg + "）"}${s.sec ? ` · 今天拦截 ${s.sec} 次可疑访问` : ""}`; };
+		let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
+		if (st && Date.now() - st.at < 600000) show(st.s); // 10 分钟内不重复查
+		else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
 		return (ui = { island, body, log, input, sendB, chips, tipEl: pill.querySelector(".mtip") });
 	}
 

@@ -7,6 +7,7 @@ import { mcpHandler } from "./mcp";
 import { judge } from "./judge";
 import { pick } from "./tags";
 import { loginPage } from "./login";
+import { chatQuota, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, pregrade, folderSummary, gradeAll, MaxErr, maxDaily, organize, status, unorganized, used, wrongSummary } from "./max";
 
@@ -32,6 +33,7 @@ type Q = {
 const COOKIE = "session";
 const app = new Hono<{ Bindings: Env }>();
 app.onError((e, c) => c.json({ error: e.message }, 500));
+app.use("*", guard); // 安全头、限流、拦扫描器
 
 // ---------- 登录 ----------
 app.get("/login", (c) => c.html(loginPage()));
@@ -39,6 +41,8 @@ app.post("/login", async (c) => {
 	if (!c.env.PASSCODE) return c.html(loginPage("服务器还没设置 PASSCODE"), 500);
 	const form = await c.req.parseBody();
 	if (!(await passcodeOk(String(form.passcode ?? ""), c.env.PASSCODE))) {
+		flag(c, "badpass");
+		await new Promise((r) => setTimeout(r, 800)); // 错了慢点回，猜口令更难
 		return c.html(loginPage("口令不对"), 401);
 	}
 	await setSignedCookie(c, COOKIE, "ok", c.env.PASSCODE, {
@@ -404,6 +408,7 @@ app.post("/api/max/chat", async (c) => {
 	const messages = (Array.isArray(body.messages) ? body.messages : []).filter((m: any) => m && typeof m.content === "string" && m.content.trim())
 		.slice(-6).map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content.slice(0, 800) }) as { role: "user" | "assistant"; content: string });
 	if (!messages.length) return c.json({ error: "说点什么吧" }, 400);
+	if (!(await chatQuota(c.env.DB))) return c.json({ error: "今天和 Max 聊得够多了，明天再来" }, 429);
 	const pg = ctx.page && typeof ctx.page === "object" ? { path: String(ctx.page.path ?? "").slice(0, 60), title: String(ctx.page.title ?? "").slice(0, 60), text: String(ctx.page.text ?? "").slice(0, 1500) } : undefined;
 	try {
 		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, page: pg });

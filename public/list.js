@@ -98,7 +98,8 @@ function row(q) {
 
 // 错题本顶部：错因统计（脚本归类 vs Max 归类）+ Max 总结 + 一键整理
 async function loadSum() {
-	if (MODE !== "wrong" || tab !== "active") return $("#maxsum").replaceChildren();
+	if (MODE !== "wrong") return; // 题库页没有错因卡片
+	if (tab !== "active") return $("#maxsum").replaceChildren();
 	const s = await api("/api/max/wrongsum").catch(() => null);
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
 	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>

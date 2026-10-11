@@ -92,7 +92,10 @@ $("#pick").onchange = async (e) => {
 
 // Max：今天先做什么 + 薄弱点 + 考前冲刺（服务器按天缓存，做题有变化才重算，不怎么花额度）
 let lastBrief = "";
+let briefAt = 0;
 async function loadBrief(force) {
+	if (!force && Date.now() - briefAt < 120000) return; // 2 分钟内切回页面不重复要
+	briefAt = Date.now();
 	const b = await api("/api/max/brief" + (force ? "?force=1" : "")).catch(() => null), box = $("#maxcard");
 	if (!b || JSON.stringify(b) === lastBrief) return;
 	lastBrief = JSON.stringify(b);
@@ -114,5 +117,5 @@ async function loadBrief(force) {
 
 loadHome();
 loadBrief();
-autoRefresh(loadHome, 30000);
+autoRefresh(loadHome, 60000); // 1 分钟一次（只在页面可见时），省请求
 autoRefresh(() => loadBrief()); // Claude 推了新题、写了总结，首页自动更新
