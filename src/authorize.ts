@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { AuthorizationError, CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import { passcodeOk } from "./auth";
+import { flag } from "./security";
 
 const esc = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -49,6 +50,8 @@ export function mountAuthorize(app: Hono<{ Bindings: Env }>) {
 				return new Response(null, { status: 302, headers: denied.headers });
 			}
 			if (!c.env.PASSCODE || !(await passcodeOk(String(form.get("passcode") ?? ""), c.env.PASSCODE))) {
+				flag(c, "badpass");
+				await new Promise((r) => setTimeout(r, 800));
 				return page(`<h1>口令不对</h1><p class="err">请返回 Claude 重新发起连接。</p>`, 401);
 			}
 			const approved = await oauth.approveConsent(c.req.raw, handle, { scope: ["mcp"] });

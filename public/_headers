@@ -1,0 +1,15 @@
+# 直接由 Cloudflare 发的静态文件：缓存 + 安全头（不经过 Worker，不占请求数）
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+/*.js
+  Cache-Control: no-cache
+/*.css
+  Cache-Control: no-cache
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+/katex/*
+  Cache-Control: public, max-age=31536000, immutable
+/mathlive/*
+  Cache-Control: public, max-age=31536000, immutable
