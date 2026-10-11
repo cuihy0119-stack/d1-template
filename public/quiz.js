@@ -19,6 +19,7 @@ const BOARDS = {
 	circuit: ["🔌 电路图板", "[电路]", () => new CircuitBoard()],
 	phys: ["🔦 光学力学板", "[作图]", () => Object.assign(new Board({ phys: true }), { kind: "phys" })],
 };
+const DRAWN = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图类：Max 不批不讲，交给 Claude
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
 const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : ["geo"]);
 
@@ -186,6 +187,7 @@ function render(anim) {
 		box, nav);
 	math(box);
 	isle.fill(q);
+	Max.setCtx(typeof done[cur] === "number" ? { a: done[cur] } : { q: q.id }); // 没交：只给提示；交了：可以讲
 }
 
 // ---------- 浮岛 ----------
@@ -280,18 +282,18 @@ async function showResult(ids) {
 		poll = setInterval(async () => {
 			if (document.visibilityState !== "visible") return;
 			if (JSON.stringify(await api("/api/attempts?ids=" + ids)) !== last) showResult(ids);
-		}, 10000);
+		}, rows.some((r) => r.status === "待批改" && r.grader) ? 4000 : 10000); // Max 批得快：4 秒看一次
 	}
 	const objective = rows.filter((r) => r.status === "已判");
 	const right = objective.filter((r) => r.is_correct).length;
 	const pending = rows.filter((r) => r.status === "待批改").length;
 	const open = new Set([...app.querySelectorAll("details[open]")].map((d) => d.dataset.id)); // 刷新后保持展开
 	const fold = rows.length > 3; // 题多就折叠，点开看详情
-	const score = el("p", { className: "score", textContent: `客观题 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") });
+	const score = el("p", { className: "score", textContent: `已批 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") });
 	const wrap = el("div", {}, el("h1", { textContent: "结果" }), score);
 	if (fold) wrap.append(el("p", { className: "mute", textContent: "点题目展开看答案和解析" }));
 	for (const r of rows) {
-		const badge = r.status === "待批改" ? ["待批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
+		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : "待 Claude 批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
 		const card = el("details", { className: "card rcard", open: !fold || open.has(String(r.id)) });
 		card.dataset.id = r.id;
 		card.append(el("summary", {},
@@ -309,13 +311,19 @@ async function showResult(ids) {
 		card.append(el("div", { className: "ans", textContent: (r.type === "short" ? "参考答案：" : "正确答案：") + r.answer.join(" / ") }));
 		if (r.explanation) card.append(el("div", { className: "ans", textContent: "解析：" + r.explanation }));
 		if (r.status === "已判" && r.type === "short" || r.comment) {
-			card.append(el("div", { className: "ans", textContent: `评语：${r.comment || ""}` + (r.error_reason ? `（${r.error_reason}）` : "") + (r.score != null ? ` 得分 ${r.score}` : "") }));
+			card.append(el("div", { className: "ans", textContent: (r.grader === "max" ? "Max 评语：" : "评语：") + (r.comment || "") + (r.error_reason ? `（${r.error_reason}）` : "") + (r.score != null ? ` 得分 ${r.score}` : "") }));
 		}
+		if (r.status === "已判" && !DRAWN.has(r.tag)) // 作图题 Max 不碰
+			card.append(el("button", { type: "button", className: "btn small", style: "margin-top:8px", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }));
 		wrap.append(card);
 	}
 	// 作图/写过程的题交给 Claude 批改；标记的题可以让 Claude 解析
-	if (pending) wrap.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改作图/过程题（${pending} 题）`), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
-	if (rows.some((r) => r.marked)) wrap.append(askClaude(CLAUDE_ASK.marked, "让 Claude 解析标记的题"));
+	const forClaude = rows.filter((r) => r.status === "待批改" && !r.grader).length;
+	if (pending > forClaude) wrap.append(el("p", { className: "mute", textContent: `Max 正在批改 ${pending - forClaude} 题，几秒后自动显示` }));
+	if (forClaude) wrap.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改作图/照片/手写题（${forClaude} 题）`), el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
+	if (rows.some((r) => r.marked)) wrap.append(
+		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: "🤖 让 Max 解析标记的题", onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
+		askClaude(CLAUDE_ASK.marked, "让 Claude 解析标记的题"));
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);

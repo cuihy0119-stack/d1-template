@@ -5,6 +5,7 @@ import { addDays, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
+import { refine } from "./max";
 
 // 省用量：工具说明尽量短；返回用紧凑文本（TSV）而不是 JSON；作图答案 = 文字描述 + 几何信息 + 600px 小图。
 const PASS = 80; // 简答得分（百分制）≥80 算做对
@@ -13,6 +14,7 @@ const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `错题练习站（初三自用）。省用量：一次 save 写完，回复简短。
 批改：get_inbox → save({grades})；返回里出现【错题本打包】就照附言讲解并问是否归档 Notion。学生说「解析标记的题」：get_data({kind:"marked"})。知道学生临近的考试（名称+日期）就 save({exams:[{name,date}]}) 更新首页倒计时。出题：先 get_data({kind:"tpl"}) 取模板（每对话一次）照填；复习旧题 save({review:[id]})。
+分工：网站自带助手 Max（免费小模型）批选择/填空/文字解答，get_inbox 只给你作图、照片、手写的题；你推题后 Max 会补等价答案和考点，返回里有「⚠ 请核对」就检查那几题。
 作答标记：[计算]步骤/算式 [作图]画板描述(单位=格,含算好的方程/交点) [电路]网表+通电结果；附图=手绘或草纸(已裁剪)，文字和图一起看。`;
 
 // 题目（短字段名省输出）
@@ -104,7 +106,7 @@ export function buildServer(env: Env) {
 			await db
 				.prepare(
 					`SELECT a.id, a.answer_text, a.photo_key, q.subject, q.no, q.stem, q.options, q.answer, q.explanation
-					 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' ORDER BY a.id`,
+					 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' AND a.grader IS NULL ORDER BY a.id`, // Max 在批的不给
 				)
 				.all<any>()
 		).results;
@@ -163,10 +165,11 @@ export function buildServer(env: Env) {
 				}
 				out.push("批改 " + r.join(" "));
 			}
+			const fresh: number[] = []; // 新录入的题：最后让 Max 扫一遍
 			const add = async (list: QIn[], source: "原错题" | "同类题") => {
 				const ids: { id: number; label: string }[] = [];
 				for (const q of list) {
-					try { ids.push(await insertQuestion(db, q, def, source)); } catch (e) { err.push(`「${q.stem.slice(0, 10)}」${(e as Error).message}`); }
+					try { const r = await insertQuestion(db, q, def, source); ids.push(r); fresh.push(r.id); } catch (e) { err.push(`「${q.stem.slice(0, 10)}」${(e as Error).message}`); }
 				}
 				return ids;
 			};
@@ -213,7 +216,7 @@ export function buildServer(env: Env) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await wrongPack(db)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (await refine(env, fresh)) + (await wrongPack(db)));
 		},
 	);
 

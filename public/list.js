@@ -74,6 +74,7 @@ function row(q) {
 		item.querySelector(".stem").textContent = d.stem;
 		if (d.options.length) detail.append(el("div", { className: "mute", textContent: d.options.join("\n"), style: "white-space:pre-wrap" }));
 		const wrong = d.attempts.find((a) => a.is_correct === 0);
+		if (wrong && !/作图|函数|电路|光路|受力|证明/.test(d.tag || "")) detail.append(el("button", { type: "button", className: "btn small", textContent: "🤖 问 Max 这题", style: "margin:6px 0", onclick: () => Max.open({ explain: wrong.id }, "讲讲这道题") }));
 		if (wrong) {
 			detail.append(el("div", { className: "ans bad", textContent: "你的答案：" + (plain(wrong.answer_text) || "（空）") + (wrong.error_reason ? `（${wrong.error_reason}）` : "") }));
 			if (wrong.comment) detail.append(el("div", { className: "ans", textContent: "评语：" + wrong.comment }));
