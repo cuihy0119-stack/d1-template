@@ -12,7 +12,7 @@ export function loginPage(error = "") {
 <link rel="stylesheet" href="/style.css">
 </head><body>
 <main class="login">
-<h1 class="brand">MAX NOTE</h1>
+<h1 class="brand">Max Note</h1>
 <p class="sub">不积跬步，无以至千里</p>
 <form method="post" action="/login">
 <input type="password" name="passcode" placeholder="口令" autofocus required>
