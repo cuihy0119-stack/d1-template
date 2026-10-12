@@ -23,7 +23,7 @@ body::before{content:"";position:fixed;top:-20%;right:-20%;bottom:-20%;left:-20%
   background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.32),transparent 70%),radial-gradient(34% 28% at 82% 30%,rgba(143,176,150,.30),transparent 70%),
   radial-gradient(40% 32% at 60% 82%,rgba(214,178,120,.28),transparent 70%),radial-gradient(30% 26% at 15% 85%,rgba(150,160,200,.22),transparent 70%);
   animation:bgin 1.2s ease-out both}
-@keyframes bgin{from{opacity:0;transform:scale(1.05)}to{opacity:1;transform:none}} /* 只在打开时淡入一次：背景静止，玻璃不用每帧重算，不卡 */
+@keyframes bgin{from{opacity:0;transform:scale(1.05)}to{opacity:.4;transform:none}} /* 只在打开时淡入一次：背景静止，玻璃不用每帧重算，不卡 */
 body::after{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;opacity:.22;
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .25 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 @media(prefers-color-scheme:dark){body::after{opacity:.08}.tabbar::before{opacity:.12}}
@@ -426,12 +426,12 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mnote{margin-top:14px!important}
 .maxball.idle{opacity:var(--ball-idle,.2)}
 
-/* ================= MAX NOTE 艺术字：Playfair Display 粗斜体，全大写、字距拉开、暖色渐变 ================= */
-@font-face{font-family:'MaxBrand';font-style:italic;font-weight:900;font-display:swap;src:url(/fonts/playfair-display-latin-900-italic.woff2) format("woff2")}
-.brand{font:italic 900 42px/1.15 'MaxBrand','Playfair Display','Didot','Times New Roman',serif;letter-spacing:.12em;text-transform:uppercase;margin:4px 0 2px;padding-right:.12em;
-  background:linear-gradient(100deg,var(--pri) 5%,#e3a857 52%,var(--pri) 95%);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;
-  filter:drop-shadow(0 2px 0 color-mix(in srgb,var(--pri) 22%,transparent))}
-.login .brand{font-size:46px;margin-bottom:6px}
+/* ================= Max Note 标题：安静的衬线字（Newsreader 常规体）+ 一枚珊瑚色放射星，不加渐变、不加阴影 ================= */
+.brand{display:flex;align-items:center;gap:12px;margin:4px 0 4px;font:500 36px/1.15 var(--serif);letter-spacing:-.015em;color:var(--fg)}
+.brand::before{content:"";flex:none;width:.62em;height:.62em;background:var(--pri);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 2v20M2 12h20M5 5l14 14M19 5L5 19'/%3E%3C/g%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cg stroke='%23000' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M12 2v20M2 12h20M5 5l14 14M19 5L5 19'/%3E%3C/g%3E%3C/svg%3E") center/contain no-repeat}
+.login .brand{justify-content:center;font-size:40px;margin-bottom:6px}
 
 /* Max 输入框上面的两个开关标签：线条图标 + 文字，点一下开（橙色实心），再点关 */
 .mtog{position:relative;display:flex;gap:8px;padding:2px 14px 0}
