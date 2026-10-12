@@ -1,4 +1,4 @@
-// 错题本规则：做错 → 进错题本，明天重做；重做做对 → 隐藏进错题文件夹，攒满 20 道发给 Claude 整理后清掉
+// 错题本规则：做错 → 进错题本，明天重做；之后每做对一次往后推一档（间隔重复），四档都过了才隐藏进错题文件夹，攒满 20 道发给 Claude 整理后清掉
 /** 今天的日期（北京时间）YYYY-MM-DD */
 export function today(): string {
 	return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -13,6 +13,8 @@ export function addDays(date: string, n: number): string {
 const setStatus = (db: D1Database, id: number, status: "active" | "mastered" | "done") => // mastered = 错题文件夹
 	db.prepare("UPDATE questions SET status = ?1, status_at = CASE WHEN ?1 = 'active' THEN NULL ELSE datetime('now') END WHERE id = ?2").bind(status, id).run();
 
+// 间隔重复：错题做对一次推一档，第 1→2→3→4 档分别隔 1/3/7/14 天再做；错过 2 次以上的难题隔得更短（1/2/4/7 天）。做错一次退回第 1 档（明天）
+const GAPS = [1, 3, 7, 14], HARD_GAPS = [1, 2, 4, 7];
 /** 一次作答有结果后：更新错题本和题目状态。 */
 export async function updateQueue(db: D1Database, questionId: number, correct: boolean) {
 	if (!correct) {
@@ -23,11 +25,18 @@ export async function updateQueue(db: D1Database, questionId: number, correct: b
 		await setStatus(db, questionId, "active");
 		return;
 	}
-	const q = await db.prepare("SELECT q.source = '原错题' OR EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrong FROM questions q WHERE q.id = ?").bind(questionId).first<{ wrong: number }>();
+	const q = await db.prepare(
+		`SELECT q.source = '原错题' orig, q.status, (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs, r.stage
+		 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id WHERE q.id = ?`).bind(questionId).first<{ orig: number; status: string; wrongs: number; stage: number | null }>();
 	if (!q) return;
-	await db.prepare("DELETE FROM review_queue WHERE question_id = ?").bind(questionId).run(); // 做对了就不用再重做
-	if (!q.wrong) return setStatus(db, questionId, "done"); // 一次就做对：隐藏，30 天后删
-	await setStatus(db, questionId, "mastered"); // 错题重做对：隐藏进错题文件夹
+	const del = () => db.prepare("DELETE FROM review_queue WHERE question_id = ?").bind(questionId).run();
+	if (!q.orig && !q.wrongs) { await del(); return setStatus(db, questionId, "done"); } // 一次就做对：隐藏，30 天后删
+	if (q.stage == null && q.status === "mastered") return; // 已在错题文件夹的旧错题拿出来练、做对了：留在文件夹
+	const gaps = q.wrongs >= 2 ? HARD_GAPS : GAPS, next = (q.stage ?? 0) + 1;
+	if (next >= gaps.length) { await del(); return setStatus(db, questionId, "mastered"); } // 四档都过了：隐藏进错题文件夹
+	await db.prepare("INSERT INTO review_queue (question_id, next_date, stage) VALUES (?1, ?2, ?3) ON CONFLICT(question_id) DO UPDATE SET next_date = ?2, stage = ?3")
+		.bind(questionId, addDays(today(), gaps[next]), next).run();
+	await setStatus(db, questionId, "active");
 }
 
 /** 手动：删除题目（作答记录保留，待批改的一并删掉）/ 标为已掌握 */
@@ -56,7 +65,7 @@ export async function dailyCleanup(db: D1Database) {
 	// 1. 一次做对的题 超过 30 天：删题（attempts 保留）；错题文件夹里的等打包发给 Claude 后再清；题库里隐藏（超过 24/48 小时）满 30 天的也清掉
 	await db.batch([
 		// 排到以后才做的题（due）从那天起算，别在还没出现前就被删掉（和 live.ts 的计时起点一致）
-		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days') AND (due IS NULL OR datetime(due, '-8 hours') < datetime('now','-30 days'))"),
+		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days') AND (due IS NULL OR datetime(due, '-8 hours') < datetime('now','-30 days')) AND NOT (id IN (SELECT question_id FROM review_queue) AND (source = '原错题' OR id IN (SELECT question_id FROM attempts WHERE is_correct = 0)))"), // 还在间隔复习的错题不删
 		db.prepare("DELETE FROM questions WHERE status = 'done' AND status_at < datetime('now','-30 days')"),
 		db.prepare("DELETE FROM review_queue WHERE question_id NOT IN (SELECT id FROM questions WHERE status = 'active')"),
 		db.prepare("DELETE FROM attempts WHERE status = '待批改' AND question_id NOT IN (SELECT id FROM questions)"), // 题删了，待批改的作答没法批

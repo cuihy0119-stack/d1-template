@@ -2,7 +2,7 @@
 // 题不进题库，作答不进错题本和做题记录；答完当场判分，错了只提示一下、可以点「让 Max 分析」；关掉页面就没了。
 const Drill = (() => {
 	const app = $("#app");
-	let topic = "", qs = [], i = 0, right = 0;
+	let topic = "", qs = [], i = 0, right = 0, like = 0, master = 0; // like：参照的原题（出变式）；master：做对就把这题标为已掌握
 	const norm = (s) => String(s).replace(/[！-～]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/　/g, " ").replace(/\s+/g, "");
 	const bare = (s) => norm(s).replace(/^[a-zA-Z]=/, ""); // 「x=2」和「2」算一样
 	const judge = (q, mine) => (q.type === "single" ? norm(mine).toUpperCase() === q.answer[0] : !!bare(mine) && q.answer.some((a) => bare(a) === bare(mine)));
@@ -23,7 +23,7 @@ const Drill = (() => {
 	async function make(n) {
 		app.replaceChildren(el("p", { className: "mute", textContent: `Max 出题中…（${n} 道，约 10 秒）` }));
 		try {
-			qs = (await api("/api/max/gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic, n }) })).questions;
+			qs = (await api("/api/max/gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic, n, like: like || undefined }) })).questions;
 			i = 0; right = 0;
 			show();
 		} catch (e) {
@@ -73,8 +73,18 @@ const Drill = (() => {
 		math(box);
 	}
 
-	function end() {
+	async function end() {
 		Max.setCtx({});
+		if (master) { // 「标为已掌握」前的变式题：做对才标；没做对给个仍要标的按钮
+			const ok = right === qs.length, card = el("div", { className: "card" });
+			if (ok) { try { await api(`/api/question/${master}/master`, { method: "POST" }); } catch (e) { return app.replaceChildren(el("p", { className: "mute", textContent: "标记失败：" + e.message })); } }
+			card.append(el("h1", { textContent: ok ? "✓ 变式题也做对了" : "✗ 变式题没做对" }),
+				el("p", { className: "mute", textContent: ok ? "已标为已掌握，放进错题文件夹。" : "先别急着标掌握，回错题本再练练。" }),
+				el("div", { className: "row", style: "margin-top:10px" },
+					ok ? "" : el("button", { type: "button", className: "btn", textContent: "仍然标为已掌握", onclick: async (e) => { e.currentTarget.disabled = true; await api(`/api/question/${master}/master`, { method: "POST" }).catch(() => {}); location.href = "/wrong"; } }),
+					el("a", { className: "btn primary", href: "/wrong", textContent: "回错题本", style: "text-decoration:none" })));
+			return app.replaceChildren(card);
+		}
 		app.replaceChildren(el("div", { className: "card" },
 			el("h1", { textContent: `${right} / ${qs.length} 对` }),
 			el("p", { className: "mute", textContent: "这是 Max 的临时题，没有记进题库和错题本。" }),
@@ -83,5 +93,5 @@ const Drill = (() => {
 				el("a", { className: "btn", href: "/", textContent: "回首页", style: "text-decoration:none" }))));
 	}
 
-	return { start(t, n) { topic = t; n ? make(Math.min(10, n)) : intro(); } };
+	return { start(t, n, o = {}) { topic = t; like = o.like || 0; master = o.master || 0; n ? make(Math.min(10, n)) : intro(); } };
 })();

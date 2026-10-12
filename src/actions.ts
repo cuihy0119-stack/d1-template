@@ -2,6 +2,7 @@
 // 点了先 dry=1 数一数、弹确认，确认后才真做。作答记录是统计数据，不删；整站清空不做（要删题用「清理题库」按科目/考点）。
 import { cleanBank, describeClean, organize, startClassify, unorganized, MaxErr } from "./max";
 import { wrongSql } from "./live";
+import { today } from "./review";
 
 type Res = { msg: string; n: number; empty?: boolean; done?: boolean };
 const count = async (db: D1Database, sql: string) => Number((await db.prepare(sql).first<{ n: number }>())?.n ?? 0);
@@ -12,6 +13,18 @@ const delQuestions = (sub: string) => [
 	`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (${sub})`,
 	`DELETE FROM questions WHERE id IN (${sub})`,
 ];
+
+/** 题号（如「数学3,物理12」）→ 题目 id；对不上的题号原样返回给学生看 */
+async function byNo(db: D1Database, list: string) {
+	const ids: number[] = [], names: string[] = [], miss: string[] = [];
+	for (const t of list.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 20)) {
+		const m = t.match(/^(\D+?)(\d+)$/);
+		const r = m ? await db.prepare("SELECT id FROM questions WHERE subject = ? AND no = ? ORDER BY id DESC LIMIT 1").bind(m[1], Number(m[2])).first<{ id: number }>() : null;
+		if (r) { ids.push(r.id); names.push(t); } else miss.push(t);
+	}
+	if (!ids.length) throw new MaxErr("没找到这些题号：" + (miss.join("、") || list));
+	return { ids, names: names.join("、") + (miss.length ? `（没找到：${miss.join("、")}）` : "") };
+}
 
 export async function runAction(env: Env, ctx: ExecutionContext, name: string, arg: string, dry: boolean): Promise<Res> {
 	const db = env.DB;
@@ -65,6 +78,32 @@ export async function runAction(env: Env, ctx: ExecutionContext, name: string, a
 			list = [...list.filter((e) => e.name !== en), { name: en, date: ed }];
 			await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('exams', ?)").bind(JSON.stringify(list)).run();
 			return { msg: `已设考试：${en} ${ed}`, n: 1, done: true };
+		}
+		case "放回复习": { // 题号列表 → 今天重新做（回到第 1 档）
+			const { ids, names } = await byNo(db, arg);
+			if (dry) return { msg: `把 ${names} 放回复习，今天就做（重新从第 1 档开始）`, n: ids.length };
+			await db.batch(ids.flatMap((id) => [
+				db.prepare("INSERT INTO review_queue (question_id, next_date, stage) VALUES (?1, ?2, 0) ON CONFLICT(question_id) DO UPDATE SET next_date = ?2, stage = 0").bind(id, today()),
+				db.prepare("UPDATE questions SET status = 'active', status_at = NULL WHERE id = ?").bind(id),
+			]));
+			return { msg: `已放回复习：${names}`, n: ids.length, done: true };
+		}
+		case "改复习日期": { // 题号列表|YYYY-MM-DD（档位不变）
+			const [list, date] = arg.split("|").map((x) => x.trim());
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) throw new MaxErr("要写「题号|日期」，日期如 2026-10-20");
+			const { ids, names } = await byNo(db, list ?? "");
+			if (dry) return { msg: `把 ${names} 的复习日期改到 ${date}`, n: ids.length };
+			await db.batch(ids.flatMap((id) => [
+				db.prepare("INSERT INTO review_queue (question_id, next_date, stage) VALUES (?1, ?2, 0) ON CONFLICT(question_id) DO UPDATE SET next_date = ?2").bind(id, date),
+				db.prepare("UPDATE questions SET status = 'active', status_at = NULL WHERE id = ?").bind(id),
+			]));
+			return { msg: `已改复习日期到 ${date}：${names}`, n: ids.length, done: true };
+		}
+		case "标记题目": { // 题号列表 → 加进「标记的题」（24 小时）
+			const { ids, names } = await byNo(db, arg);
+			if (dry) return { msg: `标记 ${names}（24 小时内可以让 Max/Claude 解析）`, n: ids.length };
+			await db.batch(ids.map((id) => db.prepare("INSERT INTO marks (question_id) VALUES (?) ON CONFLICT(question_id) DO NOTHING").bind(id)));
+			return { msg: `已标记：${names}`, n: ids.length, done: true };
 		}
 	}
 	throw new MaxErr("Max 还不会做这个动作");

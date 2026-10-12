@@ -17,7 +17,7 @@ export const ready = (q = "q") => `(${q}.due IS NULL OR ${q}.due <= ?)`;
 
 /** 题还在显示期内（SQL 条件，q 是 questions 的别名） */
 export const live = (q = "q") =>
-	`(${since(q)} > datetime('now', '-1 day') OR (${since(q)} > datetime('now', '-2 days') AND ${wrongSql(q)} AND NOT ${redone(q)}))`;
+	`(${since(q)} > datetime('now', '-1 day') OR (${since(q)} > datetime('now', '-2 days') AND ${wrongSql(q)} AND NOT ${redone(q)}) OR (EXISTS (SELECT 1 FROM review_queue rq WHERE rq.question_id = ${q}.id) AND ${wrongSql(q)}))`; // 还在间隔复习的错题一直显示（排了期的新题照旧按时隐藏）
 
 /** 文件夹里的题不受限，其余要在显示期内 */
 export const alive = (q = "q") => `(${q}.status <> 'active' OR ${live(q)})`;

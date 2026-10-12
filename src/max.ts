@@ -6,7 +6,7 @@
 import { today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { wrongLine } from "./cause";
-import { alive, live, ready } from "./live";
+import { alive, live, ready, wrongSql } from "./live";
 import { webSearch } from "./search";
 import { figText } from "./fig";
 import { enqueueNow } from "./jobs";
@@ -317,7 +317,8 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 
 // ---------- 首页：今天先做什么 + 薄弱点 + 考前冲刺（一次调用，按天缓存，做题有变化且过了 3 小时才重算） ----------
 const BRIEF_SYS = `按数据给初三学生排今天的练习。只输出 JSON：
-{"say":"≤50字先做什么+为什么","order":[候选题号≤10个按先后],"weak":"≤60字薄弱点和练法","sprint":"≤60字冲刺重点，无考试则空"}`;
+{"say":"≤50字先做什么+为什么","order":[候选题号≤10个按先后],"weak":"≤60字薄弱点和练法","sprint":"≤60字冲刺重点，无考试则空"}
+排序依据：薄弱考点的错题优先；离考试越近越偏向考试科目和薄弱点；到期复习的不要漏；「旧错题」是以前错过的同考点题，薄弱点突出时可以穿插 1-3 道。`;
 
 export async function brief(env: Env, force = false, ctx?: ExecutionContext): Promise<any> {
 	const db = env.DB, d = today();
@@ -338,19 +339,29 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 		? (await db.prepare(`SELECT q.id FROM questions q WHERE q.status = 'active' AND ${live()} AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
 			ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 15`).bind(...weak.flatMap((w) => [w.subject, w.topic])).all<{ id: number }>()).results.map((r) => r.id)
 		: [];
-	const cands = [...due.results.map((q) => ({ ...q, kind: "复习" })), ...fresh.results.map((q) => ({ ...q, kind: "新题" }))];
+	// 以前错过的薄弱考点题（含已进错题文件夹的）：给 Max 挑几道穿插着练
+	const seen = [...due.results, ...fresh.results].map((q) => q.id);
+	const old = weak.length ? (await db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
+		WHERE q.status IN ('active', 'mastered') AND ${wrongSql()} AND q.id NOT IN (${seen.map(() => "?").join(",") || "0"})
+		  AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
+		  AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') ORDER BY q.id DESC LIMIT 6`)
+		.bind(...seen, ...weak.flatMap((w) => [w.subject, w.topic])).all<any>()).results : [];
+	const cands = [...due.results.map((q) => ({ ...q, kind: "复习" })), ...fresh.results.map((q) => ({ ...q, kind: "新题" })), ...old.map((q) => ({ ...q, kind: "旧错题" }))];
+	const exs = arr(exams?.v).map((e: any) => ({ ...e, days: Math.round((Date.parse(e.date) - Date.parse(d)) / 864e5) })).filter((e: any) => e.days >= 0 && e.days <= 60);
 	const base = { topics: weak, weakIds, soon, cands: cands.length };
-	const hit = await db.prepare("SELECT v, at > datetime('now', '-10 minutes') recent FROM max_cache WHERE k = ?").bind("br:" + d).first<{ v: string; recent: number }>();
-	const old = hit ? json<any>(hit.v) : null;
+	// stale：交卷后（br:dirty 比缓存新）且缓存超过 30 分钟 → 重算一次（不是每交一次都算，省额度）
+	const hit = await db.prepare(`SELECT v, at > datetime('now', '-10 minutes') recent, at < datetime('now', '-30 minutes') AND at < COALESCE((SELECT v FROM meta WHERE k = 'br:dirty'), '') stale FROM max_cache WHERE k = ?`)
+		.bind("br:" + d).first<{ v: string; recent: number; stale: number }>();
+	const prev = hit ? json<any>(hit.v) : null;
 	// 一天只让 Max 想一次（每天凌晨定时先想好）；刷新页面只读缓存，已经做掉的题从推荐里去掉（不花额度）。手动「重新看看」10 分钟内最多一次
 	// 推荐顺序：Max 排的（去掉已做的）在前，白天新进来的题按复习顺序补到 10 道
 	const fill = (order: number[]) => { const left = new Set(cands.map((q) => q.id)), o = order.filter((id) => left.has(id)); for (const q of cands) { if (o.length >= 10) break; if (!o.includes(q.id)) o.push(q.id); } return o; };
-	if (old && (!force || hit!.recent)) return { ...base, ...old.r, order: fill(old.r.order), cached: true };
+	if (prev && !hit!.stale && (!force || hit!.recent)) return { ...base, ...prev.r, order: fill(prev.r.order), cached: true };
 	if (!force && (await cacheGet(db, "brfail", 0.5))) return { ...base, say: "Max 暂时不在，先按复习顺序做", order: fill([]), weakTip: "", sprint: "" }; // 刚失败过：半小时内不重试，免得每次刷新都花额度
 	if (!cands.length && !weak.length) return { ...base, say: "题库还空着，拍照上传错题或让 Claude 出题吧", order: [], weakTip: "", sprint: "" };
-	if (ctx) { await enqueueNow(env, ctx, "brief"); return { ...base, ...(old?.r ?? {}), order: fill(old?.r?.order ?? []), say: old?.r?.say || "Max 正在想今天的建议…", thinking: true }; } // 排进后台任务（见 jobs.ts），这次先给旧的或占位
+	if (ctx) { await enqueueNow(env, ctx, "brief"); return { ...base, ...(prev?.r ?? {}), order: fill(prev?.r?.order ?? []), say: prev?.r?.say || "Max 正在想今天的建议…", thinking: true }; } // 排进后台任务（见 jobs.ts），这次先给旧的或占位
 	try {
-		const user = [`今天 ${d}`, soon.length ? `临近考试：${soon.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近 7 天没有考试",
+		const user = [`今天 ${d}`, exs.length ? `考试：${exs.map((e: any) => `${e.name}（${e.days}天后）`).join("、")}` : "近两个月没有考试",
 			`近30天错得多的考点：${weak.map((w) => `${w.subject}/${w.topic} 错${w.wrong}/${w.n}`).join("；") || "无"}`,
 			`候选题（题号｜类型｜科目考点｜题干开头）：\n${cands.map((q) => `${q.id}｜${q.kind}${q.stage != null ? "第" + (q.stage + 1) + "轮" : ""}｜${q.subject}/${q.topic || "?"}｜${q.stem}`).join("\n")}`].join("\n");
 		const r = json<any>(await ask(env, [{ role: "system", content: BRIEF_SYS }, { role: "user", content: user }], { max: 400, ok: isObj })) ?? {};
@@ -362,7 +373,7 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 	} catch (e) {
 		await cachePut(db, "brfail", "1");
 		const say = e instanceof MaxErr ? e.message : "Max 暂时不在，先按复习顺序做";
-		return { ...base, say, weakTip: "", sprint: "", ...(old?.r ?? {}), order: fill(old?.r?.order ?? []) };
+		return { ...base, say, weakTip: "", sprint: "", ...(prev?.r ?? {}), order: fill(prev?.r?.order ?? []) };
 	}
 }
 
@@ -382,9 +393,10 @@ const DRAW_DOC = `需要配图讲得更清楚时（几何、函数图像、受�
 电路（格点，y 向下）：{"circuit":1,"items":[{"t":"cell","a":[0,0],"b":[2,0]},{"t":"sw","a":[4,0],"b":[6,0],"on":1},{"t":"lamp","a":[6,2],"b":[6,4],"n":"L1"},{"t":"wire","pts":[[2,0],[4,0]]},{"t":"wire","pts":[[6,0],[6,2]]},{"t":"wire","pts":[[6,4],[0,4],[0,0]]}]}
  元件 t：cell 电源/sw 开关/lamp 灯/res 电阻/rheo 滑动变阻器/am 电流表/vm 电压表/motor/bell/led/fuse；横放或竖放；导线把各端连成回路。`;
 // 网站动作：学生明确要 Max 做事（清空、设考试、整理）时才附上；按钮点了先确认
-const ACT_RE = /清|删|标记|文件夹|收件箱|照片|总结|整理|分类|考试|倒计时/;
+const ACT_RE = /清|删|标记|文件夹|收件箱|照片|总结|整理|分类|考试|倒计时|复习|放回|日期|推迟|提前/;
 const ACT_DOC = `学生明确要你在网站上做事时才用（别主动做），单独一行写 [[做:动作]] 或 [[做:动作|参数]]，网站会先弹确认、数清楚数量再执行：
 [[做:清空标记]] 标记的题 · [[做:清空错题本]] · [[做:清空错题文件夹]] · [[做:清空照片收件箱]] · [[做:清空总结]] · [[做:整理错题]] · [[做:整理分类]] · [[做:设考试|名称|YYYY-MM-DD]]
+[[做:放回复习|数学3,物理12]] 题号放回复习、今天做 · [[做:改复习日期|数学3,物理12|YYYY-MM-DD]] · [[做:标记题目|数学3]]（题号写「科目+数字」）
 [[做:清理题库|{"groups":[…]}]] 删题：先想清楚学生要删哪些，翻成条件组，组与组是「或」，组内同时满足。条件：subject 科目（数学/物理/化学/语文/道法/历史/英语）；topic 考点关键词；tags 题型标签，逗号分隔，可用 选择,填空,计算,解答,证明,作图,函数,电路,光路,受力,简答；pending:true 有待批改的作答；undone:true 没做过；done:true 做过。
 例：清掉待批改的题、数学题和物理作图题 → [[做:清理题库|{"groups":[{"pending":true},{"subject":"数学"},{"subject":"物理","tags":"作图,函数,电路,光路,受力,证明"}]}]]
 待批改的题默认保护，学生没说删待批改就别加 pending。学生说的范围含糊（如「那些没用的」）就先问清楚，不要猜着删。
@@ -393,7 +405,7 @@ const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结�
 
 // len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
 type Tmp = { stem: string; options?: string[]; answer?: string; mine?: string; exp?: string; done?: boolean }; // Max 现场出的临时题（不在题库）
-type Ctx = { q?: number; a?: number; explain?: number; marked?: boolean; web?: boolean; deep?: boolean; tmp?: Tmp; page?: { path?: string; title?: string; text?: string }; len?: "s" | "m" | "l"; pref?: "auto" | "ds" | "cf" };
+type Ctx = { q?: number; a?: number; explain?: number; cmp?: boolean; marked?: boolean; web?: boolean; deep?: boolean; tmp?: Tmp; page?: { path?: string; title?: string; text?: string }; len?: "s" | "m" | "l"; pref?: "auto" | "ds" | "cf" };
 const LEN = { s: ["回答≤80字，只说要点。", 350], m: ["", 600], l: ["可以讲详细些（≤400字）。", 1000] } as const;
 
 async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: string; hard?: boolean }> {
@@ -416,7 +428,10 @@ async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: 
 		const r = await db.prepare(
 			`SELECT a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.score, a.time_spent_sec, q.id, q.no, q.subject, q.topic, q.type, q.stem, q.fig, q.options, q.answer, q.explanation
 			 FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?`).bind(aid).first<any>();
-		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}${r.fig ? "｜" + figText(r.fig) : ""}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
+		// 对比上次：带上这题上一次的作答（错题本里重做后看「是不是错在同一个地方」）
+		const p = ctx.cmp ? await db.prepare("SELECT answer_text, is_correct, error_reason, comment FROM attempts WHERE question_id = ? AND id < ? AND status = '已判' ORDER BY id DESC LIMIT 1").bind(r.id, r.aid).first<any>() : null;
+		const prev = p ? `\n上一次作答：${p.is_correct ? "【对】" : "【错】"}${String(p.answer_text || "（空）").slice(0, 200)}${p.error_reason ? "｜错因：" + p.error_reason : ""}${p.comment ? "｜评语：" + String(p.comment).slice(0, 60) : ""}` : "";
+		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}${r.fig ? "｜" + figText(r.fig) : ""}${prev}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}${p ? ":c" : ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
 	}
 	if (ctx.q) {
 		const q = await db.prepare("SELECT subject, no, stem, fig, options, topic FROM questions WHERE id = ?").bind(ctx.q).first<any>();
@@ -468,7 +483,9 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
 	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
-	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。" : ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
+	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。"
+		: ctx.explain && oneShot && ctx.cmp ? "对比这次和上一次作答：是不是错在同一个地方？一句话说进步了什么、还差什么（≤80字）。"
+		: ctx.explain && oneShot ? "讲讲这道题：错了就先指出错在哪，再给关键思路和步骤。" : null;
 	if (prompt) hist[hist.length - 1] = { role: "user", content: prompt };
 	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来"); // 只有真要问模型才算一次（缓存命中不算）
 	let web = 0;
@@ -510,12 +527,15 @@ const GEN_SYS = (subject: string, topic: string, n: number) => `给初三学生�
 只出单选题（4 个选项）和填空题（答案唯一、简短），不要作图、证明、要看图的题。公式用 $..$，化学式 $\\ce{..}$。
 只输出 JSON 数组：[{"type":"single","stem":"","options":["A. ","B. ","C. ","D. "],"answer":["B"],"exp":"≤40字"},{"type":"fill","stem":"","answer":["答案","等价写法"],"exp":"≤40字"}]`;
 
-export async function gen(env: Env, topic: string, n: number, allow?: () => Promise<boolean>): Promise<TmpQ[]> {
+// 出题用 DeepSeek（题目质量更稳），它不在时 Cloudflare 顶上；like = 参照的原题 id（出变式题）
+export async function gen(env: Env, topic: string, n: number, allow?: () => Promise<boolean>, like?: number): Promise<TmpQ[]> {
 	const [sRaw, tRaw] = topic.split("/"), subject = (sRaw || "").trim().slice(0, 10), tp = (tRaw || "").trim().slice(0, 20) || "综合";
 	if (!subject) throw new MaxErr("没说是哪一科");
 	n = Math.max(1, Math.min(10, Math.floor(n) || 5));
 	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来");
-	const out = json<any[]>(await ask(env, [{ role: "system", content: GEN_SYS(subject, tp, n) }, { role: "user", content: "开始出题" }], { max: 280 * n + 120, ok: isArr }));
+	const src = like ? await env.DB.prepare("SELECT stem, options, answer FROM questions WHERE id = ?").bind(like).first<{ stem: string; options: string | null; answer: string }>() : null;
+	const user = src ? `参照这道题出变式（同一知识点，换数据或换问法，别照抄）：${src.stem.slice(0, 240)}${src.options ? "｜选项：" + arr(src.options).join(" ").slice(0, 120) : ""}｜答案：${arr(src.answer).join(" / ").slice(0, 60)}` : "开始出题";
+	const out = json<any[]>(await ask(env, [{ role: "system", content: GEN_SYS(subject, tp, n) }, { role: "user", content: user }], { max: 220 * n + 100, route: "hard", ok: isArr }));
 	const qs: TmpQ[] = [];
 	for (const r of Array.isArray(out) ? out : []) {
 		const stem = String(r?.stem ?? "").trim().slice(0, 400), exp = String(r?.exp ?? "").trim().slice(0, 120);

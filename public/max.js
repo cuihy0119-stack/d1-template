@@ -346,7 +346,8 @@ const Max = (() => {
 		requestAnimationFrame(scroll);
 		if (text) send(text, c || {});
 	}
-	const oneOff = () => { if (ctx.explain || ctx.marked) ctx = base; }; // 一键讲解/解析用完回到页面本来的上下文
+	// 一键讲解用完：留住「刚才那道题」（作答 id），追问「那第二步呢」时 Max 还知道是哪题；解析标记的题用完回到页面本来的上下文
+	const oneOff = () => { if (ctx.explain) ctx = { ...base, a: ctx.explain }; else if (ctx.marked) ctx = base; };
 	function close() { // 窗口缩回球里，球重新出现
 		if (!ui) return;
 		quiet();
