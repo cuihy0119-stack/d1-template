@@ -11,7 +11,8 @@ import { webSearch } from "./search";
 import { figText } from "./fig";
 import { enqueueNow } from "./jobs";
 
-const CF = ["@cf/qwen/qwen3.8-27b", "@cf/zai-org/glm-4.7-flash"]; // 总管 + 总管忙时的替补
+const CF = ["@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwen3.8-27b"]; // 默认先用便宜的 glm（输出价只有 qwen 的 1/8）；批改（strong）先用 qwen
+const CHAT_DS = 20; // 聊天一句话超过这么多字才换 DeepSeek，短问短答全留在 Cloudflare
 const DAILY = 9800, SOFT = 8500; // Cloudflare 估算神经元：超过 SOFT 只留批改，超过 DAILY 不再用
 const DS_DAILY = 400_000; // DeepSeek 每天最多用的 token（防止意外花钱）
 const PASS = 80;
@@ -52,10 +53,10 @@ const within = <T>(f: (signal: AbortSignal) => Promise<T>, ms: number): Promise<
 // 一次性回答的超时按要写多长算（出 10 道题、整理几十个考点要更久）：20~90 秒
 const waitFor = (max: number) => Math.min(90000, Math.max(20000, 12000 + max * 35));
 
-async function providers(env: Env, route: Route, must = false, only?: string, deep = false): Promise<Prov[]> {
+async function providers(env: Env, route: Route, must = false, only?: string, deep = false, strong = false): Promise<Prov[]> {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
-	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? CF.map((model) => ({
+	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? (strong ? [...CF].reverse() : CF).map((model) => ({
 		name: "cf",
 		call: (messages, max, stream) => within((signal) => env.AI.run(model as any, {
 			messages, max_completion_tokens: max, temperature: 0.3, stream,
@@ -128,9 +129,9 @@ export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (awa
 // 总管超时或额度用完：同一次里别再试总管的替补模型（多半也慢/也没额度），直接换 DeepSeek，免得两边都花
 const cfDown = (e: unknown) => /超时|3036|daily free allocation/i.test(String(e));
 
-export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; ok?: (t: string) => boolean; engine?: (n: string) => void } = {}): Promise<string> {
+export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; strong?: boolean; ok?: (t: string) => boolean; engine?: (n: string) => void } = {}): Promise<string> {
 	let last: unknown, skipCf = false;
-	for (const p of await providers(env, o.route ?? "work", o.must, o.only)) {
+	for (const p of await providers(env, o.route ?? "work", o.must, o.only, false, o.strong)) {
 		if (skipCf && p.name === "cf") continue;
 		try {
 			const r: any = await p.call(messages, o.max ?? 500, false);
@@ -227,14 +228,14 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 		const msgs: Msg[] = [{ role: "system", content: GRADE_SYS + (draw ? DRAW_NOTE : "") }, { role: "user", content: user }];
 		const valid = (t: string) => typeof json<any>(t)?.score === "number";
 		let by = "";
-		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, ok: valid, engine: (n) => (by = n) }));
+		let r = json<{ score: number; comment?: string; reason?: string; sure?: number }>(await ask(env, msgs, { max: 220, must: true, strong: true, ok: valid, engine: (n) => (by = n) }));
 		// 难题：总管拿不准（sure<0.6）或分数在及格线附近 → 交给 DeepSeek 复核一次（已经是 DeepSeek 批的就不再问）
 		if (r && draw && (r.sure ?? 0) < SURE_DRAW) { // 作图拿不准：只留初评，交给 Claude（学生在结果页一键转）
 			await db.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ?, grader = NULL WHERE id = ?")
 				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), r.sure ?? 0, id).run();
 			return;
 		}
-		if (r && !draw && by === "cf" && ((r.sure ?? 1) < 0.6 || Math.abs(r.score - PASS) < 10) && (await hasDs(env)))
+		if (r && !draw && by === "cf" && ((r.sure ?? 1) < 0.6 || (Math.abs(r.score - PASS) < 10 && (r.sure ?? 1) < 0.8)) && (await hasDs(env)))
 			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "hard", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
 		if (!r || typeof r.score !== "number") throw new Error("Max 没给出分数");
 		const score = Math.max(0, Math.min(100, Math.round(r.score))), ok = score >= PASS;
@@ -436,8 +437,6 @@ async function bankIndexRaw(db: D1Database) {
 
 const PAGEQ = /页|这|总结|分析|看看|上面|屏幕|错题|列表|哪/; // 问题跟当前页面有关才带页面内容
 const digest = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
-// 难题信号：学生说没懂/要详细/问为什么，聊得很长，或要讲数理化的解答题 → 直接让 DeepSeek 答
-const HARD = /难|不懂|没懂|看不懂|不明白|详细|为什么|证明|推导|再讲|换个讲法|一步步|怎么来的/;
 export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () => Promise<boolean>): Promise<{ cached?: string; stream?: ReadableStream<Uint8Array>; engine?: string; web?: number }> {
 	const db = env.DB;
 	const fresh = !!(ctx.web || ctx.deep); // 联网搜索/深度思考：每次都重新问，不读不写同问缓存
@@ -453,8 +452,8 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		if (hit) return { cached: hit };
 	}
 	// 省额度：历史里 Max 的旧回答只留开头
-	const hard = HARD.test(messages[messages.length - 1]?.content ?? "") || messages.length >= 5 || c.hard;
-	const hist = messages.slice(hard ? -6 : -4).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
+	const hard = q.trim().length > CHAT_DS || !!c.hard; // 真难（一句话超过 20 字、或数理化大题讲解）才上 DeepSeek；其余全在 Cloudflare
+	const hist = messages.slice(hard ? -4 : -3).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
 	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
 	const bankText = c.text ? "" : bank;
@@ -474,7 +473,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	}
 	let engine = "";
 	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], {
-		max: (ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : hard ? Math.max(len[1], 800) : len[1]) + (drawing ? 400 : 0), // 深度思考的思考过程也算在 max 里，要给足
+		max: (ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : len[1]) + (drawing ? 400 : 0), // 深度思考的思考过程也算在 max 里，要给足
 		route: ctx.deep || ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
 		done: !ctx.web && oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream, engine, web: ctx.web ? web : undefined };
@@ -672,7 +671,7 @@ export async function pregrade(env: Env, ids: number[]) {
 		if (!a || !/\[(作图|电路|计算)\]/.test(String(a.answer_text ?? ""))) continue; // 没有画板文字描述（纯照片/手写）：Max 看不了图，不白花额度
 		try {
 			const r = json<{ score: number; comment?: string; sure?: number }>(await ask(env, [{ role: "system", content: GRADE_SYS + "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好）。" },
-				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, ok: (t) => typeof json<any>(t)?.score === "number" }));
+				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, strong: true, ok: (t) => typeof json<any>(t)?.score === "number" }));
 			if (r) await env.DB.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ? WHERE id = ?")
 				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), Math.max(0, Math.min(1, r.sure ?? 0.5)), id).run();
 		} catch (e) { if (e instanceof MaxErr && /额度/.test(e.message)) return; } // 额度没了就停；单题出错跳过
