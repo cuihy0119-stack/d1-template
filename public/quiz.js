@@ -218,7 +218,7 @@ function render(anim) {
 		box, nav);
 	math(box);
 	isle.fill(q);
-	Max.setCtx(typeof done[cur] === "number" ? { a: done[cur] } : { q: q.id }); // 没交：只给提示；交了：可以讲
+	Max.setCtx(typeof done[cur] === "number" ? { a: done[cur], qid: q.id } : { q: q.id }); // 没交：只给提示；交了：可以讲（qid：同一题交卷前后算一段对话）
 }
 
 // ---------- 浮岛 ----------

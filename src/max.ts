@@ -463,11 +463,11 @@ async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: 
 		// 对比上次：带上这题上一次的作答（错题本里重做后看「是不是错在同一个地方」）
 		const p = ctx.cmp ? await db.prepare("SELECT answer_text, is_correct, error_reason, comment FROM attempts WHERE question_id = ? AND id < ? AND status = '已判' ORDER BY id DESC LIMIT 1").bind(r.id, r.aid).first<any>() : null;
 		const prev = p ? `\n上一次作答：${p.is_correct ? "【对】" : "【错】"}${String(p.answer_text || "（空）").slice(0, 200)}${p.error_reason ? "｜错因：" + p.error_reason : ""}${p.comment ? "｜评语：" + String(p.comment).slice(0, 60) : ""}` : "";
-		if (r) return { text: `当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}${r.fig ? "｜" + figText(r.fig) : ""}${prev}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}${p ? ":c" : ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
+		if (r) return { text: `【学生现在看的就是这题，说「这题/这道题」都指它；之前聊的如果是别的题，以这题为准】\n当前这题（学生已交）：${r.status === "待批改" ? "【待批改】" : r.is_correct ? "【对】" : "【错】"}${wrongLine(r)}${r.fig ? "｜" + figText(r.fig) : ""}${prev}`, key: `ex:${r.aid}:${r.is_correct ?? ""}:${r.score ?? ""}${p ? ":c" : ""}`, hard: /数学|物理|化学/.test(r.subject) && (r.type === "short" || String(r.stem).length > 80) };
 	}
 	if (ctx.q) {
 		const q = await db.prepare("SELECT subject, no, stem, fig, options, topic FROM questions WHERE id = ?").bind(ctx.q).first<any>();
-		if (q) return { text: `学生正在做这题（还没交，只给提示和思路，不要直接说答案）：${q.subject}${q.no ?? ""}（${q.topic || ""}）：${q.stem}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}${q.fig ? "｜" + figText(q.fig) : ""}` };
+		if (q) return { text: `【学生现在看的就是这题，说「这题/这道题」都指它；之前聊的如果是别的题，以这题为准】\n学生正在做这题（还没交，只给提示和思路，不要直接说答案）：${q.subject}${q.no ?? ""}（${q.topic || ""}）：${q.stem}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}${q.fig ? "｜" + figText(q.fig) : ""}` };
 	}
 	return { text: "" };
 }

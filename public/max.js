@@ -347,7 +347,10 @@ const Max = (() => {
 		if (text) send(text, c || {});
 	}
 	// 一键讲解用完：留住「刚才那道题」（作答 id），追问「那第二步呢」时 Max 还知道是哪题；解析标记的题用完回到页面本来的上下文
-	const oneOff = () => { if (ctx.explain) ctx = { ...base, a: ctx.explain }; else if (ctx.marked) ctx = base; };
+	// 页面自己有「当前这题」（做题页）就回到页面的题，不然会拿刚讲过的旧题顶掉正在做的题
+	const oneOff = () => { if (ctx.explain && !(base.q || base.a || base.tmp)) ctx = { ...base, a: ctx.explain }; else if (ctx.explain || ctx.marked) ctx = base; };
+	// 当前在看哪道题（换题了就不把上一题的聊天发过去，免得 Max 接着讲上一题）
+	const topicKey = (c) => (c.qid ? "q" + c.qid : c.q ? "q" + c.q : c.explain ? "a" + c.explain : c.a ? "a" + c.a : c.tmp ? "t" + String(c.tmp.stem).slice(0, 30) : "");
 	function close() { // 窗口缩回球里，球重新出现
 		if (!ui) return;
 		quiet();
@@ -431,7 +434,7 @@ const Max = (() => {
 		text = text || "看看这张图，帮我讲讲";
 		if (img && img === att) { att = null; showAtt(); }
 		ui.input.value = ""; ui.input.style.height = "";
-		hist.push({ role: "user", content: text, ...(img ? { shown: text + "［图片］" } : {}) });
+		hist.push({ role: "user", content: text, k: topicKey({ ...ctx, ...extra }), ...(img ? { shown: text + "［图片］" } : {}) });
 		const ub = bubble("user", text);
 		if (img) ub.prepend(el("img", { className: "mimg", src: img, alt: "", onclick: () => { const z = el("div", { className: "figzoom", onclick: () => z.remove() }, el("img", { src: img, alt: "" })); document.body.append(z); } })); // 点开看大图
 		const deep = tg.deep, web = tg.web; // 发出时的开关状态
@@ -456,7 +459,11 @@ const Max = (() => {
 			}
 			const one = extra.explain || extra.marked; // 一键讲解只发这一句：命中缓存不花额度
 			// 只发服务器会用的：旧回答服务器只看开头 300 字，这里先截好，少传
-			const msgs = (one ? hist.slice(-1) : hist.slice(-6)).map((m) => ({ role: m.role, content: m.role === "assistant" ? m.content.slice(0, 300) : m.content.slice(0, 800) }));
+			// 只发「同一道题」的这段对话：往前找到换题的地方就停
+			const k = hist[hist.length - 1].k;
+			let from = hist.length - 1;
+			if (k) while (from > 0 && (hist[from - 1].role === "assistant" ? from - 2 >= 0 && hist[from - 2].k === k : hist[from - 1].k === k)) from--;
+			const msgs = (one ? hist.slice(-1) : hist.slice(Math.max(from, hist.length - 6))).map((m) => ({ role: m.role, content: m.role === "assistant" ? m.content.slice(0, 300) : m.content.slice(0, 800) }));
 			const r = await fetch("/api/max/chat", { method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
 				body: JSON.stringify({ messages: msgs, ctx: { ...ctx, ...extra, len: prefs.len, pref: prefs.pref, deep, web, page: one || !PAGE_RE.test(text) ? undefined : page() } }) });
 			if (r.status === 401) return void (location.href = "/login");
