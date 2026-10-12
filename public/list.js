@@ -112,7 +112,9 @@ function row(q) {
 		const act = (path) => async () => { await api(`/api/question/${q.id}/${path}`, { method: "POST" }); load(); };
 		detail.append(el("div", { className: "row", style: "margin-top:8px" },
 			tab === "active" ? el("a", { className: "btn", href: quizHref([q.id]), textContent: "重做", style: "text-decoration:none" }) : "",
-			tab === "active" ? el("button", { className: "btn", textContent: "标为已掌握", onclick: act("master") }) : "",
+			// 标为已掌握前先做一道 Max 出的变式题，做对才标（作图类 Max 出不了，直接标）
+			tab === "active" ? (/作图|函数|电路|光路|受力|证明/.test(d.tag || "") ? el("button", { className: "btn", textContent: "标为已掌握", onclick: act("master") })
+				: el("a", { className: "btn", style: "text-decoration:none", href: `/quiz?topic=${encodeURIComponent(d.subject + "/" + (d.topic || "综合"))}&n=1&like=${q.id}&master=${q.id}`, textContent: "标为已掌握（先做道变式）" })) : "",
 			el("button", { className: "btn", textContent: "删除", style: "color:var(--bad)", onclick: async () => (await delQuestion(q.id)) && load() })));
 		math(item.parentElement);
 	};

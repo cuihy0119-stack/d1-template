@@ -28,7 +28,8 @@ const practiceUrl = () => {
 	const p = new URLSearchParams(location.search), topic = p.get("topic");
 	return "/api/practice" + (p.get("ids") ? "?ids=" + p.get("ids") : p.get("subject") ? "?subject=" + encodeURIComponent(p.get("subject")) : topic ? "?topic=" + encodeURIComponent(topic) : "");
 };
-let early = /^#r=[\d,]+/.test(location.hash) ? null : api(practiceUrl());
+const fresh = /[?&](new|like)=/.test(location.search); // 直接让 Max 出题（来道同类/变式/练薄弱点）：不用先查题库
+let early = /^#r=[\d,]+/.test(location.hash) || fresh ? null : api(practiceUrl());
 early?.catch(() => {}); // 出错留到 start 里处理
 async function start() {
 	const p = new URLSearchParams(location.search);
@@ -36,6 +37,7 @@ async function start() {
 	if (m) { autoRefresh(() => showResult(m[1]).catch(() => {})); return showResult(m[1]).catch(loadFail); }
 	// topic=科目/考点（Max 推荐的「练」按钮）：题库有同类题就直接练；没有就让 Max 现场出临时题（drill.js，不进题库）
 	const topic = p.get("topic");
+	if (topic && fresh) return Drill.start(topic, Math.min(10, +p.get("n") || 0), { like: +p.get("like") || 0, master: +p.get("master") || 0 });
 	try { qs = await (early || api(practiceUrl())); } catch (e) { return loadFail(e); } finally { early = null; }
 	if (topic && !qs.length) return Drill.start(topic, Math.min(10, +p.get("n") || 0));
 	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
@@ -349,8 +351,13 @@ async function showResult(ids, got) {
 		if (r.status === "待批改" && !r.grader && r.max_score != null) // Max 的初评（作图题拿不准时给 Claude 参考）
 			card.append(el("div", { className: "ans", textContent: `Max 初评：${r.max_score} 分，${r.max_comment || ""}（把握不大，已交给 Claude 定）` }));
 		if (r.status === "已判" && r.is_correct === 0 && r.topic) card.append(noteLink(r.subject, r.topic)); // 做错了：同考点的 Notion 笔记
-		if (r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max")) // 作图题 Max 批过的也能问
-			card.append(el("button", { type: "button", className: "btn small", style: "margin-top:8px", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }));
+		const ask = r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max"); // 作图题 Max 批过的也能问
+		const btns = el("div", { className: "row", style: "margin-top:8px" },
+			ask ? el("button", { type: "button", className: "btn small", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }) : "",
+			ask && r.prev ? el("button", { type: "button", className: "btn small", textContent: "🆚 和上次比", onclick: () => Max.open({ explain: r.id, cmp: true }, "这次和上次比怎么样？") }) : "", // 重做的题：是不是错在同一个地方
+			r.status === "已判" && r.is_correct === 0 && !DRAWN.has(r.tag) && r.question_id // 做错了：Max 马上按这题出一道变式（不进题库）
+				? el("a", { className: "btn small", style: "text-decoration:none", href: `/quiz?topic=${encodeURIComponent(r.subject + "/" + (r.topic || "综合"))}&n=1&like=${r.question_id}`, textContent: "🔁 来道同类" }) : "");
+		if (btns.childElementCount) card.append(btns);
 		wrap.append(card);
 	}
 	// 作图/写过程的题交给 Claude 批改；标记的题可以让 Claude 解析

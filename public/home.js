@@ -111,6 +111,7 @@ function showBrief(b) {
 		el("div", { className: "row" },
 			go(b.order, `按 Max 推荐做（${b.order.length} 题）`),
 			go(b.weakIds, b.soon.length ? `冲刺薄弱点（${b.weakIds.length} 题）` : `练薄弱点（${b.weakIds.length} 题）`),
+			b.topics.length ? el("a", { className: "btn small", href: `/quiz?topic=${encodeURIComponent(b.topics[0].subject + "/" + b.topics[0].topic)}&new=1&n=5`, textContent: `🎯 Max 出 5 道${b.topics[0].topic}` }) : "", // 临时题，不进题库
 			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}) }),
 			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: rethink })));
 	box.hidden = false;

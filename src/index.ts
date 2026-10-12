@@ -310,6 +310,7 @@ app.post("/api/submit", async (c) => {
 	if (toMax.length) await enqueueNow(c.env, c.executionCtx, "grade"); // Max 批改，结果页轮询会显示
 	if (toClaude.length) await enqueueNow(c.env, c.executionCtx, "pregrade", JSON.stringify(toClaude)); // 交给 Claude 的：Max 先写初评，Claude 看得少
 	if (toMax.length || toClaude.length) await enqueue(c.env, "organize"); // 新错题攒够 5 道才让 Max 分析一次（定时任务做）
+	if (attemptIds.length) await db.prepare("INSERT INTO meta (k, v) VALUES ('br:dirty', datetime('now')) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(); // 首页建议：下次打开时（距上次 ≥30 分钟）重算
 	return c.json({ attempt_ids: attemptIds });
 });
 
@@ -320,7 +321,7 @@ app.get("/api/attempts", async (c) => {
 	const { results } = await c.env.DB
 		.prepare(
 			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, a.max_score, a.max_comment, a.max_sure, q.tag, q.board, q.fig,
-			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
+			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, EXISTS (SELECT 1 FROM attempts p WHERE p.question_id = a.question_id AND p.id < a.id AND p.status = '已判') prev, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
@@ -433,8 +434,8 @@ app.post("/api/max/see", async (c) => {
 });
 // 现场出题（题库没有同类题时）：临时题不进题库，答案一起发给网页当场判
 app.post("/api/max/gen", async (c) => {
-	const b = await c.req.json<{ topic?: string; n?: number }>().catch(() => ({}) as { topic?: string; n?: number });
-	try { return c.json({ questions: await gen(c.env, String(b.topic ?? "").slice(0, 40), Number(b.n) || 5, () => chatQuota(c.env.DB)) }); }
+	const b = await c.req.json<{ topic?: string; n?: number; like?: number }>().catch(() => ({}) as { topic?: string; n?: number; like?: number });
+	try { return c.json({ questions: await gen(c.env, String(b.topic ?? "").slice(0, 40), Number(b.n) || 5, () => chatQuota(c.env.DB), Number(b.like) || undefined) }); }
 	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "出题失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
 });
 // 清理题库：dry=1 只数一数；否则真删（网页确认后才会调）
@@ -455,7 +456,7 @@ app.post("/api/max/chat", async (c) => {
 	const tmp = t ? { stem: t.stem.slice(0, 500), options: (Array.isArray(t.options) ? t.options : []).slice(0, 4).map((o: unknown) => String(o).slice(0, 120)), answer: String(t.answer ?? "").slice(0, 120),
 		mine: String(t.mine ?? "").slice(0, 120), exp: String(t.exp ?? "").slice(0, 150), done: !!t.done } : undefined;
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, marked: !!ctx.marked, web: !!ctx.web, deep: !!ctx.deep, tmp, page: pg,
+		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, cmp: !!ctx.cmp, marked: !!ctx.marked, web: !!ctx.web, deep: !!ctx.deep, tmp, page: pg,
 			len: ["s", "m", "l"].includes(ctx.len) ? ctx.len : "m", pref: ["auto", "ds", "cf"].includes(ctx.pref) ? ctx.pref : "auto" }, () => chatQuota(c.env.DB));
 		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "", ...(r.web != null ? { "x-max-web": String(r.web) } : {}) } });
 	} catch (e) {
