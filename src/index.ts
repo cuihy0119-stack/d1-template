@@ -11,6 +11,7 @@ import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classifyState, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
+import { check as kimiCheck } from "./kimi";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
 import { enqueue, enqueueNow, runJobs } from "./jobs";
@@ -493,5 +494,5 @@ function providerFor(origin: string) {
 export default {
 	fetch: async (req, env, ctx) => (await edge(req, env)) ?? providerFor(new URL(req.url).origin).fetch(req, env, ctx),
 	// 每分钟：做后台任务队列里的活（见 jobs.ts）；每天凌晨：清理 + Max 把当天要用的先想好
-	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? runJobs(env, "cron") : dailyCleanup(env.DB).then(() => maxDaily(env))),
+	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? Promise.all([runJobs(env, "cron"), kimiCheck(env)]) : dailyCleanup(env.DB).then(() => maxDaily(env))),
 } satisfies ExportedHandler<Env>;

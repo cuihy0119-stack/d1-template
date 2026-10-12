@@ -10,6 +10,7 @@ import { alive, live, ready } from "./live";
 import { webSearch } from "./search";
 import { figText } from "./fig";
 import { enqueueNow } from "./jobs";
+import { info as kimiInfo, note as kimiNote, patch as kimiPatch } from "./kimi";
 
 const CF = ["@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwen3.8-27b"]; // 默认先用便宜的 glm（输出价只有 qwen 的 1/8）；批改（strong）先用 qwen
 const CHAT_DS = 20; // 聊天一句话超过这么多字才换 DeepSeek，短问短答全留在 Cloudflare
@@ -41,7 +42,7 @@ export const used = (db: D1Database) => meter(db, "max:"); // Cloudflare 神经�
 const est = (m: Msg[]) => Math.ceil(m.reduce((n, x) => n + x.content.length, 0) * 1.1); // 中文约 1 字 1 token
 const clean = (t: string) => t.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim(); // 没写完的思考（被截断）也去掉
 
-type Prov = { name: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
+type Prov = { name: string; model: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
 // 到点真的中止请求（不再白白生成、花额度）；计时器用完就清
@@ -51,13 +52,14 @@ const within = <T>(f: (signal: AbortSignal) => Promise<T>, ms: number): Promise<
 	return Promise.race([f(ac.signal), new Promise<never>((_, rej) => { t = setTimeout(() => { ac.abort(); rej(new Error("超时")); }, ms); })]).finally(() => clearTimeout(t));
 };
 // 一次性回答的超时按要写多长算（出 10 道题、整理几十个考点要更久）：20~90 秒
-const waitFor = (max: number) => Math.min(90000, Math.max(20000, 12000 + max * 35));
+const waitFor = (max: number, k = 1) => Math.min(90000, Math.max(20000, 12000 + max * 35)) * k;
 
 async function providers(env: Env, route: Route, must = false, only?: string, deep = false, strong = false): Promise<Prov[]> {
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
+	const kp = await kimiPatch(db); // Kimi 自检的补丁（只有白名单里的几个数字/开关）
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
 	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? (strong ? [...CF].reverse() : CF).map((model) => ({
-		name: "cf",
+		name: "cf", model,
 		call: (messages, max, stream) => within((signal) => env.AI.run(model as any, {
 			messages, max_completion_tokens: max, temperature: 0.3, stream,
 			...(stream ? { stream_options: { include_usage: true } } : {}),
@@ -65,13 +67,13 @@ async function providers(env: Env, route: Route, must = false, only?: string, de
 		} as any, { signal }).catch(async (e) => {
 			if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
 			throw e;
-		}), stream ? 25000 : waitFor(max)),
+		}), stream ? kp.cfMs ?? 25000 : waitFor(max, kp.waitScale)),
 		bill: (u, i, o) => Promise.all([add(db, "max:", neurons(model, u, i, o)), add(db, "maxn:", 1)]), // 神经元 + 调用次数
 	})) : [];
 	const ds: Prov[] = key && dsUsed < DS_DAILY ? [{
-		name: "ds",
+		name: "ds", model: "ds",
 		call: async (messages, max, stream) => {
-			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? (deep ? 40000 : 20000) : waitFor(max));
+			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? (deep ? 40000 : kp.dsMs ?? 20000) : waitFor(max, kp.waitScale));
 			const r = await fetch("https://api.deepseek.com/chat/completions", {
 				method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + key }, signal: ac.signal,
 				body: JSON.stringify({ model: deep ? (env as any).DEEPSEEK_REASONER_MODEL || "deepseek-reasoner" : (env as any).DEEPSEEK_MODEL || "deepseek-chat", messages, max_tokens: max, ...(deep ? {} : { temperature: 0.3 }), stream, ...(stream ? { stream_options: { include_usage: true } } : {}) }),
@@ -82,7 +84,9 @@ async function providers(env: Env, route: Route, must = false, only?: string, de
 		},
 		bill: (u, i, o) => Promise.all([add(db, "ds:", (u?.prompt_tokens ?? i) + (u?.completion_tokens ?? o)), add(db, "dsn:", 1)]),
 	}] : [];
-	const list = (route === "hard" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
+	const all = (route === "hard" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
+	const ok = all.filter((p) => !kp.skip?.[p.model]); // 被熔断的模型先跳过；全被熔断就都试（总得有人答）
+	const list = ok.length ? ok : all;
 	if (!list.length) throw new MaxErr("Max 今天的额度用完了，明天再来" + (key ? "" : "（可以接 DeepSeek 备用）"));
 	return list;
 }
@@ -117,7 +121,9 @@ export async function status(env: Env, fresh = false) {
 		meter(db, "chat:"),
 	]);
 	const FREE = 10000;
+	const kimi = await kimiInfo(db);
 	return {
+		kimi,
 		cfu: { used: Math.min(cf, FREE), cap: FREE, pct: Math.min(100, Math.round((cf / FREE) * 1000) / 10), calls: cfn, out: cf >= DAILY },
 		ds: { on: dsOk === "ok", msg: dsOk, used: ds, cap: DS_DAILY, pct: Math.round((ds / DS_DAILY) * 1000) / 10, calls: dsn, balance: bal || null },
 		chats: { used: chats, cap: 300 }, sec: sec?.n ?? 0,
@@ -129,7 +135,7 @@ export const hasDs = async (env: Env) => !!(env as any).DEEPSEEK_API_KEY && (awa
 // 总管超时或额度用完：同一次里别再试总管的替补模型（多半也慢/也没额度），直接换 DeepSeek，免得两边都花
 const cfDown = (e: unknown) => /超时|3036|daily free allocation/i.test(String(e));
 
-export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; strong?: boolean; ok?: (t: string) => boolean; engine?: (n: string) => void } = {}): Promise<string> {
+export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: boolean; route?: Route; only?: "cf" | "ds"; strong?: boolean; quiet?: boolean; ok?: (t: string) => boolean; engine?: (n: string) => void } = {}): Promise<string> {
 	let last: unknown, skipCf = false;
 	for (const p of await providers(env, o.route ?? "work", o.must, o.only, false, o.strong)) {
 		if (skipCf && p.name === "cf") continue;
@@ -139,7 +145,8 @@ export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: b
 			await p.bill(r?.usage, est(messages), text.length);
 			if (text && (!o.ok || o.ok(text))) { o.engine?.(p.name); return text; } // 答得不像样（如该给 JSON 没给）：换下一个模型
 			last = new Error("回答格式不对");
-		} catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
+			if (!o.quiet) await kimiNote(env.DB, p.model, "ask", last);
+		} catch (e) { last = e; if (!o.quiet) await kimiNote(env.DB, p.model, "ask", e); if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
 	throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 }
@@ -149,7 +156,7 @@ export async function askStream(env: Env, messages: Msg[], o: { max?: number; ro
 	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown, skipCf = false;
 	for (const p of await providers(env, o.route ?? "work", false, o.only, o.deep)) {
 		if (skipCf && p.name === "cf") continue;
-		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; if (p.name === "cf" && cfDown(e)) skipCf = true; }
+		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; await kimiNote(env.DB, p.model, "chat", e); if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
 	if (!src || !used_) throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 	o.engine?.(used_.name);
