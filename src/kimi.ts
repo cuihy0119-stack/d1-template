@@ -48,14 +48,20 @@ cfMs Cloudflare 流式等待毫秒 10000-40000；dsMs DeepSeek 流式等待毫�
 skip 要暂时跳过的模型 {"@cf/zai-org/glm-4.7-flash":毫秒数,"@cf/qwen/qwen3.8-27b":毫秒数,"ds":毫秒数}（毫秒数=跳过多久，≤21600000）。
 原则：超时多 → 适当加大等待或跳过慢的模型；格式不对多 → 跳过那个模型；偶发单次错误 → 不用改（patch 给 {}）。
 如果错误像代码问题（报错信息里有 TypeError/undefined/JSON/格式不对等），在 code 里写你怀疑的位置和改法（≤80字，只是建议，不会自动执行），否则 code 为空。
-只输出 JSON：{"cause":"原因≤40字","code":"","patch":{}}`;
+只输出 JSON：{"cause":"原因≤40字","code":"","patch":{},"escalate":false}
+escalate：原因看不明白、像代码问题、或需要多处调整才算复杂，写 true（会再请 DeepSeek 深入看）；简单明确的（单个模型超时/偶发）写 false，自己给 patch。`;
 
-/** 叫 DeepSeek 看日志：只调白名单参数，返回一句报告（原因 + 代码建议）。一次调用，几百 token */
+/** 先由 Cloudflare 看日志（便宜）；它判断原因复杂或像代码问题才请 DeepSeek 深入看（escalate）。只调白名单参数，返回一句报告 */
 async function diagnose(env: Env, log: Log[]): Promise<string> {
 	const db = env.DB, now = Date.now(), cur = await patch(db);
-	const out = await ask(env, [{ role: "system", content: SYS }, { role: "user", content: `当前补丁：${JSON.stringify(cur)}\n日志（${log.length} 条）：\n${log.map((x) => `${Math.round((now - x.t) / 60000)}分钟前｜${x.m}｜${x.task}｜${x.err}`).join("\n")}` }],
-		{ max: 300, only: "ds", route: "hard", quiet: true, ok: (t) => /\{[\s\S]*\}/.test(t) });
-	const j = JSON.parse(out.match(/\{[\s\S]*\}/)![0]) as { cause?: string; code?: string; patch?: Patch };
+	const user = `当前补丁：${JSON.stringify(cur)}\n日志（${log.length} 条）：\n${log.map((x) => `${Math.round((now - x.t) / 60000)}分钟前｜${x.m}｜${x.task}｜${x.err}`).join("\n")}`;
+	const go = async (only: "cf" | "ds", extra = "") => JSON.parse((await ask(env, [{ role: "system", content: SYS }, { role: "user", content: user + extra }],
+		{ max: 300, only, route: only === "ds" ? "hard" : "work", quiet: true, ok: (t) => /\{[\s\S]*\}/.test(t) })).match(/\{[\s\S]*\}/)![0]) as { cause?: string; code?: string; patch?: Patch; escalate?: boolean };
+	let j: { cause?: string; code?: string; patch?: Patch; escalate?: boolean };
+	try {
+		j = await go("cf");
+		if (j.escalate || j.code) j = await go("ds", `\n\nCloudflare 的初步看法（供参考，请深入判断）：${JSON.stringify({ cause: j.cause, code: j.code, patch: j.patch })}`).catch(() => j); // DeepSeek 也不行就用 Cloudflare 的
+	} catch { j = await go("ds"); } // Cloudflare 自己不可用（额度用完/故障）：直接请 DeepSeek
 	const r = j.patch ?? {}, next: Patch = { ...cur };
 	for (const k of ["cfMs", "dsMs", "waitScale"] as const) { const v = clamp(r[k], LIM[k]); if (v != null) next[k] = v; }
 	for (const [m, ms] of Object.entries(r.skip ?? {})) {
@@ -70,7 +76,7 @@ async function diagnose(env: Env, log: Log[]): Promise<string> {
 	return `原因：${cause || "不确定"}` + (code ? `\n代码建议（需要你或 Claude 看）：${code}` : "") + (JSON.stringify(next) === JSON.stringify(cur) ? "\n已调整：无" : "\n已调整参数：" + JSON.stringify(next));
 }
 
-/** 每分钟定时任务里调用：最近 30 分钟有 ≥3 次故障、且 30 分钟内没自检过，才叫 DeepSeek 看一次（平时只读一行数据库，不花模型额度） */
+/** 每分钟定时任务里调用：最近 30 分钟有 ≥3 次故障、且 30 分钟内没自检过，才让 Cloudflare 看一次（复杂才再请 DeepSeek；平时只读一行数据库，不花模型额度） */
 export async function check(env: Env) {
 	const db = env.DB, now = Date.now();
 	const log = parse<Log[]>(await get(db, "kimi:log"), []).filter((x) => now - x.t < WIN);
@@ -79,7 +85,7 @@ export async function check(env: Env) {
 	try { await put(db, "kimi:report", JSON.stringify({ t: now, text: await diagnose(env, log) })); } catch {} // DeepSeek 也不可用：保留熔断即可
 }
 
-/** 手动自检（Max 设置里点一下）：没有任何出错 → 直接说正常，不调用任何模型、不花额度；有出错才问 DeepSeek 一次。2 分钟内重复点直接给上次结果 */
+/** 手动自检（Max 设置里点一下）：没有任何出错 → 直接说正常，不调用任何模型、不花额度；有出错才先让 Cloudflare 看（复杂才再请 DeepSeek）。2 分钟内重复点直接给上次结果 */
 export async function run(env: Env): Promise<{ text: string; at: number; ai: boolean }> {
 	const db = env.DB, now = Date.now();
 	const prev = parse<{ t: number; text: string; ai: boolean } | null>(await get(db, "kimi:manual"), null);
