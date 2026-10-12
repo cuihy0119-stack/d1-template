@@ -11,7 +11,7 @@ import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classifyState, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
-import { check as kimiCheck } from "./kimi";
+import { check as kimiCheck, run as kimiRun } from "./kimi";
 import { findNote } from "./notion";
 import { runAction } from "./actions";
 import { enqueue, enqueueNow, runJobs } from "./jobs";
@@ -409,6 +409,7 @@ app.get("/api/question/:id", async (c) => {
 // ---------- Max 助手 ----------
 app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1", c.executionCtx)), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
 app.get("/api/max/status", async (c) => c.json(await status(c.env, c.req.query("fresh") === "1")));
+app.post("/api/max/kimi", async (c) => c.json(await kimiRun(c.env)));
 app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1", c.executionCtx)));
 app.post("/api/max/organize", async (c) => {
 	try { return c.json({ done: await organize(c.env, 10), left: await unorganized(c.env.DB) }); }

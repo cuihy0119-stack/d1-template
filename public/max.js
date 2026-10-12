@@ -255,6 +255,7 @@ const Max = (() => {
 					window.dispatchEvent(new Event("max:changed"));
 					return s.n ? `整理好 ${s.n} 个考点` : "没有新考点，不用整理";
 				}),
+				tool("🩺 Kimi 自检", async () => { const r = await api("/api/max/kimi", { method: "POST" }); box.querySelector(".mkimi")?.remove(); box.querySelector(".mtools").after(el("p", { className: "mute mnote mkimi", style: "white-space:pre-wrap", textContent: "Kimi 自检：" + r.text })); return r.ai ? "发现问题，结果在下面" : "自检完成"; }),
 				tool("🔌 检查 DeepSeek", async () => { settings(box, true); return ""; }),
 				tool("📍 悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
 				tool("🧹 清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
