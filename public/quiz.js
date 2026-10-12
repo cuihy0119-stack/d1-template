@@ -213,9 +213,15 @@ function render(anim) {
 			? el("button", { className: "btn primary", id: "submit", textContent: "交卷", onclick: submit })
 			: el("button", { className: "btn primary", textContent: "下一题", onclick: () => go(cur + 1) }));
 
+	// 提前交卷：做到一半有事，先交已做的题（没做的跳过，下次还会出现）
+	const early = last ? "" : el("button", { type: "button", className: "btn small early", textContent: "先交已做的题", onclick: (e) => {
+		const n = qs.filter((_, i) => answered(i) || typeof done[i] === "number").length;
+		if (!n) return alert("还没有做任何题");
+		if (confirm(`现在交卷？已做 ${n} 题会提交，剩下 ${qs.length - n} 题跳过（下次还会出现）。`)) submit(e.currentTarget);
+	} });
 	app.replaceChildren(
 		el("div", { className: "qtop" }, el("div", { className: "bar" }, el("i", { style: `width:${((cur + 1) / qs.length) * 100}%` })), el("span", { className: "mute", textContent: `${cur + 1}/${qs.length}` })),
-		box, nav);
+		box, nav, early);
 	math(box);
 	isle.fill(q);
 	Max.setCtx(typeof done[cur] === "number" ? { a: done[cur], qid: q.id } : { q: q.id }); // 没交：只给提示；交了：可以讲（qid：同一题交卷前后算一段对话）
@@ -284,17 +290,17 @@ const isle = (() => {
 	};
 })();
 
-async function submit() {
-	const btn = $("#submit");
+async function submit(b) {
+	const btn = b instanceof HTMLElement ? b : $("#submit"), label = btn.textContent;
 	btn.disabled = true; btn.textContent = "提交中…";
 	try {
 		for (let i = 0; i < qs.length; i++) await save(i); // 前面的题离开时已交，这里补交当前题；没做的题不算
 		const ids = done.filter((d) => typeof d === "number");
-		if (!ids.length) { btn.disabled = false; btn.textContent = "交卷"; return alert("还没有做任何题"); }
+		if (!ids.length) { btn.disabled = false; btn.textContent = label; return alert("还没有做任何题"); }
 		location.hash = "r=" + ids.join(",");
 		location.reload();
 	} catch (e) {
-		btn.disabled = false; btn.textContent = "交卷";
+		btn.disabled = false; btn.textContent = label;
 		alert("提交失败：" + e.message);
 	}
 }
