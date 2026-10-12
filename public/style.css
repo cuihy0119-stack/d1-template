@@ -450,3 +450,5 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 /* Max 回答里画的图：贴着文字、左对齐，宽度不超过气泡 */
 .qfig.chat{justify-content:flex-start;margin:8px 0 4px}
 .mfigslot{display:block;margin:8px 0;padding:18px 0;text-align:center;font-size:13px;color:var(--mute);border-radius:12px;background:var(--mg-btn)}
+
+.early{display:block;margin:12px auto 0;opacity:.75} /* 做题页：先交已做的题 */
