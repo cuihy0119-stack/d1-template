@@ -330,7 +330,7 @@ body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filte
 .maxball.drag{scale:1.08}.maxball.drag::after{opacity:1}
 .maxball.land{transition:transform .5s cubic-bezier(.25,1.3,.4,1),opacity .5s ease,scale .3s var(--ease)} /* 落位：轻轻弹一下，不过头 */
 .maxball *{touch-action:none;pointer-events:none} /* 按住的是球本身，不是里面的标志（拖动不会被当成滚动） */
-.maxball.drag{transition:opacity .2s,scale .25s var(--ease)}            /* 拖动时跟手，不要位移动画 */
+.maxball.drag,.maxball.hold{transition:opacity .2s,scale .25s var(--ease)}            /* 拖动时跟手，不要位移动画 */
 .maxball.idle{opacity:.2}                                             /* 不用时淡到 20%（80% 透明）*/
 .maxball.hide{opacity:0;pointer-events:none}
 body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字时让开 */
