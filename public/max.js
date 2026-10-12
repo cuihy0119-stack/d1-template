@@ -335,7 +335,7 @@ const Max = (() => {
 	function open(c, text) {
 		build();
 		quiet();
-		if (c) ctx = c;
+		if (c) { ctx = c; prefetch(c); }
 		hidePeek();
 		layout();
 		ui.island.classList.add("open");
@@ -427,6 +427,22 @@ const Max = (() => {
 		b.replaceChildren(...(att ? [el("img", { src: att, alt: "" }), el("span", { textContent: "发送时 Max 会先看图" }), el("button", { type: "button", textContent: "×", title: "不发这张", onclick: () => { att = null; showAtt(); } })] : []));
 	}
 
+	// 换题时提前取这题的小卡片（见 /api/max/prep）；问「考什么 / 答案 / 解析」就直接答，不叫模型、不花额度
+	let prep = { k: "", v: null, p: null };
+	function prefetch(c) {
+		const k = topicKey(c), url = c.a ? "/api/max/prep?a=" + c.a : c.q ? "/api/max/prep?q=" + c.q : "";
+		if (!url || (prep.k === k && (!c.a || prep.v?.done))) return; // 交了还没批完的：批完再取一次（才有答案）
+		prep = { k, v: null, p: api(url).then((v) => { if (prep.k === k) prep.v = v; return v; }).catch(() => null) };
+	}
+	function local(text, c) { // 能用题目自带信息答的就本地答
+		const v = prep.k === topicKey(c) ? prep.v : null;
+		if (!v || c.explain || c.marked) return "";
+		if (/考什么|考点|知识点|哪一?章|什么题型/.test(text) && v.topic) return `这题考「${v.topic}」${v.category ? `（${v.category}）` : ""}${v.tag ? "，题型：" + v.tag : ""}。`;
+		if (v.done && /^(答案|正确答案|看答案|答案是什么|解析|看解析|这题的?解析)[？?。！!]*$/.test(text.trim()) && (v.ans?.length || v.exp))
+			return `正确答案：${v.ans.join(" / ")}${v.exp ? "\n\n解析：" + v.exp : ""}`;
+		return "";
+	}
+
 	async function send(text = ui.input.value.trim(), extra = {}, img = att) {
 		build();
 		if (!text && !img) return;
@@ -436,6 +452,13 @@ const Max = (() => {
 		ui.input.value = ""; ui.input.style.height = "";
 		hist.push({ role: "user", content: text, k: topicKey({ ...ctx, ...extra }), ...(img ? { shown: text + "［图片］" } : {}) });
 		const ub = bubble("user", text);
+		const quickAns = !img && local(text, { ...ctx, ...extra });
+		if (quickAns) { // 本地直接答：秒回、不花额度
+			const out = bubble("assistant", quickAns);
+			out.append(el("div", { className: "meng", textContent: "题目自带信息（没花额度）" }));
+			hist.push({ role: "assistant", content: quickAns }); keep(); quick();
+			return;
+		}
 		if (img) ub.prepend(el("img", { className: "mimg", src: img, alt: "", onclick: () => { const z = el("div", { className: "figzoom", onclick: () => z.remove() }, el("img", { src: img, alt: "" })); document.body.append(z); } })); // 点开看大图
 		const deep = tg.deep, web = tg.web; // 发出时的开关状态
 		const out = thinking(deep ? "深度思考中" : web ? "搜索并思考中" : "思考中");
@@ -513,7 +536,7 @@ const Max = (() => {
 	}
 
 	return {
-		setCtx(c) { ctx = base = c || {}; if (ui?.island.classList.contains("open")) quick(); },
+		setCtx(c) { ctx = base = c || {}; prefetch(ctx); if (ui?.island.classList.contains("open")) quick(); },
 		open,
 		tip,
 	};
