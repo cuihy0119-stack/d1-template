@@ -69,6 +69,12 @@ const Max = (() => {
 	// ---------- 悬浮球 ----------
 	// 拖动：按住时记下手指和球左上角的距离，之后球始终跟着手指走（每帧最多挪一次）；
 	// 松手按位置和甩动速度贴到左/右边，竖直方向顺着速度多滑一点；贴边用轻弹的动画
+	// 防误触：点球打开（或点外面收起）时球/窗口立刻让开，手机浏览器随后补发的 click 会落到底下的链接上（如底部导航），跳走。吞掉紧接着的那一下 click
+	function swallow() {
+		const f = (e) => { e.preventDefault(); e.stopPropagation(); };
+		document.addEventListener("click", f, true);
+		setTimeout(() => document.removeEventListener("click", f, true), 450);
+	}
 	function makeBall() {
 		applyFade();
 		ball = el("button", { type: "button", className: "maxball", title: "Max 助手（可拖动）" }, logo());
@@ -114,7 +120,8 @@ const Max = (() => {
 				ball.classList.add("land");
 				requestAnimationFrame(snap);
 				setTimeout(() => ball.classList.remove("land"), 500);
-			} else if (tap) open();
+				swallow(); // 拖完松手的位置下面可能是链接
+			} else if (tap) { swallow(); open(); }
 			wake();
 		};
 		ball.addEventListener("pointerup", () => end(true));
@@ -189,7 +196,7 @@ const Max = (() => {
 		sendB.onclick = () => (job ? stop() : send());
 		input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !composing(e)) { e.preventDefault(); send(); } });
 		input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 110) + "px"; });
-		document.addEventListener("pointerdown", (e) => { if (island.classList.contains("open") && !island.contains(e.target) && !ball?.contains(e.target)) close(); }, { passive: true });
+		document.addEventListener("pointerdown", (e) => { if (island.classList.contains("open") && !island.contains(e.target) && !ball?.contains(e.target)) { swallow(); close(); } }, { passive: true }); // 点外面只收起，不顺带点到底下的按钮
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && island.classList.contains("open")) close(); });
 		// 弹出键盘（iOS）：窗口挪进可见区域、高度跟着缩，输入框不被挡；键盘收起回到球旁边
 		const vv = window.visualViewport;
