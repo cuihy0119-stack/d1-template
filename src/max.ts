@@ -42,7 +42,7 @@ export const used = (db: D1Database) => meter(db, "max:"); // Cloudflare 神经�
 const est = (m: Msg[]) => Math.ceil(m.reduce((n, x) => n + x.content.length, 0) * 1.1); // 中文约 1 字 1 token
 const clean = (t: string) => t.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim(); // 没写完的思考（被截断）也去掉
 
-type Prov = { name: string; model: string; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
+type Prov = { name: string; model: string; firstMs?: number; call: (m: Msg[], max: number, stream: boolean) => Promise<any>; bill: (usage: any, inEst: number, outEst: number) => Promise<unknown> };
 /** 按任务排好可用的模型：额度不够的跳过 */
 // 超时：模型卡住时不让请求一直挂着（流式只管到开始输出）
 // 到点真的中止请求（不再白白生成、花额度）；计时器用完就清
@@ -59,19 +59,24 @@ async function providers(env: Env, route: Route, must = false, only?: string, de
 	const kp = await kimiPatch(db); // Kimi 自检的补丁（只有白名单里的几个数字/开关）
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
 	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? (strong ? [...CF].reverse() : CF).map((model) => ({
-		name: "cf", model,
-		call: (messages, max, stream) => within((signal) => env.AI.run(model as any, {
-			messages, max_completion_tokens: max, temperature: 0.3, stream,
-			...(stream ? { stream_options: { include_usage: true } } : {}),
-			...(model.includes("qwen") ? { reasoning_effort: "low" } : {}),
-		} as any, { signal }).catch(async (e) => {
-			if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
-			throw e;
-		}), stream ? kp.cfMs ?? 25000 : waitFor(max, kp.waitScale)),
+		name: "cf", model, firstMs: kp.cfMs ?? 12000,
+		call: (messages, max, stream) => within((signal) => {
+			// 这两个都是会「先想后答」的模型：思考也算在输出上限里，不留余量会想完就没字了（「Max 没说话」）。
+			// qwen 用 reasoning_effort 压低思考；glm 直接关掉思考（参数被拒时去掉再试一次）
+			const body = (extra: object) => ({ messages, max_completion_tokens: max + 200, temperature: 0.3, stream, ...(stream ? { stream_options: { include_usage: true } } : {}), ...extra }) as any;
+			const extra = model.includes("qwen") ? { reasoning_effort: "low" } : { chat_template_kwargs: { enable_thinking: false } };
+			return env.AI.run(model as any, body(extra), { signal }).catch((e) => {
+				if (!model.includes("qwen") && /invalid|schema|unknown|additional|not allowed|3003|5006/i.test(String(e)) && !/3036|daily free allocation/i.test(String(e))) return env.AI.run(model as any, body({}), { signal });
+				throw e;
+			}).catch(async (e) => {
+				if (/3036|daily free allocation/i.test(String(e))) await add(db, "max:", DAILY); // 真用完了：今天不再试
+				throw e;
+			});
+		}, stream ? 20000 : waitFor(max, kp.waitScale)), // 流式这里只管「连上」；等第一个字的时间在 askStream 里按 firstMs 管
 		bill: (u, i, o) => Promise.all([add(db, "max:", neurons(model, u, i, o)), add(db, "maxn:", 1)]), // 神经元 + 调用次数
 	})) : [];
 	const ds: Prov[] = key && dsUsed < DS_DAILY ? [{
-		name: "ds", model: "ds",
+		name: "ds", model: "ds", firstMs: deep ? 120000 : kp.dsMs ?? 15000,
 		call: async (messages, max, stream) => {
 			const ac = new AbortController(), t = setTimeout(() => ac.abort(), stream ? (deep ? 40000 : kp.dsMs ?? 20000) : waitFor(max, kp.waitScale));
 			const r = await fetch("https://api.deepseek.com/chat/completions", {
@@ -151,12 +156,39 @@ export async function ask(env: Env, messages: Msg[], o: { max?: number; must?: b
 	throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 }
 
+/** 等流里出现第一个字：超时或整段流结束都没有内容 → 抛错（换下一个模型）。以前流一连上就算成功，模型卡在思考时学生要干等一分钟，或者拿到一句空回答 */
+async function prime(src: ReadableStream<Uint8Array>, ms: number): Promise<ReadableStream<Uint8Array>> {
+	const rd = src.getReader(), dec = new TextDecoder(), held: Uint8Array[] = [];
+	let buf = "", late = false;
+	const t = setTimeout(() => { late = true; rd.cancel().catch(() => {}); }, ms);
+	const has = (l: string) => {
+		if (!l.startsWith("data:")) return false;
+		try { const j = JSON.parse(l.slice(5).trim()); return !!(j.choices?.[0]?.delta?.content ?? j.response); } catch { return false; }
+	};
+	try {
+		for (;;) {
+			const { done, value } = await rd.read();
+			if (done) throw new Error(late ? "超时（等第一个字太久）" : "没有内容");
+			held.push(value);
+			buf += dec.decode(value, { stream: true });
+			const lines = buf.split("\n");
+			buf = lines.pop()!;
+			if (lines.some(has)) break;
+		}
+	} catch (e) { rd.cancel().catch(() => {}); throw e; } finally { clearTimeout(t); }
+	return new ReadableStream<Uint8Array>({
+		start(c) { for (const h of held) c.enqueue(h); },
+		async pull(c) { const { done, value } = await rd.read(); done ? c.close() : c.enqueue(value); },
+		cancel(r) { return rd.cancel(r); },
+	});
+}
+
 /** 流式问答：边生成边显示；结束后记用量、可选写缓存 */
 export async function askStream(env: Env, messages: Msg[], o: { max?: number; route?: Route; only?: "cf" | "ds"; deep?: boolean; done?: (t: string) => Promise<unknown>; engine?: (n: string) => void } = {}): Promise<ReadableStream<Uint8Array>> {
 	let src: ReadableStream<Uint8Array> | null = null, used_: Prov | null = null, last: unknown, skipCf = false;
 	for (const p of await providers(env, o.route ?? "work", false, o.only, o.deep)) {
 		if (skipCf && p.name === "cf") continue;
-		try { src = await p.call(messages, o.max ?? 700, true); used_ = p; break; } catch (e) { last = e; await kimiNote(env.DB, p.model, "chat", e); if (p.name === "cf" && cfDown(e)) skipCf = true; }
+		try { src = await prime(await p.call(messages, o.max ?? 700, true), p.firstMs ?? 15000); used_ = p; break; } catch (e) { last = e; await kimiNote(env.DB, p.model, "chat", e); if (p.name === "cf" && cfDown(e)) skipCf = true; }
 	}
 	if (!src || !used_) throw new MaxErr("Max 暂时连不上，稍后再试" + (last ? `（${String(last).slice(0, 60)}）` : ""));
 	o.engine?.(used_.name);
