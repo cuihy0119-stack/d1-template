@@ -23,7 +23,7 @@ body::before{content:"";position:fixed;top:-20%;right:-20%;bottom:-20%;left:-20%
   background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.32),transparent 70%),radial-gradient(34% 28% at 82% 30%,rgba(143,176,150,.30),transparent 70%),
   radial-gradient(40% 32% at 60% 82%,rgba(214,178,120,.28),transparent 70%),radial-gradient(30% 26% at 15% 85%,rgba(150,160,200,.22),transparent 70%);
   animation:bgin 1.2s ease-out both}
-@keyframes bgin{from{opacity:0;transform:scale(1.05)}to{opacity:.4;transform:none}} /* 只在打开时淡入一次：背景静止，玻璃不用每帧重算，不卡 */
+@keyframes bgin{from{opacity:0;transform:scale(1.05)}to{opacity:.7;transform:none}} /* 只在打开时淡入一次（玻璃要透出底下的色彩，背景不能太淡）：背景静止，玻璃不用每帧重算，不卡 */
 body::after{content:"";position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;opacity:.22;
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .35 0 0 0 0 .25 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 @media(prefers-color-scheme:dark){body::after{opacity:.08}.tabbar::before{opacity:.12}}
@@ -452,3 +452,41 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mfigslot{display:block;margin:8px 0;padding:18px 0;text-align:center;font-size:13px;color:var(--mute);border-radius:12px;background:var(--mg-btn)}
 
 .early{display:block;margin:12px auto 0;opacity:.75} /* 做题页：先交已做的题 */
+
+/* ================= 统一液态玻璃（全站一个风格）=================
+   一套变量管所有玻璃面：大面（卡片、列表、统计、考试、底栏、侧栏、Max 窗口）用真模糊 + 饱和；
+   里面的小件（按钮、选项、小标签）只做半透明 + 高光，不再叠模糊（叠多了 iPad 会卡）。
+   质感：顶部一道镜面高光、左上斜向反光、底边一圈暗边，像一块有厚度的玻璃；圆角和衬线字一样柔和。
+   低配（html.lite）和不支持模糊的浏览器：退回实色纸面。 */
+:root{
+  --g-bg:rgba(255,252,247,.56);--g-bg2:rgba(255,253,249,.42);--g-blur:24px;--g-sat:185%;
+  --g-edge:rgba(255,255,255,.62);--g-hi:rgba(255,255,255,.85);--g-lo:rgba(120,85,50,.08);
+  --g-sheen:linear-gradient(135deg,rgba(255,255,255,.42) 0%,rgba(255,255,255,.08) 38%,rgba(255,255,255,0) 60%,rgba(255,255,255,.14) 100%);
+  --g-shadow:0 10px 30px -14px rgba(90,55,25,.32),0 2px 6px -2px rgba(90,55,25,.08);
+}
+@media(prefers-color-scheme:dark){:root{
+  --g-bg:rgba(44,40,36,.55);--g-bg2:rgba(255,255,255,.06);--g-edge:rgba(255,255,255,.13);--g-hi:rgba(255,255,255,.2);--g-lo:rgba(0,0,0,.25);
+  --g-sheen:linear-gradient(135deg,rgba(255,255,255,.09) 0%,rgba(255,255,255,.02) 40%,rgba(255,255,255,0) 60%,rgba(255,255,255,.04) 100%);
+  --g-shadow:0 12px 32px -14px rgba(0,0,0,.65),0 2px 6px -2px rgba(0,0,0,.3);
+}}
+/* 大面玻璃 */
+.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan{
+  background-color:var(--g-bg);background-image:var(--g-sheen);
+  -webkit-backdrop-filter:blur(var(--g-blur)) saturate(var(--g-sat));backdrop-filter:blur(var(--g-blur)) saturate(var(--g-sat));
+  border:1px solid var(--g-edge);
+  box-shadow:inset 0 1px 0 var(--g-hi),inset 0 -1px 0 var(--g-lo),inset 1px 0 0 rgba(255,255,255,.12),var(--g-shadow)}
+.tabbar{background-color:var(--g-bg2)}
+.island,.mpeek{background:var(--g-bg);background-image:var(--g-sheen);border-color:var(--g-edge)}
+/* 小件：半透明 + 高光，不叠模糊 */
+.btn:not(.primary),.chip,.opt,button.del,button.mark,.bhead button,.bhint button,.keys button{
+  background-color:var(--g-bg2);background-image:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,0));
+  border:1px solid var(--g-edge);box-shadow:inset 0 1px 0 var(--g-hi),0 1px 3px -1px rgba(90,55,25,.12)}
+.opt.on{background-color:color-mix(in srgb,var(--pri) 16%,transparent);border-color:color-mix(in srgb,var(--pri) 60%,transparent)}
+.chip.on,.tabs .on,.tabbar a.on{background-color:color-mix(in srgb,var(--pri) 14%,transparent)}
+/* 主按钮：珊瑚色的「彩色玻璃」——半透明渐变 + 顶部高光 */
+.btn.primary{background:linear-gradient(135deg,color-mix(in srgb,var(--pri2) 88%,transparent),color-mix(in srgb,var(--pri) 92%,transparent) 55%,color-mix(in srgb,#b35537 92%,transparent));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -1px 0 rgba(0,0,0,.12),0 8px 20px -10px color-mix(in srgb,var(--pri) 70%,transparent)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek{background-color:var(--solid)}}
+.lite .card,.lite .subj,.lite #list,.lite .tabs,.lite .stat,.lite .exam,.lite .tabbar,.lite .rail,.lite .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+body.drawing .rail,body.drawing .pan{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)} /* 写字时侧栏不模糊，画板跟手 */
