@@ -66,7 +66,7 @@ main>*:nth-child(5){animation-delay:.2s}main>*:nth-child(6){animation-delay:.25s
 @keyframes sheen{to{transform:translateX(120%)}}
 .btn.small{display:inline-block;width:auto;padding:7px 14px;font-size:15px;border-radius:var(--r-m)}
 .btn:disabled{opacity:.5}
-.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 auto}.row .btn.small{text-align:center} /* auto：按文字宽度换行，按钮多时不再被挤到字被截断 */
 .mute{color:var(--mute);font-size:14px}
 .err{color:var(--bad)}
 input[type=text],input[type=password],textarea{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:var(--r-m);background:rgba(255,255,255,.55);color:var(--fg);font:16px/1.6 var(--sans);transition:border-color .2s,box-shadow .2s}
