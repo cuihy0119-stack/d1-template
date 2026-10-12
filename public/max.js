@@ -87,6 +87,9 @@ const Max = (() => {
 		ball.addEventListener("pointerdown", (e) => {
 			if (e.button > 0) return;
 			down = true; moved = false; wake();
+			// 球可能还在贴边/回弹的动画里：按住时先停在它「看起来」的位置，再算手指偏移，不然拿到的是动画终点，拖起来手指和球错开
+			ball.classList.remove("land"); ball.classList.add("hold");
+			try { const m = new DOMMatrixReadOnly(getComputedStyle(ball).transform); if (Number.isFinite(m.m41)) place(m.m41, m.m42); } catch {}
 			sx = lx = e.clientX; sy = ly = e.clientY; lt = e.timeStamp; vx = vy = 0;
 			offX = e.clientX - cur.x; offY = e.clientY - cur.y; // 手指在球里的位置（用记下的坐标，不受缩放影响）
 			ball.classList.add("press");
@@ -107,13 +110,13 @@ const Max = (() => {
 		const end = (tap) => {
 			if (!down) return;
 			down = false;
-			ball.classList.remove("press");
+			ball.classList.remove("press", "hold");
 			if (moved) {
 				cancelAnimationFrame(raf); raf = 0;
 				if (nx || ny) place(nx, ny);
 				const w = size(), cx = cur.x + w / 2;
 				const side = Math.abs(vx) > 0.6 ? (vx < 0 ? "l" : "r") : cx < innerWidth / 2 ? "l" : "r"; // 快速一甩：往甩的方向贴
-				const y = cur.y + Math.max(-160, Math.min(160, vy * 120)); // 顺着速度多滑一点
+				const y = cur.y; // 竖直方向停在松手的地方（以前会顺着速度再滑一段，看起来像偏了）
 				pos = { side, y: Math.min(1, Math.max(0, y / innerHeight)) };
 				ls(POS, JSON.stringify(pos));
 				ball.classList.remove("drag");
