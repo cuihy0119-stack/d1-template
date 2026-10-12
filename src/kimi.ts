@@ -47,30 +47,52 @@ const SYS = `你是 Max 助手的自检员。下面是最近的出错/超时日�
 cfMs Cloudflare 流式等待毫秒 10000-40000；dsMs DeepSeek 流式等待毫秒 10000-60000；waitScale 一次性回答超时倍数 0.8-2.5；
 skip 要暂时跳过的模型 {"@cf/zai-org/glm-4.7-flash":毫秒数,"@cf/qwen/qwen3.8-27b":毫秒数,"ds":毫秒数}（毫秒数=跳过多久，≤21600000）。
 原则：超时多 → 适当加大等待或跳过慢的模型；格式不对多 → 跳过那个模型；偶发单次错误 → 不用改（patch 给 {}）。
-只输出 JSON：{"cause":"原因≤40字","patch":{}}`;
+如果错误像代码问题（报错信息里有 TypeError/undefined/JSON/格式不对等），在 code 里写你怀疑的位置和改法（≤80字，只是建议，不会自动执行），否则 code 为空。
+只输出 JSON：{"cause":"原因≤40字","code":"","patch":{}}`;
 
-/** 每分钟定时任务里调用：最近 30 分钟有 ≥3 次故障、且 30 分钟内没自检过，才叫 DeepSeek 看一次（平时一次查询都不花模型额度） */
+/** 叫 DeepSeek 看日志：只调白名单参数，返回一句报告（原因 + 代码建议）。一次调用，几百 token */
+async function diagnose(env: Env, log: Log[]): Promise<string> {
+	const db = env.DB, now = Date.now(), cur = await patch(db);
+	const out = await ask(env, [{ role: "system", content: SYS }, { role: "user", content: `当前补丁：${JSON.stringify(cur)}\n日志（${log.length} 条）：\n${log.map((x) => `${Math.round((now - x.t) / 60000)}分钟前｜${x.m}｜${x.task}｜${x.err}`).join("\n")}` }],
+		{ max: 300, only: "ds", route: "hard", quiet: true, ok: (t) => /\{[\s\S]*\}/.test(t) });
+	const j = JSON.parse(out.match(/\{[\s\S]*\}/)![0]) as { cause?: string; code?: string; patch?: Patch };
+	const r = j.patch ?? {}, next: Patch = { ...cur };
+	for (const k of ["cfMs", "dsMs", "waitScale"] as const) { const v = clamp(r[k], LIM[k]); if (v != null) next[k] = v; }
+	for (const [m, ms] of Object.entries(r.skip ?? {})) {
+		const v = clamp(ms, [0, MAX_SKIP]);
+		if (SKIPPABLE.has(m) && v) next.skip = { ...next.skip, [m]: now + v };
+	}
+	await save(db, next);
+	const cause = String(j.cause ?? "").slice(0, 60), code = String(j.code ?? "").slice(0, 120);
+	const hist = parse<any[]>(await get(db, "kimi:hist"), []);
+	hist.push({ t: now, cause, code, patch: next });
+	await put(db, "kimi:hist", JSON.stringify(hist.slice(-10)));
+	return `原因：${cause || "不确定"}` + (code ? `\n代码建议（需要你或 Claude 看）：${code}` : "") + (JSON.stringify(next) === JSON.stringify(cur) ? "\n已调整：无" : "\n已调整参数：" + JSON.stringify(next));
+}
+
+/** 每分钟定时任务里调用：最近 30 分钟有 ≥3 次故障、且 30 分钟内没自检过，才叫 DeepSeek 看一次（平时只读一行数据库，不花模型额度） */
 export async function check(env: Env) {
 	const db = env.DB, now = Date.now();
 	const log = parse<Log[]>(await get(db, "kimi:log"), []).filter((x) => now - x.t < WIN);
 	if (log.length < 3 || now - Number(await get(db, "kimi:last") ?? 0) < WIN) return;
 	await put(db, "kimi:last", String(now));
-	try {
-		const cur = await patch(db);
-		const out = await ask(env, [{ role: "system", content: SYS }, { role: "user", content: `当前补丁：${JSON.stringify(cur)}\n日志（${log.length} 条）：\n${log.map((x) => `${Math.round((now - x.t) / 60000)}分钟前｜${x.m}｜${x.task}｜${x.err}`).join("\n")}` }],
-			{ max: 300, only: "ds", route: "hard", quiet: true, ok: (t) => /\{[\s\S]*\}/.test(t) });
-		const j = JSON.parse(out.match(/\{[\s\S]*\}/)![0]) as { cause?: string; patch?: Patch };
-		const r = j.patch ?? {}, next: Patch = { ...cur };
-		for (const k of ["cfMs", "dsMs", "waitScale"] as const) { const v = clamp(r[k], LIM[k]); if (v != null) next[k] = v; }
-		for (const [m, ms] of Object.entries(r.skip ?? {})) {
-			const v = clamp(ms, [0, MAX_SKIP]);
-			if (SKIPPABLE.has(m) && v) next.skip = { ...next.skip, [m]: now + v };
-		}
-		await save(db, next);
-		const hist = parse<any[]>(await get(db, "kimi:hist"), []);
-		hist.push({ t: now, cause: String(j.cause ?? "").slice(0, 60), patch: next });
-		await put(db, "kimi:hist", JSON.stringify(hist.slice(-10)));
-	} catch {} // DeepSeek 也不可用：保留熔断即可
+	try { await put(db, "kimi:report", JSON.stringify({ t: now, text: await diagnose(env, log) })); } catch {} // DeepSeek 也不可用：保留熔断即可
+}
+
+/** 手动自检（Max 设置里点一下）：没有任何出错 → 直接说正常，不调用任何模型、不花额度；有出错才问 DeepSeek 一次。2 分钟内重复点直接给上次结果 */
+export async function run(env: Env): Promise<{ text: string; at: number; ai: boolean }> {
+	const db = env.DB, now = Date.now();
+	const prev = parse<{ t: number; text: string; ai: boolean } | null>(await get(db, "kimi:manual"), null);
+	if (prev && now - prev.t < 2 * 60e3) return { text: prev.text, at: prev.t, ai: false };
+	const log = parse<Log[]>(await get(db, "kimi:log"), []).filter((x) => now - x.t < 2 * 3600e3), p = await patch(db);
+	let text: string, ai = false;
+	if (!log.length) text = "一切正常：近 2 小时没有出错或超时。" + (Object.keys(p.skip ?? {}).length ? "（有模型还在暂停中：" + Object.keys(p.skip!).join("、") + "）" : "");
+	else {
+		const brief = `近 2 小时出错 ${log.length} 次：` + [...new Set(log.map((x) => `${x.m}｜${x.err.slice(0, 40)}`))].slice(0, 4).join("；");
+		try { text = brief + "\n" + (await diagnose(env, log)); ai = true; } catch (e) { text = brief + "\nDeepSeek 暂时没法帮忙诊断（" + String(e).slice(0, 40) + "），熔断已在自动保护。"; }
+	}
+	await put(db, "kimi:manual", JSON.stringify({ t: now, text, ai }));
+	return { text, at: now, ai };
 }
 
 export async function info(db: D1Database) {
