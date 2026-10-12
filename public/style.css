@@ -3,7 +3,7 @@
    渲染原则：动画只用 transform/opacity 且只在出现时播一次，页面静止时 0 动画；低配设备（html.lite）关掉模糊和进场动画；
    老浏览器不支持的特性（backdrop-filter、color-mix、aspect-ratio）都有退路。 */
 :root{
-  --bg:#f4efe6;--fg:#2b2622;--mute:#8a8178;--pri:#c96442;--pri2:#d98a6a;--ok:#5e8c61;--bad:#b5483b;--warn:#b98228;
+  --bg:#f4efe6;--fg:#2b2622;--mute:#6e655b;--pri:#c96442;--pri2:#d98a6a;--ok:#5e8c61;--bad:#b5483b;--warn:#b98228;
   --line:rgba(80,55,30,.12);--card:rgba(255,252,246,.86);--solid:#fffcf6;--edge:rgba(255,255,255,.7);
   --shadow:0 6px 16px -10px rgba(80,50,20,.3),0 1px 3px rgba(80,50,20,.06);
   --serif:'Newsreader','LXGW WenKai Screen','Songti SC',serif;
@@ -455,3 +455,9 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 8px 20px -10px var(--pri)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek{background:var(--solid)}}
 .lite :is(.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek),body.drawing :is(.rail,.pan){-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+/* 护眼（参照 WCAG 2.2 对比度/闪烁、低蓝光思路）：正文对比度 ≥4.5:1 但不用纯黑纯白；无闪烁（每秒闪烁 <3 次，减少动态时全停）。
+   晚上 21 点到早 7 点（html.night）：底色更暗更暖、去掉偏蓝的光斑、文字亮度调低，减少蓝光和眩光 */
+.night{--bg:#e8dcc8;--fg:#3a3027;--mute:#665a4c;--solid:#efe5d3;--g:rgba(244,232,212,.3);--g2:rgba(255,240,215,.14)}
+.night body::before{filter:sepia(.5) saturate(.8);opacity:.5!important}
+.night body::after{opacity:.12}
+@media(prefers-color-scheme:dark){.night{--bg:#1a1714;--fg:#e2d6c3;--mute:#a09280;--solid:#24201c;--g:rgba(36,31,27,.34);--g2:rgba(255,230,200,.05)}}
