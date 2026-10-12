@@ -409,6 +409,16 @@ app.get("/api/question/:id", async (c) => {
 
 // ---------- Max 助手 ----------
 app.get("/api/max/brief", async (c) => c.json({ ...(await brief(c.env, c.req.query("force") === "1", c.executionCtx)), budget: Math.min(100, Math.round((await used(c.env.DB)) / 98)) }));
+// 换题时网页先取这题的「小卡片」（考点、题型；交卷后才带答案和解析）：问「考什么/答案/解析」网页直接回，不用叫模型、不花额度
+app.get("/api/max/prep", async (c) => {
+	const db = c.env.DB, qid = Number(c.req.query("q")) || 0, aid = Number(c.req.query("a")) || 0;
+	const r = aid
+		? await db.prepare("SELECT q.subject, q.stem, q.options, q.topic, q.category, q.tag, q.type, q.answer, q.explanation, a.status FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.id = ?").bind(aid).first<any>()
+		: qid ? await db.prepare("SELECT subject, stem, options, topic, category, tag, type FROM questions WHERE id = ?").bind(qid).first<any>() : null;
+	if (!r) return c.json(null);
+	const done = !!aid && r.status === "已判";
+	return c.json({ topic: r.topic, category: r.category, tag: pick({ ...r, opts: !!r.options }).tag, done, ans: done ? parse<string[]>(r.answer, []) : undefined, exp: done ? r.explanation || "" : undefined });
+});
 app.get("/api/max/status", async (c) => c.json(await status(c.env, c.req.query("fresh") === "1")));
 app.post("/api/max/kimi", async (c) => c.json(await kimiRun(c.env)));
 app.get("/api/max/wrongsum", async (c) => c.json(await wrongSummary(c.env, c.req.query("force") === "1", c.executionCtx)));
