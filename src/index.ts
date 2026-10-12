@@ -321,7 +321,7 @@ app.get("/api/attempts", async (c) => {
 	const { results } = await c.env.DB
 		.prepare(
 			`SELECT a.id, a.answer_text, a.photo_key, a.is_correct, a.score, a.comment, a.error_reason, a.status, a.grader, a.max_score, a.max_comment, a.max_sure, q.tag, q.board, q.fig,
-			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id) marked, EXISTS (SELECT 1 FROM attempts p WHERE p.question_id = a.question_id AND p.id < a.id AND p.status = '已判') prev, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
+			        a.question_id, a.subject, COALESCE(q.topic, a.topic) topic, q.type, EXISTS (SELECT 1 FROM marks m WHERE m.question_id = a.question_id AND m.created_at > datetime('now','-1 day')) marked, EXISTS (SELECT 1 FROM attempts p WHERE p.question_id = a.question_id AND p.id < a.id AND p.status = '已判') prev, COALESCE(q.stem, '（题目已删除）') stem, q.no, q.options, q.answer, q.explanation
 			 FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			 WHERE a.id IN (${inList(ids)}) ORDER BY a.id`,
 		)
@@ -496,5 +496,5 @@ function providerFor(origin: string) {
 export default {
 	fetch: async (req, env, ctx) => (await edge(req, env)) ?? providerFor(new URL(req.url).origin).fetch(req, env, ctx),
 	// 每分钟：做后台任务队列里的活（见 jobs.ts）；每天凌晨：清理 + Max 把当天要用的先想好
-	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? Promise.all([runJobs(env, "cron"), kimiCheck(env)]) : dailyCleanup(env.DB).then(() => maxDaily(env))),
+	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? Promise.all([runJobs(env, "cron"), kimiCheck(env), env.DB.prepare("DELETE FROM marks WHERE created_at < datetime('now','-1 day')").run()]) : dailyCleanup(env.DB).then(() => maxDaily(env))),
 } satisfies ExportedHandler<Env>;
