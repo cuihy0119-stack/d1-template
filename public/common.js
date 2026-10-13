@@ -99,6 +99,35 @@ function lab(e, s) {
 	if (m && (m[1] === "max" || ICONS[m[1]])) { e.textContent = s.slice(m[0].length); e.prepend(icon(m[1])); } else e.textContent = s;
 	return e;
 }
+// ---------- 手绘涂鸦特效（像蜡笔在画面上随手画的爱心、星星、感叹号，逐格颤动地蹦出来再消失）----------
+// 只在「值得庆祝 / 要提醒」的瞬间出现，平时页面保持安静；低配和「减少动态」时不画
+const DOODLE = {
+	heart: "M50 84C22 62 8 44 18 28c9-13 25-10 32 5 7-15 23-18 32-5 10 16-4 34-32 56z",
+	spark: "M50 6c3 22 9 33 40 44-31 9-37 20-40 44-4-24-10-35-40-44 30-11 36-22 40-44z",
+	excl: "M44 10l14-2-5 56-6 1zM51 76c5 0 7 4 6 8s-7 5-9 1 0-9 3-9z",
+	check: "M12 54c8 6 15 14 22 24 14-26 30-46 54-64",
+	swirl: "M48 52c-8-6 0-16 8-11 10 6 2 22-10 20-16-3-17-26-2-33 18-9 38 6 33 26",
+};
+function doodle(kind, x, y, o = {}) {
+	if (matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("lite")) return;
+	if (!document.getElementById("dz0")) document.body.insertAdjacentHTML("beforeend", `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${[3, 11, 23].map((s, i) =>
+		`<filter id="dz${i}"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="${s}"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter>`).join("")}</svg>`);
+	const d = document.createElement("i"), fill = kind !== "check" && kind !== "swirl";
+	d.className = "doodle" + (o.stay ? " stay" : "");
+	d.style.cssText = `left:${x}px;top:${y}px;--s:${o.size || 40}px;--r:${o.rot ?? (Math.random() - 0.5) * 40}deg;animation-delay:${o.delay || 0}s,0s,${(o.delay || 0) + 1.2}s`;
+	d.innerHTML = `<svg viewBox="0 0 100 100"><path d="${DOODLE[kind]}" fill="${fill ? "var(--df)" : "none"}"/></svg>`;
+	(o.in || document.body).append(d);
+	if (!o.stay) setTimeout(() => d.remove(), 1900 + (o.delay || 0) * 1000);
+	return d;
+}
+/** 在元素周围撒几个涂鸦：kinds 依次轮流用 */
+function doodles(anchor, kinds, n = 5) {
+	const r = anchor.getBoundingClientRect(), cx = r.left + Math.min(r.width, 260) / 2, cy = r.top + r.height / 2;
+	for (let i = 0; i < n; i++) {
+		const a = (i / n) * Math.PI * 2 + Math.random() * 0.6, dist = 60 + Math.random() * 40;
+		doodle(kinds[i % kinds.length], cx + Math.cos(a) * dist * 1.4, cy + Math.sin(a) * dist * 0.8, { size: 30 + Math.random() * 22, delay: i * 0.07 });
+	}
+}
 // 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);
 function el(tag, props = {}, ...kids) {
