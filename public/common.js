@@ -255,3 +255,9 @@ function noteLink(subject, topic, cls = "btn small") {
 const when = (t) => (t ? new Date(t.replace(" ", "T") + "Z").toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replace(/\//g, "-") : "");
 // 删题（做题记录保留）
 const delQuestion = async (id) => confirm("删除这道题？（做题记录会保留）") && (await api(`/api/question/${id}/delete`, { method: "POST" }), true);
+// 打字时给 body 加 typing：CSS 据此暂停模糊和持续动画，输入不卡（file/按钮类输入不算）
+{
+	const txt = (e) => e.target.matches?.('textarea,math-field,input:not([type=file],[type=checkbox],[type=radio],[type=button],[type=submit]),[contenteditable]');
+	addEventListener("focusin", (e) => txt(e) && document.body.classList.add("typing"));
+	addEventListener("focusout", (e) => txt(e) && document.body.classList.remove("typing"));
+}

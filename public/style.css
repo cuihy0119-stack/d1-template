@@ -450,7 +450,12 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .opt.on,.chip.on{background:color-mix(in srgb,var(--pri) 18%,transparent);border-color:color-mix(in srgb,var(--pri) 55%,transparent)}
 .btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 8px 20px -10px var(--pri)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek{background:var(--solid)}}
-.lite :is(.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek),body.drawing :is(.rail,.pan){-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--solid)}
+.lite :is(.card,.subj,#list,.tabs,.stat,.exam,.tabbar,.rail,.pan,.island,.mpeek),body.drawing :is(.rail,.pan),body.typing :is(.card,.tabbar,.rail,.pan,.maxball){-webkit-backdrop-filter:none;backdrop-filter:none}
+body.typing .card,body.typing .rail,body.typing .pan{background:var(--solid)}
+/* 打字时：停掉所有持续动画和模糊，输入才跟手（每敲一个字，模糊层和动画都会重画） */
+body.typing .maxball{background:rgba(28,26,24,.92)}
+body.typing .mlogo svg g,body.typing .mlogo line,body.typing .hw,body.typing .brandmark line{animation:none!important}
+body.typing .doodle{display:none}
 /* 护眼（参照 WCAG 2.2 对比度/闪烁、低蓝光思路）：正文对比度 ≥4.5:1 但不用纯黑纯白；无闪烁（每秒闪烁 <3 次，减少动态时全停）。
    晚上 21 点到早 7 点（html.night）：底色更暗更暖、去掉偏蓝的光斑、文字亮度调低，减少蓝光和眩光 */
 .night{--bg:#e8dcc8;--fg:#3a3027;--mute:#665a4c;--solid:#efe5d3;--g:rgba(244,232,212,.3);--g2:rgba(255,240,215,.14)}
