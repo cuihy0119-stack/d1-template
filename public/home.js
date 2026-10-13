@@ -29,7 +29,7 @@ function renderHero(h) {
 		if (!i && d > 0 && d <= 7) setTimeout(() => { const n = box.querySelector(".exam.first .num"); if (n && !n.querySelector(".doodle")) { doodle("excl", 0, 0, { in: n, stay: true, size: 34, rot: 12 }); doodle("excl", 0, 0, { in: n, stay: true, size: 26, rot: 24, delay: .12 }); } }, 50);
 		return el("div", { className: "exam" + (i ? "" : " first") },
 			el("div", { className: "en", textContent: "距离 " + e.name }),
-			el("div", { className: "ed" }, el("span", { className: "num", innerHTML: RING }, el("b", { textContent: d || "今天" })), d ? "天" : ""),
+			el("div", { className: "ed" }, watchHw(el("span", { className: "num hw", innerHTML: RING }, el("b", { textContent: d || "今天" }))), d ? "天" : ""),
 			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }));
 	}));
 }
