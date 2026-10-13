@@ -379,28 +379,12 @@ async function showResult(ids, got) {
 	app.replaceChildren(wrap);
 	math(wrap);
 	resultShown = true;
-	// 结算特效（只放一次）：客观题全对 → Max 的小星星 + 暖色纸片
+	// 结算特效（只放一次）：全对 → 一圈手绘爱心和星星；对了一部分 → 一个手绘对勾；全错不放，安静一点
 	if (!burstDone && objective.length) {
 		burstDone = true;
-		if (right === objective.length) burst(score, true); // 全对：Max 的小星星四散；没全对不放特效，安静一点
+		if (right === objective.length) { doodles(score, ["heart", "spark", "heart", "spark", "swirl", "spark"], 6); haptic(0, 120); }
+		else if (right) { const r = score.getBoundingClientRect(); doodle("check", r.left + Math.min(r.width, 240) + 26, r.top + r.height / 2, { size: 44, rot: -8 }); }
 	}
-}
-
-// 小范围爆开特效：几个 emoji 从比分处向外飞散淡出；confetti=true 时加一圈彩纸片。只动 transform/opacity，1.6 秒后清掉
-function burst(anchor, confetti) {
-	if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-	const r = anchor.getBoundingClientRect(), box = el("div", { className: "burst", style: `left:${r.left + Math.min(r.width, 200) / 2}px;top:${r.top + r.height / 2}px` });
-	const fly = (cls, txt, i, n, dist) => {
-		const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, d = dist * (0.6 + Math.random() * 0.4);
-		const s = el("span", { className: cls === "em" ? "em mlogo" : cls, innerHTML: cls === "em" ? LOGO : "" });
-		s.style.cssText = `--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - 20}px;--r:${(Math.random() - 0.5) * 540}deg;animation-delay:${Math.random() * 0.12}s`;
-		if (cls === "cf") s.style.background = ["#c96442", "#d98a6a", "#e8c4a8", "#b35537", "#a89684"][i % 5];
-		box.append(s);
-	};
-	for (let i = 0; i < 6; i++) fly("em", "", i, 6, 90);
-	if (confetti) for (let i = 0; i < 22; i++) fly("cf", "", i, 22, 120);
-	document.body.append(box);
-	setTimeout(() => box.remove(), 1700);
 }
 
 window.addEventListener("load", start);

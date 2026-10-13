@@ -272,12 +272,6 @@ body.drawing .rail.show{opacity:.3}
 .rcard:not([open]) .rstem{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}
 .rstem{font:17px/1.7 var(--serif);margin:6px 0 2px;white-space:pre-wrap}
 .rcard[open]>*:not(summary){animation:rise .3s var(--ease) both}
-.burst{position:fixed;width:0;height:0;z-index:40;pointer-events:none}
-.burst span{position:absolute;left:0;top:0;animation:fly 1.3s cubic-bezier(.2,.7,.3,1) both}
-.burst .em{margin:-13px 0 0 -13px}
-.burst .cf{width:7px;height:11px;border-radius:2px;margin:-5px 0 0 -3px}
-@keyframes fly{0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0)}12%,60%{opacity:1}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 40px)) scale(1) rotate(var(--r))}}
-.lite .burst{display:none}
 /* 减少动态效果 */
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 /* 输入框在不可选中的容器里：iOS 会继承 -webkit-user-select:none，光标和选字失灵 */
@@ -517,3 +511,14 @@ body::before{background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.34)
 .exam .ring path{fill:none;stroke:var(--pri);stroke-width:2.4;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.75}
 .exam:not(.first) .ring{display:none}
 .exam .mute{font:15px var(--hand)}
+
+/* 手绘涂鸦：蜡笔感的描边+浅色填充，蹦出来（回弹）→ 逐格颤动 → 淡出；stay 的留在原地不颤（如考试前的感叹号） */
+.doodle{position:fixed;z-index:45;pointer-events:none;width:var(--s);height:var(--s);margin:calc(var(--s)/-2) 0 0 calc(var(--s)/-2);--df:color-mix(in srgb,var(--pri) 35%,#fff4e6);
+  animation:dpop .5s cubic-bezier(.3,1.7,.4,1) both,dboil .36s steps(1) infinite,dout .45s ease-in both}
+.doodle svg{width:100%;height:100%;overflow:visible}
+.doodle path{stroke:var(--pri);stroke-width:7;stroke-linecap:round;stroke-linejoin:round}
+.doodle.stay{position:absolute;left:auto!important;top:-.4em!important;right:-.95em;margin:0;animation:dpop .5s cubic-bezier(.3,1.7,.4,1) both;filter:url(#dz0)}
+.doodle.stay+.doodle.stay{right:-1.6em;top:-.15em!important}
+@keyframes dpop{0%{transform:scale(0) rotate(var(--r))}100%{transform:scale(1) rotate(var(--r))}}
+@keyframes dboil{0%{filter:url(#dz0)}33%{filter:url(#dz1)}66%{filter:url(#dz2)}}
+@keyframes dout{to{opacity:0}}

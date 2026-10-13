@@ -43,6 +43,7 @@ const Drill = (() => {
 			Max.setCtx({ tmp: tmpOf(q, mine, true) });
 			if (q.type === "single") for (const b of box.querySelectorAll(".opt")) { b.disabled = true; b.classList.toggle("ok", ok && b === btn); b.classList.toggle("bad", !ok && b === btn); }
 			else for (const x of box.querySelectorAll("input,.fsub")) x.disabled = true;
+			if (ok) setTimeout(() => res.firstChild && doodles(res.firstChild, ["spark", "heart", "spark"], 3), 30); // 答对：蹦出两颗星一颗心
 			res.replaceChildren(ok
 				? el("div", { className: "ans", textContent: "{check}答对了" + (q.explanation ? "：" + q.explanation : "") })
 				: el("div", {}, el("div", { className: "ans bad", textContent: "{x}这题没对，点下面让 Max 帮你分析错在哪" }),
@@ -77,7 +78,7 @@ const Drill = (() => {
 		Max.setCtx({});
 		if (master) { // 「标为已掌握」前的变式题：做对才标；没做对给个仍要标的按钮
 			const ok = right === qs.length, card = el("div", { className: "card" });
-			if (ok) { try { await api(`/api/question/${master}/master`, { method: "POST" }); } catch (e) { return app.replaceChildren(el("p", { className: "mute", textContent: "标记失败：" + e.message })); } }
+			if (ok) { setTimeout(() => doodles(card, ["heart", "spark", "heart", "spark"], 4), 60); try { await api(`/api/question/${master}/master`, { method: "POST" }); } catch (e) { return app.replaceChildren(el("p", { className: "mute", textContent: "标记失败：" + e.message })); } }
 			card.append(el("h1", { textContent: ok ? "{check}变式题也做对了" : "{x}变式题没做对" }),
 				el("p", { className: "mute", textContent: ok ? "已标为已掌握，放进错题文件夹。" : "先别急着标掌握，回错题本再练练。" }),
 				el("div", { className: "row", style: "margin-top:10px" },

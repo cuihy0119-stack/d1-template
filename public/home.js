@@ -25,6 +25,8 @@ function renderHero(h) {
 	if (!h.exams.length) return box.replaceChildren(askClaude(CLAUDE_ASK.exams, "{calendar}让 Claude 写上临近的考试，首页倒计时"));
 	box.replaceChildren(...h.exams.slice(0, 3).map((e, i) => {
 		const d = Math.round((Date.parse(e.date) - Date.parse(h.today)) / 864e5);
+		// 离考试 7 天内：数字旁边画两个手绘感叹号（留着不消失，也不颤）
+		if (!i && d > 0 && d <= 7) setTimeout(() => { const n = box.querySelector(".exam.first .num"); if (n && !n.querySelector(".doodle")) { doodle("excl", 0, 0, { in: n, stay: true, size: 34, rot: 12 }); doodle("excl", 0, 0, { in: n, stay: true, size: 26, rot: 24, delay: .12 }); } }, 50);
 		return el("div", { className: "exam" + (i ? "" : " first") },
 			el("div", { className: "en", textContent: "距离 " + e.name }),
 			el("div", { className: "ed" }, el("span", { className: "num", innerHTML: RING }, el("b", { textContent: d || "今天" })), d ? "天" : ""),
@@ -129,6 +131,7 @@ function showBrief(b) {
 		m.addEventListener("click", () => {
 			m.classList.remove("pop"); void m.offsetWidth; m.classList.add("pop"); // 重新触发动画
 			haptic(0, 110, 120);
+			const t = $(".brand .bt"); if (t) doodles(t, ["spark", "heart", "spark", "swirl"], 4); // 标题周围蹦出手绘小星星和爱心
 			clearTimeout(m._t); m._t = setTimeout(() => m.classList.remove("pop"), 1400);
 		});
 	}
