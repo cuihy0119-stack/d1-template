@@ -44,6 +44,16 @@ try {
 } catch {}
 // 中文输入法正在选字时按的回车不算「确定」（Safari 选字的回车 isComposing 是 false，只能靠 keyCode 229 认出来）
 const composing = (e) => e.isComposing || e.keyCode === 229;
+// 触感反馈：安卓用 vibrate；iPhone/iPad 的 Safari 不给网页振动，但 iOS 17.4+ 点一下 <input switch> 开关会有一下轻震，借来用（没有的设备静默跳过）
+const haptic = (() => {
+	let sw;
+	const tick = () => { try { sw ||= document.body.appendChild(Object.assign(document.createElement("label"), { innerHTML: '<input type="checkbox" switch>', style: "position:fixed;left:-99px;top:0;opacity:0;pointer-events:none" })); sw.click(); } catch {} };
+	return (...gaps) => { // 例：haptic(0, 90, 110)：第 0、90、200 毫秒各一下
+		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		if (navigator.vibrate) return void navigator.vibrate(gaps.flatMap((g, i) => (i ? [g, 12] : [12])));
+		let t = 0; for (const g of gaps) setTimeout(tick, (t += g));
+	};
+})();
 // 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);
 function el(tag, props = {}, ...kids) {

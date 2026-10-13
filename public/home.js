@@ -118,6 +118,20 @@ function showBrief(b) {
 	math(box);
 }
 
+// 首页标题的小太阳：平时缓缓呼吸，点一下伸展一圈、转开，同步三下轻触感
+{
+	const m = $("#logo");
+	if (m && typeof Max !== "undefined" && Max.logo) {
+		m.replaceChildren(...Max.logo().children);
+		m.querySelectorAll("line").forEach((l, i) => l.style.setProperty("--i", i));
+		m.addEventListener("click", () => {
+			m.classList.remove("pop"); void m.offsetWidth; m.classList.add("pop"); // 重新触发动画
+			haptic(0, 110, 120);
+			clearTimeout(m._t); m._t = setTimeout(() => m.classList.remove("pop"), 1400);
+		});
+	}
+}
+
 // 读不到首页数据（断网、服务器出错）：第一次就失败时在页面上说一声，之后的自动刷新失败不打扰
 const refresh = () => loadHome().catch((e) => { if (!lastHome) $("#recent").textContent = "加载失败：" + e.message + "（切回页面会自动重试）"; });
 addEventListener("max:changed", () => { lastHome = ""; refresh(); }); // Max 清理了题库：首页重新读

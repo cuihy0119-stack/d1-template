@@ -376,6 +376,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mlogo svg g,.mlogo line{transform-box:view-box;transform-origin:0 0}
 .max-busy .mlogo svg g,.mb.thinking .mlogo svg g{animation:mspin 3.2s linear infinite}
 .max-busy .mlogo line,.mb.thinking .mlogo line{animation:mray .9s ease-in-out infinite alternate}
+.mlogo line:nth-child(3n){animation-duration:1.25s!important}.mlogo line:nth-child(3n+1){animation-duration:.75s!important} /* 光芒快慢不一，像手绘的呼吸 */
 @keyframes mspin{to{transform:rotate(360deg)}}
 @keyframes mray{from{transform:scale(.45)}to{transform:scale(1)}}
 @media(hover:hover) and (pointer:fine){.maxball:hover{opacity:1}.mchips button:hover,.mhead button:hover,.mgo:hover{filter:brightness(1.1)}}
@@ -461,3 +462,16 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .night body::before{filter:sepia(.5) saturate(.8);opacity:.5!important}
 .night body::after{opacity:.12}
 @media(prefers-color-scheme:dark){.night{--bg:#1a1714;--fg:#e2d6c3;--mute:#a09280;--solid:#24201c;--g:rgba(36,31,27,.34);--g2:rgba(255,230,200,.05)}}
+
+/* 首页标题小太阳：平时缓缓呼吸（光芒错落伸缩、整体慢转），点一下伸展一圈并转开，配三下轻触感 */
+.brand .mlogo.brandmark{width:.78em;height:.78em;cursor:pointer;-webkit-tap-highlight-color:transparent}.brand .mlogo.brandmark svg{width:100%;height:100%;overflow:visible}
+.brand.live::before{display:none}
+.brandmark svg g{animation:mspin 36s linear infinite}
+.brandmark line{animation:mbreathe 4.6s ease-in-out infinite;transform-box:view-box;transform-origin:0 0;stroke:var(--pri)}
+.brandmark line:nth-child(3n){animation-duration:6.2s}.brandmark line:nth-child(3n+1){animation-duration:3.8s}
+@keyframes mbreathe{0%,100%{transform:scale(1)}50%{transform:scale(.72)}}
+.brandmark.pop svg g{animation:mturn 1s cubic-bezier(.3,1.4,.4,1) both}
+.brandmark.pop line{animation:mstretch 1s cubic-bezier(.3,1.6,.4,1) both;animation-delay:calc(var(--i,0)*28ms)}
+@keyframes mturn{to{transform:rotate(120deg)}}
+@keyframes mstretch{0%{transform:scale(.72)}35%{transform:scale(1.6)}100%{transform:scale(1)}}
+.lite .brandmark svg g,.lite .brandmark line{animation:none!important}
