@@ -21,7 +21,7 @@ const BOARDS = {
 };
 const DRAWN = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图类：Max 不批不讲，交给 Claude
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
-const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : ["geo"]);
+const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : q.subject === "语文" ? [] : ["geo"]); // 语文没有画板
 
 // 题目接口在脚本一执行就发出去（不用等图片、字体都加载完的 load 事件），load 时直接用结果，打开更快
 const practiceUrl = () => {
@@ -44,7 +44,7 @@ async function start() {
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
 	boards = qs.map(() => []);
-	want = qs.map((q) => q.board); // 默认画板：做到这题时才创建，打开页面更快
+	want = qs.map((q) => (q.subject === "语文" ? null : q.board)); // 默认画板：做到这题时才创建，打开页面更快
 	secs = qs.map(() => 0);
 	done = qs.map(() => null);
 	sig = qs.map(() => "");
@@ -146,19 +146,13 @@ function render(anim) {
 	const q = qs[cur];
 	const box = el("div", { className: "card" });
 	box.append(
-		// 专注：题头只留科目/题型和两个小图标（标记、删题）
+		// 专注：题头只留科目/题型和标记图标
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
 			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（做对的进错题文件夹，Claude 来取）
 			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "{bookmark}", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
 				b.classList.toggle("on", on);
 				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});
-			} }),
-			el("button", { type: "button", className: "del", title: "删题", textContent: "{trash}", onclick: async () => {
-				if (!(await delQuestion(q.id))) return;
-				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks, hands]) a.splice(cur, 1);
-				if (!qs.length) { isle.hide(); return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" })); }
-				cur = Math.min(cur, qs.length - 1); shownAt = Date.now(); render();
 			} })),
 		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }),
 		Fig.view(q.fig)); // 题图：题干正下方、选项和画板之前

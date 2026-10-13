@@ -338,7 +338,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 			if (alt.length || (topic && topic !== q.topic) || exp || (cat && cat !== q.category) || tag)
 				stmts.push(db.prepare("UPDATE questions SET answer = ?, topic = COALESCE(?, topic), explanation = COALESCE(explanation, ?), category = COALESCE(?, category), tag = COALESCE(?, tag), type = COALESCE(?, type) WHERE id = ?")
 					.bind(JSON.stringify([...ans, ...alt]), topic, exp, cat, tag, type, q.id));
-			if (r.warn) warns.push(`${q.subject}${q.no ?? ""}：${r.warn}`);
+			if (r.warn) warns.push(`${q.subject}·${String(q.stem).slice(0, 16)}：${r.warn}`);
 		}
 		if (stmts.length) await db.batch(stmts);
 		return `；Max 检查 ${qs.length} 题，优化 ${stmts.length} 题` + (warns.length ? `；请核对：${warns.join("；")}` : "");
@@ -412,6 +412,7 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 // ---------- 聊天 ----------
 const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学法语。中文、简洁（≤150字），公式 $..$，化学式 $\\ce{..}$。
 只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
+说到某道题一律写「科目·题干开头」（如 数学·解方程…），绝不对学生说「数学3」这类数字题号；题号只能写在 [[做:…]] 的参数里。
 需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]
 学生想练某类题就给 [[练:科目/考点]]（题库有同类题就直接跳过去，没有网站会让你现场出题，不用你出）。`;
 const NOTE_RE = /错|讲|解析|为什么|看不懂|没懂/;
@@ -683,7 +684,7 @@ export async function cleanBank(db: D1Database, arg: string, apply: boolean): Pr
 	};
 	const where = groups.map(cond).join(" OR ");
 	const base = `q.status = 'active' AND ${live()} AND (${where})`;
-	const { results } = await db.prepare(`SELECT q.id, COALESCE(q.subject || q.no || '：', '') || substr(q.stem, 1, 24) t FROM questions q WHERE ${base} ORDER BY q.id LIMIT 300`).bind(...args).all<{ id: number; t: string }>();
+	const { results } = await db.prepare(`SELECT q.id, q.subject || '·' || substr(q.stem, 1, 24) t FROM questions q WHERE ${base} ORDER BY q.id LIMIT 300`).bind(...args).all<{ id: number; t: string }>();
 	const ids = results.map((r) => r.id);
 	if (apply && ids.length) { // 先定下 id，再分批删（删待批改的作答不能改变要删的题）
 		const stmts: D1PreparedStatement[] = [];

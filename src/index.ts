@@ -94,8 +94,8 @@ const parse = <T>(s: string | null, d: T): T => {
 		return d;
 	}
 };
-/** 题号：每科各自编号，放在题干前，如「数学1：」 */
-export const label = (q: { subject: string; no?: number | null }) => (q.no ? `${q.subject}${q.no}：` : "");
+/** 前端显示的题干前缀：「数学·」（不显示数字题号；no 只是后端内部编码） */
+export const label = (q: { subject: string; no?: number | null }) => `${q.subject}·`;
 const clientQ = (q: Q) => ({
 	id: q.id,
 	subject: q.subject,
@@ -364,7 +364,7 @@ const WRONG_SQL = {
 async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject, q.category, q.topic, q.type, COALESCE(q.subject || q.no || '：', '') || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
+			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.subject || '·' || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
 			        q.max_reason, q.max_note, q.tag, q.due,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,

@@ -19,8 +19,8 @@ async function byNo(db: D1Database, list: string) {
 	const ids: number[] = [], names: string[] = [], miss: string[] = [];
 	for (const t of list.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean).slice(0, 20)) {
 		const m = t.match(/^(\D+?)(\d+)$/);
-		const r = m ? await db.prepare("SELECT id FROM questions WHERE subject = ? AND no = ? ORDER BY id DESC LIMIT 1").bind(m[1], Number(m[2])).first<{ id: number }>() : null;
-		if (r) { ids.push(r.id); names.push(t); } else miss.push(t);
+		const r = m ? await db.prepare("SELECT id, subject || '·' || substr(stem, 1, 16) n FROM questions WHERE subject = ? AND no = ? ORDER BY id DESC LIMIT 1").bind(m[1], Number(m[2])).first<{ id: number; n: string }>() : null;
+		if (r) { ids.push(r.id); names.push(r.n); } else miss.push(t);
 	}
 	if (!ids.length) throw new MaxErr("没找到这些题号：" + (miss.join("、") || list));
 	return { ids, names: names.join("、") + (miss.length ? `（没找到：${miss.join("、")}）` : "") };
