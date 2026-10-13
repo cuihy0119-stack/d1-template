@@ -549,5 +549,6 @@ const Max = (() => {
 		setCtx(c) { ctx = base = c || {}; prefetch(ctx); if (ui?.island.classList.contains("open")) quick(); },
 		open,
 		tip,
+		busy: setBusy, // Max 在后台干活（出题、整理）时让悬浮球也转起来
 	};
 })();

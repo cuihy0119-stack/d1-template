@@ -21,14 +21,15 @@ const Drill = (() => {
 	}
 
 	async function make(n) {
-		app.replaceChildren(el("p", { className: "mute", textContent: `Max 出题中…（${n} 道，约 10 秒）` }));
+		app.replaceChildren(el("div", { className: "gen" }, Max.logo("big"), el("span", { textContent: `Max 出题中…（${n} 道，约 10 秒）` }))); // 和思考时一样转动的标志
+		Max.busy(true);
 		try {
 			qs = (await api("/api/max/gen", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ topic, n, like: like || undefined }) })).questions;
 			i = 0; right = 0;
 			show();
 		} catch (e) {
 			app.replaceChildren(el("p", { className: "mute", textContent: "出题失败：" + e.message }), el("button", { type: "button", className: "btn", textContent: "重试", onclick: () => make(n) }));
-		}
+		} finally { Max.busy(false); }
 	}
 
 	function show() {

@@ -327,13 +327,16 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 @media(min-width:744px){.maxball{width:66px;height:66px}.maxball .mlogo svg{width:42px;height:42px}}
 
 /* 提示小气泡：贴在球旁边 */
-.mpeek{position:fixed;z-index:61;left:0;top:0;max-width:min(70vw,320px);display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:18px;font-size:14px;color:var(--fg);
+.mpeek{position:fixed;z-index:61;left:0;top:0;max-width:min(calc(100vw - 96px),420px);display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:18px;font-size:14px;color:var(--fg);
   background:var(--mg-bg);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%);
   border:1px solid var(--mg-edge);box-shadow:0 8px 24px rgba(0,0,0,.14),inset 0 1px 0 var(--mg-hi);
   opacity:0;pointer-events:none;transition:opacity .3s}
 .mpeek.on{opacity:1;pointer-events:auto;animation:peekin .4s var(--spring) both}
 @keyframes peekin{from{scale:.85}}
-.mpeek span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mpeek span:last-child{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.45} /* 提示完整显示，放不下就换行 */
+.gen{display:flex;align-items:center;justify-content:center;gap:12px;padding:36px 0;color:var(--mute)}
+.gen .mlogo svg g{animation:mspin 3.2s linear infinite}.gen .mlogo line{animation:mray .9s ease-in-out infinite alternate}
+.gen .mlogo line:nth-child(3n){animation-duration:1.25s}.gen .mlogo line:nth-child(3n+1){animation-duration:.75s}
 
 /* 窗口：从球的位置弹开（transform-origin 由脚本设成球心），液态玻璃 */
 .island{position:fixed;z-index:62;left:0;top:0;width:400px;height:560px;display:flex;flex-direction:column;border-radius:26px;overflow:hidden;color:var(--fg);
