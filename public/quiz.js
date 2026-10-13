@@ -157,6 +157,12 @@ function render(anim) {
 		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }),
 		Fig.view(q.fig)); // 题图：题干正下方、选项和画板之前
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "{check}已提交，改了答案离开时会自动更新" }));
+	// 还没打开的画板/草纸按钮：收起后从这里再打开（选择、填空、解答题都有；简答题的在拍照那一行里）
+	const offerRow = () => {
+		const bs = offer(q).filter((k) => !boards[cur].some((b) => b.kind === k));
+		return bs.length ? el("div", { className: "row", style: "margin-top:8px" }, ...bs.map((k) => el("button", { type: "button", className: "btn small", textContent: BOARDS[k][0],
+			onclick: () => { boards[cur].push(BOARDS[k][2](q, false)); render(); } }))) : "";
+	};
 	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
@@ -179,10 +185,11 @@ function render(anim) {
 				},
 			}, el("span", { className: "ol", textContent: letter }), el("span", { textContent: o.replace(/^\s*[A-Za-z][.．、:：]?\s*/, "") })));
 		});
+		box.append(offerRow()); // 选择题也能开草纸；收起后靠这行再打开
 	} else if (q.type === "fill") {
 		const input = el("input", { type: "text", value: ans[cur], placeholder: "答案", oninput: () => (ans[cur] = input.value) });
 		if (KEYS[q.subject]) box.append(keyRow(input, KEYS[q.subject]));
-		box.append(input, handPad(q));
+		box.append(input, handPad(q), offerRow());
 	} else {
 		const ta = el("textarea", { value: ans[cur], placeholder: "写下作答过程（也可以拍照上传）", oninput: () => (ans[cur] = ta.value) });
 		if (KEYS[q.subject]) box.append(keyRow(ta, KEYS[q.subject]));
