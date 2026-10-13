@@ -81,6 +81,8 @@ export async function dailyCleanup(db: D1Database) {
 	};
 	// 1. 一次做对的题 超过 30 天：删题（attempts 保留）；错题文件夹每天 2:30 单独清空（clearFolder）；题库里隐藏（超过 24/48 小时）满 30 天的也清掉
 	await db.batch([
+		// 做对过、从没错过的题（含补发的旧题）：标成 done 隐藏，下面按 30 天删
+		db.prepare("UPDATE questions SET status = 'done', status_at = (SELECT MAX(a.created_at) FROM attempts a WHERE a.question_id = questions.id AND a.is_correct = 1) WHERE status = 'active' AND COALESCE(source, '') <> '原错题' AND EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = questions.id AND a.is_correct = 1) AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = questions.id AND a.is_correct = 0)"),
 		// 排到以后才做的题（due）从那天起算，别在还没出现前就被删掉（和 live.ts 的计时起点一致）
 		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days') AND (due IS NULL OR datetime(due, '-8 hours') < datetime('now','-30 days')) AND NOT (id IN (SELECT question_id FROM review_queue) AND (source = '原错题' OR id IN (SELECT question_id FROM attempts WHERE is_correct = 0)))"), // 还在间隔复习的错题不删
 		db.prepare("DELETE FROM questions WHERE status = 'done' AND status_at < datetime('now','-30 days')"),
