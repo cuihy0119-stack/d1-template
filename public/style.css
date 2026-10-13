@@ -490,13 +490,30 @@ button>.ic:only-child,.del>.ic,.mark>.ic{margin-right:0}
 body::before{background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.34),transparent 70%),radial-gradient(34% 28% at 84% 34%,rgba(226,196,160,.32),transparent 70%),
   radial-gradient(40% 32% at 58% 84%,rgba(217,138,106,.22),transparent 70%)}
 
-/* 首页标题「Max Note」：手绘插画风——米白填色、深棕墨线描边、错位的铅笔阴影、下面一道手画波浪线；
-   线条像逐格动画一样轻轻颤动（三张噪声扭曲滤镜每 0.15 秒换一张）。低配和「减少动态」时静止在第一帧 */
-.brand .bt{position:relative;display:inline-block;padding:0 .08em .16em;font:italic 600 1.08em/1.1 var(--serif);letter-spacing:.01em;
-  color:#f5ecda;-webkit-text-stroke:1.3px #4a3a2c;paint-order:stroke fill;text-shadow:2px 2.5px 0 rgba(74,58,44,.22);
-  filter:url(#boil0);animation:boil .45s steps(1) infinite}
-.brand .squig{position:absolute;left:4%;right:4%;bottom:-.02em;width:92%;height:.32em;overflow:visible}
-.brand .squig path{fill:none;stroke:var(--pri);stroke-width:2.2;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.85}
+/* ================= 首页手账风（今日练习按钮以上）=================
+   手写字：英文和数字用 Caveat，中文用霞鹜文楷；墨水色写在纸上，只有大标题的线条会轻轻颤动（像逐格动画），其余静止 */
+:root{--hand:'Caveat','LXGW WenKai Screen','Kaiti SC',cursive;--ink:#3b2e24}
+@media(prefers-color-scheme:dark){:root{--ink:#efe4cf}}
+.brand .bt{position:relative;display:inline-block;padding:0 .1em .12em;font:700 1.45em/1 var(--hand);letter-spacing:.01em;color:var(--ink);
+  transform:rotate(-2deg);filter:url(#boil0);animation:boil .42s steps(1) infinite}
+.brand .squig{position:absolute;left:2%;width:96%;bottom:-.06em;height:.3em;overflow:visible}
+.brand .squig path{fill:none;stroke:var(--pri);stroke-width:2.6;stroke-linecap:round;vector-effect:non-scaling-stroke}
 @keyframes boil{0%{filter:url(#boil0)}33%{filter:url(#boil1)}66%{filter:url(#boil2)}}
 .lite .brand .bt{animation:none}
-@media(prefers-color-scheme:dark){.brand .bt{-webkit-text-stroke-color:#1c1612;text-shadow:2px 2.5px 0 rgba(0,0,0,.35)}}
+.hero .sub{font:19px/1.5 var(--hand);font-style:normal;color:var(--mute);transform:rotate(-.6deg);transform-origin:left}
+/* 统计：手写大数字，一个个略微歪着，像随手记在本子上 */
+.stat b{font:700 40px/1 var(--hand);color:var(--pri);margin-bottom:2px}
+.stat span{font:14px/1.3 var(--hand)}
+.stat:nth-child(1) b{transform:rotate(-4deg)}.stat:nth-child(2) b{transform:rotate(3deg)}.stat:nth-child(3) b{transform:rotate(-2deg)}
+/* 考试倒计时：大号手写数字 + 手画的圈，第一张最醒目（不再是整块橙色） */
+.exam{color:var(--ink);padding:14px 16px 12px}.exam.first{background:var(--g) linear-gradient(135deg,var(--g2),transparent 55%);border-color:var(--ge);color:var(--ink)}
+.exam.first .mute{color:var(--mute)}
+.exam .en{font:18px/1.3 var(--hand)}
+.exam .ed{display:flex;align-items:baseline;gap:6px;font:20px var(--hand);margin:4px 0 2px}
+.exam .num{position:relative;display:inline-block;padding:0 .18em}
+.exam .num b{position:relative;z-index:1;display:inline-block;font:700 56px/1 var(--hand);color:var(--pri);transform:rotate(-5deg)}
+.exam.first .num b{font-size:84px}
+.exam .ring{position:absolute;inset:-14% -22% -10% -20%;width:142%;height:124%;overflow:visible;pointer-events:none}
+.exam .ring path{fill:none;stroke:var(--pri);stroke-width:2.4;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.75}
+.exam:not(.first) .ring{display:none}
+.exam .mute{font:15px var(--hand)}

@@ -15,6 +15,8 @@ function countUp(b, n) {
 	const t0 = performance.now(), f = (t) => { const k = Math.min(1, (t - t0) / 700); b.textContent = Math.round(n * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(f); };
 	b.textContent = 0; requestAnimationFrame(f);
 }
+// 手账风：考试天数外面手画的一个圈（两笔没完全闭合，像随手圈出来的）
+const RING = '<svg class="ring" viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true"><path d="M58 6C28 2 5 14 6 32c1 17 30 25 55 22 22-3 36-13 33-27C91 12 70 4 44 7"/></svg>';
 function renderHero(h) {
 	const chip = (n, label) => { const b = el("b"); countUp(b, n); return el("div", { className: "stat" }, b, el("span", { textContent: label })); };
 	$("#stats").replaceChildren(chip(h.streak, h.done_today ? "连续练习天数" : "连续天数 · 今天还没练"), chip(h.today_count, "今日待练"), chip(h.right7, "近 7 天做对"));
@@ -25,7 +27,7 @@ function renderHero(h) {
 		const d = Math.round((Date.parse(e.date) - Date.parse(h.today)) / 864e5);
 		return el("div", { className: "exam" + (i ? "" : " first") },
 			el("div", { className: "en", textContent: "距离 " + e.name }),
-			el("div", { className: "ed" }, d ? el("b", { textContent: d }) : el("b", { textContent: "今天" }), d ? " 天" : ""),
+			el("div", { className: "ed" }, el("span", { className: "num", innerHTML: RING }, el("b", { textContent: d || "今天" })), d ? "天" : ""),
 			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }));
 	}));
 }
