@@ -546,6 +546,7 @@ const Max = (() => {
 	}
 
 	return {
+		logo, // 首页标题的小太阳用同一个标志（和思考时一样会动）
 		setCtx(c) { ctx = base = c || {}; prefetch(ctx); if (ui?.island.classList.contains("open")) quick(); },
 		open,
 		tip,
