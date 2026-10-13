@@ -11,7 +11,7 @@ const SRC = ["cell", "batt"];
 const CTOOLS = [
 	["wire", "〰导线", "从一个格点拖到另一个格点；不在一条线上会自动折成直角"],
 	["flip", "⇄翻转", "点电源/电表/LED 换正负方向；点开关切换断开/闭合"],
-	["name", "✎改名", "点元件改编号，如 L1、R2"],
+	["name", "{pen}改名", "点元件改编号，如 L1、R2"],
 	["text", "T文字", "点一下写字，如滑片端 a、b"],
 	["erase", "⌫橡皮", "点一下删除元件或导线"],
 ];
@@ -216,7 +216,7 @@ class CircuitBoard {
 		const words = [];
 		info.forEach(({ k, s }) => {
 			const o = parts[k];
-			if (SRC.includes(o.t)) s === "short" && words.push(`⚠${o.name}短路`);
+			if (SRC.includes(o.t)) s === "short" && words.push(`注意：${o.name}短路`);
 			else if (say(o, s)) words.push(o.name + say(o, s) + (s === "rev" ? "（正负接线柱接反）" : ""));
 		});
 		return { info: new Map(info.map(({ k, s }) => [parts[k], s])), text: words.join(" ") || "无电流" };
@@ -230,7 +230,7 @@ class CircuitBoard {
 		c.fillStyle = "#cfd5df";
 		if (!this.clean) for (let x = CC / 2; x < W; x += CC) for (let y = CC / 2; y < H; y += CC) c.fillRect(x - 1, y - 1, 2, 2);
 		const sim = this.check ? this.sim() : null;
-		this.stat.textContent = this.check ? "🔍 " + (sim ? sim.text : "先放一个电源") : "";
+		this.stat.textContent = this.check ? (sim ? sim.text : "先放一个电源") : "";
 		const list = [...this.objs];
 		if (live && this.drag) list.push(this.tool === "wire" ? { t: "wire", pts: this.route(this.drag.a, this.drag.b) } : { t: this.tool, a: this.drag.a, b: this.place(this.drag.a, this.drag.b), name: "" });
 		for (const o of list) this.obj(c, o, sim?.info.get(o));
@@ -291,7 +291,7 @@ class CircuitBoard {
 		Object.keys(PARTS).forEach((k, i) => this.icons[i].classList.toggle("on", this.tool === k));
 		if (!this.bar1.firstChild) this.bar1.append(...this.icons);
 		this.bar2.replaceChildren(...CTOOLS.map(([k, name]) => B(name, this.tool === k, pick(k))),
-			B("🔍通电", this.check, () => { this.check = !this.check; this.build(); this.draw(); }),
+			B("{search}通电", this.check, () => { this.check = !this.check; this.build(); this.draw(); }),
 			B("清空", false, () => this.objs.length && confirm("清空电路？") && this.change(() => (this.objs = []))),
 			B(this.big ? "缩小" : "放大", false, () => { this.big = !this.big; this.el.classList.toggle("big", this.big); this.build(); }));
 		this.hint.replaceChildren(el("span", { textContent: this.check ? "通电中：点开关可直接通断" : tipOf(this.tool) }));

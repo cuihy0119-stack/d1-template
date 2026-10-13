@@ -17,12 +17,12 @@ function state(q) {
 	if (q.pending) return ["待批改", "wait"];
 	if (MODE === "wrong") return tab === "mastered" ? ["已改对", "ok"] : q.last === 1 ? ["重做已对", "ok"] : ["待重做", "due"];
 	if (q.due && q.due > data.today) return [`${+q.due.slice(5, 7)}月${+q.due.slice(8, 10)}日做`, "wait"]; // 排到以后做的题
-	return !q.tries ? ["未做", "new"] : q.last === 1 ? ["✓ 做对", "ok"] : ["✗ 做错", "due"]; // 显示最近一次的结果，不再笼统写「已做」
+	return !q.tries ? ["未做", "new"] : q.last === 1 ? ["{check}做对", "ok"] : ["{x}做错", "due"]; // 显示最近一次的结果，不再笼统写「已做」
 }
 
 function render() {
 	if (MODE === "wrong") {
-		$("#tabs").replaceChildren(...[["active", "复习中"], ["mastered", "📁 错题文件夹"]].map(([k, name]) =>
+		$("#tabs").replaceChildren(...[["active", "复习中"], ["mastered", "{folder}错题文件夹"]].map(([k, name]) =>
 			el("button", { className: "tab" + (tab === k ? " on" : ""), textContent: name, onclick: () => { tab = k; load(); } })));
 	}
 	const subjects = [...new Set(data.items.map((q) => q.subject))];
@@ -44,9 +44,9 @@ function render() {
 	top.replaceChildren();
 	if (MODE === "wrong" && tab === "mastered") {
 		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length} 道。Max 会整理好总结，Claude 每天来取，做后续（讲评、归档、出巩固题）。每天凌晨 2:30 自动清空` }));
-		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
+		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "{max}Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
-	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {
+	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "{folder}让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {
 		const b = e.currentTarget, old = b.textContent;
 		b.disabled = true; b.textContent = "Max 整理中…";
 		try {
@@ -73,13 +73,13 @@ function render() {
 
 function row(q) {
 	const [label, cls] = state(q);
-	const del = el("button", { type: "button", className: "del", textContent: "🗑 删除", onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } });
+	const del = el("button", { type: "button", className: "del", textContent: "{trash}删除", onclick: async (e) => { e.stopPropagation(); if (await delQuestion(q.id)) load(); } });
 	const item = el("div", { className: "item" },
 		el("div", { className: "body" },
 			el("span", { className: "tag", textContent: subject ? q.category || q.subject : q.subject }),
 			q.tag ? el("span", { className: "tag ty", textContent: q.tag }) : "",
 			q.topic ? el("span", { className: "tag tp", textContent: q.topic }) : "",
-			el("span", { className: "time", textContent: "🕒 " + when(q.created_at) }),
+			el("span", { className: "time", textContent: "{clock}" + when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) }),
 			MODE === "wrong" ? el("div", { className: "why" },
 				el("span", { className: "mx", textContent: q.max_reason || q.max_note ? "错因：" + [q.max_reason, q.max_note].filter(Boolean).join("，") : "错因：Max 待分析" })) : ""),
@@ -101,7 +101,7 @@ function row(q) {
 		if (d.fig && typeof Fig !== "undefined") detail.append(Fig.view(d.fig, "small"));
 		if (d.options.length) detail.append(el("div", { className: "mute", textContent: d.options.join("\n"), style: "white-space:pre-wrap" }));
 		const wrong = d.attempts.find((a) => a.is_correct === 0);
-		if (wrong && !/作图|函数|电路|光路|受力|证明/.test(d.tag || "")) detail.append(el("button", { type: "button", className: "btn small", textContent: "🤖 问 Max 这题", style: "margin:6px 0", onclick: () => Max.open({ explain: wrong.id }, "讲讲这道题") }));
+		if (wrong && !/作图|函数|电路|光路|受力|证明/.test(d.tag || "")) detail.append(el("button", { type: "button", className: "btn small", textContent: "{max}问 Max 这题", style: "margin:6px 0", onclick: () => Max.open({ explain: wrong.id }, "讲讲这道题") }));
 		if (wrong) {
 			detail.append(el("div", { className: "ans bad", textContent: "你的答案：" + (plain(wrong.answer_text) || "（空）") + (wrong.error_reason ? `（${wrong.error_reason}）` : "") }));
 			if (wrong.comment) detail.append(el("div", { className: "ans", textContent: "评语：" + wrong.comment }));
@@ -133,16 +133,16 @@ async function loadSum() {
 	lastSum = JSON.stringify(s);
 	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
 		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
-	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `🗂 让 Max 整理（${s.todo} 道没整理）` : "🗂 Max 已整理完", disabled: !s.todo, onclick: async () => {
+	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `{folder}让 Max 整理（${s.todo} 道没整理）` : "{folder}Max 已整理完", disabled: !s.todo, onclick: async () => {
 		const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 150000);
 		org.disabled = true; org.textContent = "整理中…";
 		try { await api("/api/max/organize", { method: "POST", signal: ctl.signal }); load(); }
 		catch (e) { toast(ctl.signal.aborted ? "Max 整理太久了，稍后再点一次" : e.message); }
-		finally { clearTimeout(t); org.disabled = false; org.textContent = "🗂 让 Max 整理"; }
+		finally { clearTimeout(t); org.disabled = false; lab(org, "{folder}让 Max 整理"); }
 	} });
 	$("#maxsum").replaceChildren(el("div", { className: "card maxcard" },
 		el("h2", { textContent: `错因分析（${s.total} 道错题）` }),
-		s.summary ? el("p", { textContent: "🤖 " + s.summary }) : "",
+		s.summary ? el("p", { textContent: "{max}" + s.summary }) : "",
 		Object.keys(s.max).length ? el("div", { className: "why2" }, el("div", {}, el("b", { textContent: "Max 看题分析的错因" }), bars(s.max))) : "",
 		el("div", { className: "row" }, org,
 			s.stale ? el("button", { type: "button", className: "btn small", textContent: "↻ 让 Max 重新总结", onclick: async (e) => { e.target.disabled = true; await api("/api/max/wrongsum?force=1").catch(() => {}); dropCache(); load(); } }) : "",

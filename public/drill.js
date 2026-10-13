@@ -44,8 +44,8 @@ const Drill = (() => {
 			if (q.type === "single") for (const b of box.querySelectorAll(".opt")) { b.disabled = true; b.classList.toggle("ok", ok && b === btn); b.classList.toggle("bad", !ok && b === btn); }
 			else for (const x of box.querySelectorAll("input,.fsub")) x.disabled = true;
 			res.replaceChildren(ok
-				? el("div", { className: "ans", textContent: "✓ 答对了" + (q.explanation ? "：" + q.explanation : "") })
-				: el("div", {}, el("div", { className: "ans bad", textContent: "✗ 这题没对，点下面让 Max 帮你分析错在哪" }),
+				? el("div", { className: "ans", textContent: "{check}答对了" + (q.explanation ? "：" + q.explanation : "") })
+				: el("div", {}, el("div", { className: "ans bad", textContent: "{x}这题没对，点下面让 Max 帮你分析错在哪" }),
 					el("div", { className: "row", style: "margin-top:8px" },
 						el("button", { type: "button", className: "btn", textContent: "让 Max 分析", onclick: () => Max.open({ tmp: tmpOf(q, mine, true) }, "这题我做错了，帮我分析错在哪、怎么避免") }),
 						noteLink(q.subject, q.topic, "btn"),
@@ -78,7 +78,7 @@ const Drill = (() => {
 		if (master) { // 「标为已掌握」前的变式题：做对才标；没做对给个仍要标的按钮
 			const ok = right === qs.length, card = el("div", { className: "card" });
 			if (ok) { try { await api(`/api/question/${master}/master`, { method: "POST" }); } catch (e) { return app.replaceChildren(el("p", { className: "mute", textContent: "标记失败：" + e.message })); } }
-			card.append(el("h1", { textContent: ok ? "✓ 变式题也做对了" : "✗ 变式题没做对" }),
+			card.append(el("h1", { textContent: ok ? "{check}变式题也做对了" : "{x}变式题没做对" }),
 				el("p", { className: "mute", textContent: ok ? "已标为已掌握，放进错题文件夹。" : "先别急着标掌握，回错题本再练练。" }),
 				el("div", { className: "row", style: "margin-top:10px" },
 					ok ? "" : el("button", { type: "button", className: "btn", textContent: "仍然标为已掌握", onclick: async (e) => { e.currentTarget.disabled = true; await api(`/api/question/${master}/master`, { method: "POST" }).catch(() => {}); location.href = "/wrong"; } }),

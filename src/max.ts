@@ -341,7 +341,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 			if (r.warn) warns.push(`${q.subject}${q.no ?? ""}：${r.warn}`);
 		}
 		if (stmts.length) await db.batch(stmts);
-		return `；Max 检查 ${qs.length} 题，优化 ${stmts.length} 题` + (warns.length ? `；⚠ 请核对：${warns.join("；")}` : "");
+		return `；Max 检查 ${qs.length} 题，优化 ${stmts.length} 题` + (warns.length ? `；请核对：${warns.join("；")}` : "");
 	} catch (e) {
 		return e instanceof MaxErr ? `；Max 没检查（${e.message}）` : "";
 	}

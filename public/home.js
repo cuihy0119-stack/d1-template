@@ -20,7 +20,7 @@ function renderHero(h) {
 	$("#stats").replaceChildren(chip(h.streak, h.done_today ? "连续练习天数" : "连续天数 · 今天还没练"), chip(h.today_count, "今日待练"), chip(h.right7, "近 7 天做对"));
 	counted = true;
 	const box = $("#exams");
-	if (!h.exams.length) return box.replaceChildren(askClaude(CLAUDE_ASK.exams, "📅 让 Claude 写上临近的考试，首页倒计时"));
+	if (!h.exams.length) return box.replaceChildren(askClaude(CLAUDE_ASK.exams, "{calendar}让 Claude 写上临近的考试，首页倒计时"));
 	box.replaceChildren(...h.exams.slice(0, 3).map((e, i) => {
 		const d = Math.round((Date.parse(e.date) - Date.parse(h.today)) / 864e5);
 		return el("div", { className: "exam" + (i ? "" : " first") },
@@ -39,7 +39,7 @@ async function loadHome() {
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);
-	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了 🎉");
+	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了");
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
 	const ask = $("#ask");
@@ -47,15 +47,15 @@ async function loadHome() {
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
 	if (h.pending_uploads) ask.append(askClaude(CLAUDE_ASK.inbox, `让 Claude 处理照片（${h.pending_uploads} 张）`));
 	if (h.marked) ask.append(
-		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: `🤖 让 Max 解析标记的题（${h.marked} 题）`, onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
+		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: `{max}让 Max 解析标记的题（${h.marked} 题）`, onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
 		askClaude(CLAUDE_ASK.marked, `让 Claude 解析标记的题（${h.marked} 题）`));
 	const rec = $("#recent");
 	if (!h.recent.length) rec.replaceChildren("还没有题");
 	else rec.replaceChildren(...h.recent.map((q) => el("div", { className: "recent" },
 		el("a", { href: "/quiz?ids=" + q.id },
-			el("div", {}, el("span", { className: "tag", textContent: q.subject }), el("span", { className: "tag", textContent: q.tag }), el("span", { className: "time", textContent: "🕒 " + when(q.created_at) })),
+			el("div", {}, el("span", { className: "tag", textContent: q.subject }), el("span", { className: "tag", textContent: q.tag }), el("span", { className: "time", textContent: "{clock}" + when(q.created_at) })),
 			el("div", { className: "stem", textContent: q.stem })),
-		el("button", { type: "button", className: "del", textContent: "🗑 删除", onclick: async () => (await delQuestion(q.id)) && loadHome() }))));
+		el("button", { type: "button", className: "del", textContent: "{trash}删除", onclick: async () => (await delQuestion(q.id)) && loadHome() }))));
 	math(rec);
 	const box = $("#subjects");
 	box.replaceChildren();
@@ -103,15 +103,15 @@ function showBrief(b) {
 	lastBrief = JSON.stringify(b);
 	const go = (ids, label) => (ids.length ? el("a", { className: "btn primary small", href: "/quiz?ids=" + ids.join(","), textContent: label }) : "");
 	box.replaceChildren(
-		el("h2", {}, "🤖 Max 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
+		el("h2", {}, icon("max"), "Max 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
 		el("p", { textContent: b.say || "" }),
-		b.soon.length && b.sprint ? el("p", {}, el("b", { textContent: `⏳ ${b.soon[0].name} 冲刺：` }), b.sprint) : "",
+		b.soon.length && b.sprint ? el("p", {}, el("b", { textContent: `{hourglass}${b.soon[0].name} 冲刺：` }), b.sprint) : "",
 		b.topics.length ? el("div", { className: "weak mute" }, "薄弱点：", ...b.topics.map((w) => el("span", { className: "tag", textContent: `${w.subject}·${w.topic} 错${w.wrong}/${w.n}` }))) : "",
 		b.weakTip ? el("p", { className: "mute", textContent: b.weakTip }) : "",
 		el("div", { className: "row" },
 			go(b.order, `按 Max 推荐做（${b.order.length} 题）`),
 			go(b.weakIds, b.soon.length ? `冲刺薄弱点（${b.weakIds.length} 题）` : `练薄弱点（${b.weakIds.length} 题）`),
-			b.topics.length ? el("a", { className: "btn small", href: `/quiz?topic=${encodeURIComponent(b.topics[0].subject + "/" + b.topics[0].topic)}&new=1&n=5`, textContent: `🎯 Max 出 5 道${b.topics[0].topic}` }) : "", // 临时题，不进题库
+			b.topics.length ? el("a", { className: "btn small", href: `/quiz?topic=${encodeURIComponent(b.topics[0].subject + "/" + b.topics[0].topic)}&new=1&n=5`, textContent: `{target}Max 出 5 道${b.topics[0].topic}` }) : "", // 临时题，不进题库
 			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}) }),
 			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: rethink })));
 	box.hidden = false;
