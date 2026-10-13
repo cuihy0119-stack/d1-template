@@ -489,3 +489,14 @@ button>.ic:only-child,.del>.ic,.mark>.ic{margin-right:0}
 /* 配色收敛：背景光斑只留珊瑚和沙色两个暖色，去掉绿/蓝，页面更安静、利于专注 */
 body::before{background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.34),transparent 70%),radial-gradient(34% 28% at 84% 34%,rgba(226,196,160,.32),transparent 70%),
   radial-gradient(40% 32% at 58% 84%,rgba(217,138,106,.22),transparent 70%)}
+
+/* 首页标题「Max Note」：手绘插画风——米白填色、深棕墨线描边、错位的铅笔阴影、下面一道手画波浪线；
+   线条像逐格动画一样轻轻颤动（三张噪声扭曲滤镜每 0.15 秒换一张）。低配和「减少动态」时静止在第一帧 */
+.brand .bt{position:relative;display:inline-block;padding:0 .08em .16em;font:italic 600 1.08em/1.1 var(--serif);letter-spacing:.01em;
+  color:#f5ecda;-webkit-text-stroke:1.3px #4a3a2c;paint-order:stroke fill;text-shadow:2px 2.5px 0 rgba(74,58,44,.22);
+  filter:url(#boil0);animation:boil .45s steps(1) infinite}
+.brand .squig{position:absolute;left:4%;right:4%;bottom:-.02em;width:92%;height:.32em;overflow:visible}
+.brand .squig path{fill:none;stroke:var(--pri);stroke-width:2.2;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:.85}
+@keyframes boil{0%{filter:url(#boil0)}33%{filter:url(#boil1)}66%{filter:url(#boil2)}}
+.lite .brand .bt{animation:none}
+@media(prefers-color-scheme:dark){.brand .bt{-webkit-text-stroke-color:#1c1612;text-shadow:2px 2.5px 0 rgba(0,0,0,.35)}}
