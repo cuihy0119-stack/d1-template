@@ -1,7 +1,7 @@
 // 后台任务队列：慢的模型活不在网页/Claude 的请求里做。
 // 平台在请求结束后只给 30 秒收尾（waitUntil），模型慢就被切断、结果写不进库；所以任务先存进 jobs 表，
 // 请求里先试跑一次（快就直接好了），没跑完的由每分钟的定时任务接着做（定时任务可以长时间运行）。
-import { brief, classifyJob, gradeJob, organize, pregrade, refine, unorganized, wrongSummary } from "./max";
+import { brief, classifyJob, folderSummary, gradeJob, organize, pregrade, refine, unorganized, wrongSummary } from "./max";
 
 // ms：这次最多还能跑多久（批改按它分批停；其它任务一次调用就完）。返回 true = 没做完，再排一轮
 const RUN: Record<string, (env: Env, arg: string, ms: number) => Promise<unknown>> = {
@@ -11,6 +11,7 @@ const RUN: Record<string, (env: Env, arg: string, ms: number) => Promise<unknown
 	brief: (env) => brief(env, true), // 首页建议
 	wsum: (env) => wrongSummary(env, true), // 错题总结
 	refine: (env, arg) => refine(env, JSON.parse(arg)), // Claude 推新题后 Max 复核
+	fsum: (env) => folderSummary(env), // 错题文件夹总结（Claude 来取时让 Max 先写好）
 	classify: (env) => classifyJob(env), // 整理分类
 };
 

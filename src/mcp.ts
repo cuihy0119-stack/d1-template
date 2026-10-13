@@ -3,7 +3,7 @@ import { normFig } from "./fig";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { addDays, today, updateQueue } from "./review";
+import { addDays, folderSeen, today, updateQueue } from "./review";
 import { pick } from "./tags";
 import { TEMPLATES } from "./templates";
 import { wrongLine } from "./cause";
@@ -16,10 +16,10 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const MAX_IMAGES = 6;
 
 const INSTRUCTIONS = `MAX NOTE（错题练习，初三自用）。省用量：一次 save 写完，回复简短；和学生说题用题号（如 数学1）。
-分工：网站助手 Max 批选择/填空/文字题和有把握的作图题，整理错题、错因、题型标签和章节考点分类；你批 Max 拿不准的作图题和照片/手写题，处理照片收件箱，做错题文件夹后续。
+分工：网站助手 Max 批选择/填空/文字题和有把握的作图题，整理错题、错因、题型标签和章节考点分类；你批 Max 拿不准的作图题和照片/手写题，处理照片收件箱，做错题文件夹后续（自己来取，网站不推送）。
 批改：get_inbox → save({grades})；有「Max初评」且同意就 save({ok:[作答id]})，要看图 get_data({kind:"img",id})。
 出题：get_data({kind:"tpl"})（每对话一次）；复习旧题 save({review:[id]})；考试 save({exams:[{name,date}]})。
-返回里有【错题文件夹·Max 已整理】就照附言做。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
+错题文件夹：每天定时或主动交互时 get_data({kind:"folder"}) 取 Max 整理好的（题干、错答、错因、薄弱考点），照附言做。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
 
 // 题目（短字段名省输出）
 const Q = z.object({
@@ -72,34 +72,28 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 	return { id: r!.id, label: `${subject}${r!.no}[${tag}]` };
 }
 
-// ---------- 错题文件夹打包推送 ----------
-// 网站不能主动叫 Claude，所以搭在正常交互（收件箱、保存）的返回里：错题重做做对后进错题文件夹，
-// 攒满 20 道就附上 Max 的整理（总结 + 每题一行短记录），Claude 只做后续：讲评建议、归档、出巩固题。发出去就从题库清掉。
-const PACK_SIZE = 20;
-async function wrongPack(env: Env): Promise<string> {
+// ---------- 错题文件夹：Claude 来取（网站不再主动推送） ----------
+// Claude 每天定时来取，或主动交互时 get_data({kind:"folder"})。Max 先整理好：总结 + 薄弱考点 + 每题一行（题干、错答、正确答案、错因）。
+// 取过的记进 meta.folder_seen，下次只给新的；题留在文件夹里，取走 14 天后每日清理再删（学生也能手动清空）。
+const FOLDER_LIMIT = 40;
+const FOLDER_SQL = `SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note,
+	a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
+	FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
+	WHERE q.status = 'mastered' ORDER BY q.subject, topic, q.id`;
+const folderNew = async (db: D1Database) => { const seen = new Set(await folderSeen(db)); return (await db.prepare(FOLDER_SQL).all<any>()).results.filter((r) => !seen.has(r.id)); };
+
+async function folderPull(env: Env, ctx: ExecutionContext | undefined, all: boolean): Promise<string> {
 	const db = env.DB;
-	const n = (await db.prepare("SELECT COUNT(*) n FROM questions WHERE status = 'mastered'").first<{ n: number }>())?.n ?? 0;
-	if (n < PACK_SIZE) return "";
-	const { results } = await db
-		.prepare(
-			`SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note,
-			        a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
-			 FROM questions q LEFT JOIN attempts a ON a.id = (SELECT MAX(id) FROM attempts WHERE question_id = q.id AND is_correct = 0)
-			 WHERE q.status = 'mastered' ORDER BY q.subject, topic LIMIT 40`,
-		)
-		.all<any>();
-	if (!results.length) return "";
-	// 文件夹总结只用已经写好的（每天定时任务会写）：现场等模型会让 Claude 的调用卡 20 秒
-	const sum = await db.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>().then((r) => (r ? JSON.parse(r.v) : null)).catch(() => null) as { text: string } | null;
-	const list = results.map((r) => r.id).join(",");
-	await db.batch([ // 发出即清
-		db.prepare(`DELETE FROM review_queue WHERE question_id IN (${list})`),
-		db.prepare(`DELETE FROM marks WHERE question_id IN (${list})`),
-		db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (${list})`),
-		db.prepare(`DELETE FROM questions WHERE id IN (${list})`),
-		db.prepare("DELETE FROM meta WHERE k = 'folder_sum'"),
-	]);
-	return `\n\n【错题文件夹·Max 已整理】${results.length} 道错题已重做做对，已从题库清掉。${sum ? "\nMax 总结：" + sum.text : ""}\n原题和学生当初的错答（含 Max 分析的错因）：\n${results.map((r) => wrongLine(r) + (r.aid ? `｜作答id=${r.aid}` : "｜照片录入的原错题")).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄上面原题归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
+	const rows = all ? (await db.prepare(FOLDER_SQL).all<any>()).results : await folderNew(db);
+	if (ctx) { await enqueueNow(env, ctx, "organize"); await enqueueNow(env, ctx, "fsum"); } // 让 Max 趁这次交互把新错题的错因和总结补上，下次取就是整理好的
+	if (!rows.length) return "错题文件夹没有新题";
+	const part = rows.slice(0, FOLDER_LIMIT);
+	const sum = await db.prepare("SELECT v FROM meta WHERE k = 'folder_sum'").first<{ v: string }>().then((r) => (r ? JSON.parse(r.v) : null)).catch(() => null) as { text: string } | null; // 只用已经写好的：现场等模型会让调用卡 20 秒
+	const weak = new Map<string, number>();
+	for (const r of part) { const k = `${r.subject}/${r.topic || "未分类"}`; weak.set(k, (weak.get(k) ?? 0) + 1); }
+	const top = [...weak].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => `${k}×${n}`).join("、");
+	if (!all) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_seen', ?)").bind(JSON.stringify([...new Set([...(await folderSeen(db)), ...part.map((r) => r.id)])])).run();
+	return `【错题文件夹·Max 已整理】${part.length} 道重做做对的错题${rows.length > part.length ? `（还有 ${rows.length - part.length} 道，再取一次）` : ""}\n薄弱考点：${top}${sum ? "\nMax 总结：" + sum.text : ""}\n每题：题干｜错答｜正确答案｜错因：\n${part.map((r) => wrongLine(r)).join("\n")}\n→ 先回答完学生，再：①按 Max 总结给一段简短讲评和建议（不用逐题讲）；②问学生要不要归档进 Notion，同意后照抄上面原题归档；③薄弱考点需要的话出 3~5 道巩固题 save({questions})。`;
 }
 
 export function buildServer(env: Env, ctx?: ExecutionContext) {
@@ -142,8 +136,8 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				...(await images(db, keys)),
 			);
 		}
-		const dg = await wrongPack(env);
-		if (dg) out.push({ type: "text", text: dg });
+		const nf = (await folderNew(db)).length; // 只提醒有几道，内容等你要时再取（不自动推送）
+		if (nf) out.push({ type: "text", text: `错题文件夹有 ${nf} 道新题，Max 已整理，要看 get_data({kind:"folder"})` });
 		return { content: out };
 	});
 
@@ -287,15 +281,15 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				await db.prepare("INSERT INTO summaries (text) VALUES (?)").bind(summary).run();
 				out.push("总结 ok");
 			}
-			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (ctx && fresh.length ? (await enqueueNow(env, ctx, "refine", JSON.stringify(fresh)), "（Max 后台复核中，一两分钟内题目会自动补全）") : await refine(env, fresh)) + (await wrongPack(env)));
+			return text(([...out, ...(err.length ? ["错误：" + err.join("；")] : [])].join("；") || "无操作") + (ctx && fresh.length ? (await enqueueNow(env, ctx, "refine", JSON.stringify(fresh)), "（Max 后台复核中，一两分钟内题目会自动补全）") : await refine(env, fresh)));
 		},
 	);
 
 	s.registerTool(
 		"get_data",
 		{
-			description: "tpl 出题模板；marked 学生标记的题；records 作答记录 TSV（days 默认 7）；bank 题库 TSV（all=true 含已掌握）；img 某作答的图（id）",
-			inputSchema: { kind: z.enum(["tpl", "marked", "records", "bank", "img"]), id: z.number().int().optional().describe("kind=img：作答id"), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
+			description: "tpl 出题模板；marked 学生标记的题；folder 错题文件夹新题（Max 已整理：总结+薄弱点+题干/错答/错因；all=true 含已取过的）；records 作答记录 TSV（days 默认 7）；bank 题库 TSV（all=true 含已掌握）；img 某作答的图（id）",
+			inputSchema: { kind: z.enum(["tpl", "marked", "folder", "records", "bank", "img"]), id: z.number().int().optional().describe("kind=img：作答id"), days: z.number().int().min(1).max(365).optional(), subject: z.string().optional(), all: z.boolean().optional() },
 		},
 		async ({ kind, id, days, subject, all }) => {
 			if (kind === "tpl") return text(TEMPLATES);
@@ -304,6 +298,7 @@ export function buildServer(env: Env, ctx?: ExecutionContext) {
 				const keys = String(a?.photo_key ?? "").split(",").filter((k) => k && !k.startsWith("views/")).slice(0, MAX_IMAGES);
 				return keys.length ? { content: [{ type: "text" as const, text: `作答id=${id} 的图` }, ...(await images(db, keys))] } : text("这个作答没有图");
 			}
+			if (kind === "folder") return text(await folderPull(env, ctx, !!all));
 			if (kind === "marked") { // 临时文件夹：交卷后的标记题，24 小时内有效；一题一行，错题带错答和错因
 				const { results } = await db.prepare(
 					`SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec

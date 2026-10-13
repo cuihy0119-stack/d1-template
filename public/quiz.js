@@ -148,7 +148,7 @@ function render(anim) {
 	box.append(
 		// 专注：题头只留科目/题型和两个小图标（标记、删题）
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
-			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（攒够 20 道会整包发给 Claude）
+			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（做对的进错题文件夹，Claude 来取）
 			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "🔖", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
 				b.classList.toggle("on", on);
