@@ -188,7 +188,7 @@ const Max = (() => {
 		const set = el("div", { className: "mset" });
 		gear.onclick = () => { const on = !island.classList.contains("setting"); island.classList.toggle("setting", on); gear.classList.toggle("on", on); if (on) settings(set, false); };
 		const island = el("section", { className: "island" },
-			el("div", { className: "mhead" }, logo(), el("b", { textContent: "Max" }), sub, gear,
+			el("div", { className: "mhead" }, logo(), maxWord(), sub, gear,
 				el("button", { type: "button", textContent: "收起", onclick: () => close() })),
 			log, chips, tags, attBox, el("div", { className: "min" }, picB, input, sendB), set);
 		sendB.onclick = () => (job ? stop() : send());
