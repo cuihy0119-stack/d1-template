@@ -55,7 +55,7 @@ const haptic = (() => {
 	};
 })();
 // ---------- 站内图标：全站统一的线条图标（24 格、线宽 1.7、圆头），颜色跟着文字走；Max 自己的标志是放射星（光芒会呼吸，思考时更活跃）----------
-const LOGO = `<svg viewBox="-12 -12 24 24" width="26" height="26" aria-hidden="true"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round">${
+const LOGO = `<svg viewBox="-12 -12 24 24" width="32" height="32" aria-hidden="true"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round">${
 	[10, 7.6, 9.4, 7.2, 10, 8, 9.2, 7.4, 10, 7.8, 9.6, 7.3].map((r, i) => {
 		const a = ((i * 30 + (i % 3) * 4) * Math.PI) / 180, f = (n) => n.toFixed(2);
 		return `<line x1="${f(Math.cos(a) * 2.2)}" y1="${f(Math.sin(a) * 2.2)}" x2="${f(Math.cos(a) * r)}" y2="${f(Math.sin(a) * r)}" style="animation-delay:-${f(((i * 5) % 12) * 0.09)}s"/>`;

@@ -307,7 +307,7 @@ body.drawing .rail.show{opacity:.3}
 @media(prefers-color-scheme:dark){:root{--mg-bg:rgba(30,28,26,.74);--mg-edge:rgba(255,255,255,.14);--mg-hi:rgba(255,255,255,.16);--mg-bubble:rgba(255,255,255,.08);--mg-field:rgba(0,0,0,.25);--mg-btn:rgba(255,255,255,.1)}}
 @supports (transition-timing-function:linear(0,1)){:root{--spring:linear(0,.009,.035 2.1%,.141,.281 6.7%,.723 12.9%,.938 16.7%,1.017,1.077,1.121,1.149 24.3%,1.159,1.163,1.161,1.154 29.9%,1.129 32.8%,1.051 39.6%,1.017 43.1%,.991,.977 51%,.974 53.8%,.975 57.1%,.997 69.8%,1.003 76.9%,1)}}
 
-.maxball{position:fixed;z-index:60;left:0;top:0;width:50px;height:50px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;
+.maxball{position:fixed;z-index:60;left:0;top:0;width:58px;height:58px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;
   background:rgba(28,26,24,.82);-webkit-backdrop-filter:blur(12px) saturate(160%);backdrop-filter:blur(12px) saturate(160%);
   box-shadow:0 6px 20px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.18);touch-action:none;-webkit-tap-highlight-color:transparent;cursor:grab;
   -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
@@ -323,7 +323,8 @@ body.drawing .rail.show{opacity:.3}
 .maxball.hide{opacity:0;pointer-events:none}
 body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字时让开 */
 .max-busy .maxball:not(.hide){opacity:1}
-@media(min-width:744px){.maxball{width:56px;height:56px}.maxball svg{width:30px;height:30px}}
+.maxball .mlogo svg{width:36px;height:36px}
+@media(min-width:744px){.maxball{width:66px;height:66px}.maxball .mlogo svg{width:42px;height:42px}}
 
 /* 提示小气泡：贴在球旁边 */
 .mpeek{position:fixed;z-index:61;left:0;top:0;max-width:min(70vw,320px);display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:18px;font-size:14px;color:var(--fg);
@@ -347,7 +348,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .island.open>.mlog{animation-delay:.06s}.island.open>.mchips,.island.open>.mtog,.island.open>.min{animation-delay:.1s}
 @keyframes mdrop{from{opacity:0;transform:translateY(6px)}}
 
-.mlogo{display:inline-grid;place-items:center;flex:none}.mlogo svg{width:22px;height:22px}
+.mlogo{display:inline-grid;place-items:center;flex:none}.mlogo svg{width:30px;height:30px}
 .mhead{position:relative;display:flex;align-items:center;gap:8px;padding:12px 14px 8px}.mhead b{font:600 17px var(--serif)}
 .mhead .msub{flex:1;font-size:11px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mhead button{border:0;background:var(--mg-btn);color:var(--fg);font-size:12px;padding:5px 10px;border-radius:12px}
@@ -355,7 +356,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 .mb{max-width:88%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.6;white-space:pre-wrap;overflow-wrap:break-word}
 .mb.user{align-self:flex-end;background:#D97757;color:#fff;border-bottom-right-radius:5px}
 .mb.assistant{align-self:flex-start;background:var(--mg-bubble);border-bottom-left-radius:5px;box-shadow:inset 0 0 0 1px var(--mg-edge)}
-.mb.thinking{color:var(--mute);display:flex;align-items:center;gap:8px}.mlogo.big svg{width:28px;height:28px}
+.mb.thinking{color:var(--mute);display:flex;align-items:center;gap:8px}.mlogo.big svg{width:38px;height:38px}
 .mgo{display:inline-block;margin:6px 6px 0 0;padding:5px 12px;border-radius:12px;border:0;background:rgba(217,119,87,.14);color:var(--pri);font-size:14px;text-decoration:none;white-space:normal}
 .meng{margin-top:4px;font-size:11px;color:var(--mute)}
 .mchips{position:relative;display:flex;gap:6px;overflow-x:auto;padding:4px 14px 6px;scrollbar-width:none}
@@ -458,7 +459,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 @media(prefers-color-scheme:dark){.night{--bg:#1a1714;--fg:#e2d6c3;--mute:#a09280;--solid:#24201c;--g:rgba(36,31,27,.34);--g2:rgba(255,230,200,.05)}}
 
 /* 首页标题小太阳：平时缓缓呼吸（光芒错落伸缩、整体慢转），点一下伸展一圈并转开，配三下轻触感 */
-.brand .mlogo.brandmark{width:.78em;height:.78em;cursor:pointer;-webkit-tap-highlight-color:transparent}.brand .mlogo.brandmark svg{width:100%;height:100%;overflow:visible}
+.brand .mlogo.brandmark{width:.98em;height:.98em;cursor:pointer;-webkit-tap-highlight-color:transparent}.brand .mlogo.brandmark svg{width:100%;height:100%;overflow:visible}
 .brand.live::before{display:none}
 .brandmark svg g{animation:mspin 36s linear infinite}
 .brandmark line{animation:mbreathe 4.6s ease-in-out infinite;transform-box:view-box;transform-origin:0 0;stroke:var(--pri)}
@@ -473,7 +474,7 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 /* ================= 站内图标（统一线条）与 Max 标志动效 ================= */
 .ic{display:inline-grid;place-items:center;vertical-align:-.17em;margin-right:.4em}
 .ic svg{width:1.1em;height:1.1em;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-.ic.mlogo svg{width:1.15em;height:1.15em;stroke:none}.ic.mlogo svg g{stroke:#D97757;stroke-width:2.3}
+.ic.mlogo svg{width:1.55em;height:1.55em;stroke:none}.ic.mlogo svg g{stroke:#D97757;stroke-width:2.3}
 button>.ic:only-child,.del>.ic,.mark>.ic{margin-right:0}
 /* Max 标志：到处都在缓缓呼吸（悬浮球、窗口顶部、按钮里的小星、首页标题），思考时更活跃；思考的规则在前面、优先 */
 .mlogo svg g{animation:mspin 40s linear infinite}

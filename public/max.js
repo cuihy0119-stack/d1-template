@@ -40,19 +40,22 @@ const Max = (() => {
 	// ---------- 位置 ----------
 	// 刘海屏安全区（CSS 变量里读出来）
 	const safe = () => { const cs = getComputedStyle(document.documentElement), n = (k) => parseFloat(cs.getPropertyValue(k)) || 0; return { t: n("--sat"), b: n("--sab"), l: n("--sal"), r: n("--sar") }; };
-	const size = () => ball.offsetWidth || 50;
+	const size = () => ball.offsetWidth || 58;
 	const bottomGap = () => (document.body.classList.contains("has-tabs") ? 96 : 24); // 别挡底栏
 	// pos：{ side: "l" | "r", y: 0~1 屏幕高度比例 }；做题页默认在左边（右边有画板工具条）
-	let pos = (() => { try { const p = JSON.parse(ls(POS) || "null"); if (p && (p.side === "l" || p.side === "r") && p.y >= 0 && p.y <= 1) return p; } catch {} return { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; })();
+	let pos = (() => { try { const p = JSON.parse(ls(POS) || "null"); if (p && (p.side === "l" || p.side === "r") && p.y >= 0 && p.y <= 1) return p; } catch {} return { side: "r", y: 1 }; })();
 	function xy(p = pos) { // 球左上角坐标
-		const s = safe(), w = size(), top = s.t + 60, bot = innerHeight - s.b - bottomGap() - w;
+		const s = safe(), w = size(), top = s.t + 60, vv = window.visualViewport;
+		const kb = vv ? innerHeight - vv.height - vv.offsetTop : 0; // 软键盘高度（>120 才算弹出）
+		if (kb > 120) return { x: p.side === "l" ? s.l + M : innerWidth - s.r - M - w, y: Math.round(Math.max(top, vv.offsetTop + vv.height - w - 10)) }; // 键盘弹出：停在键盘右上方
+		const bot = innerHeight - s.b - bottomGap() - w;
 		return { x: p.side === "l" ? s.l + M : innerWidth - s.r - M - w, y: Math.round(Math.min(Math.max(p.y * innerHeight, top), Math.max(top, bot))) };
 	}
 	// 球的当前坐标记在 cur 里（不去量 getBoundingClientRect：按下时球会缩放，量出来会偏几像素）
 	const cur = { x: 0, y: 0 };
 	const place = (x, y) => { cur.x = x; cur.y = y; ball.style.transform = `translate3d(${x}px,${y}px,0)`; };
 	const snap = () => { const p = xy(); place(p.x, p.y); };
-	const box = () => { const w = ball ? size() : 50, p = ball ? xy() : { x: innerWidth - 60, y: innerHeight * 0.6 }; return { left: p.x, top: p.y, right: p.x + w, bottom: p.y + w, width: w, height: w }; }; // 球「落定」的位置
+	const box = () => { const w = ball ? size() : 58, p = ball ? xy() : { x: innerWidth - 60, y: innerHeight * 0.6 }; return { left: p.x, top: p.y, right: p.x + w, bottom: p.y + w, width: w, height: w }; }; // 球「落定」的位置
 	// 闲置变淡：碰一下就亮，3 秒不碰淡下去
 	function wake() {
 		if (!ball) return;
@@ -132,6 +135,7 @@ const Max = (() => {
 		let rt = 0;
 		const refit = () => { cancelAnimationFrame(rt); rt = requestAnimationFrame(() => { if (!down) snap(); if (ui?.island.classList.contains("open")) layout(); }); };
 		addEventListener("resize", refit, { passive: true });
+		window.visualViewport?.addEventListener("resize", refit, { passive: true }); // 键盘弹出/收起：球上移到键盘右上方 / 回到原位（右下角）
 		addEventListener("orientationchange", refit, { passive: true });
 		wake();
 		if (pendingTip) tip(pendingTip);
@@ -262,7 +266,7 @@ const Max = (() => {
 				}),
 				tool("{pulse}Kimi 自检", async () => { const r = await api("/api/max/kimi", { method: "POST" }); box.querySelector(".mkimi")?.remove(); box.querySelector(".mtools").after(el("p", { className: "mute mnote mkimi", style: "white-space:pre-wrap", textContent: "Kimi 自检：" + r.text })); return r.ai ? "发现问题，结果在下面" : "自检完成"; }),
 				tool("{plug}检查 DeepSeek", async () => { settings(box, true); return ""; }),
-				tool("{locate}悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
+				tool("{locate}悬浮球归位", async () => { pos = { side: "r", y: 1 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
 				tool("{eraser}清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
 			el("p", { className: "mute mnote", textContent: "Cloudflare 免费额度每天北京时间 8 点重置；用量按模型返回的 token 数折算，和 Cloudflare 后台可能略有出入。DeepSeek 每天最多用 40 万 token（防止多花钱）。" }));
 		api("/api/max/status" + (fresh ? "?fresh=1" : "")).then((s) => {
