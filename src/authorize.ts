@@ -9,7 +9,7 @@ function page(body: string, status = 200, headers?: Headers) {
 	const h = headers ?? new Headers();
 	h.set("Content-Type", "text/html; charset=utf-8");
 	return new Response(
-		`<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权 · MAX NOTE</title><link rel="stylesheet" href="/style.css"></head><body><main class="login">${body}</main></body></html>`,
+		`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>授权 · MAX NOTE</title><link rel="stylesheet" href="/style.css"></head><body><main class="login">${body}</main></body></html>`,
 		{ status, headers: h },
 	);
 }

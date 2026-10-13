@@ -1,0 +1,13 @@
+{
+	"name": "MAX NOTE",
+	"short_name": "MAX NOTE",
+	"description": "初三错题练习与复习",
+	"lang": "zh-CN",
+	"dir": "ltr",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"background_color": "#f4efe6",
+	"theme_color": "#f4efe6",
+	"icons": [{ "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }]
+}
