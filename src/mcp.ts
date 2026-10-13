@@ -19,7 +19,7 @@ const INSTRUCTIONS = `MAX NOTE（错题练习，初三自用）。省用量：�
 分工：网站助手 Max 批选择/填空/文字题和有把握的作图题，整理错题、错因、题型标签和章节考点分类；你批 Max 拿不准的作图题和照片/手写题，处理照片收件箱，做错题文件夹后续（自己来取，网站不推送）。
 批改：get_inbox → save({grades})；有「Max初评」且同意就 save({ok:[作答id]})，要看图 get_data({kind:"img",id})。
 出题：get_data({kind:"tpl"})（每对话一次）；复习旧题 save({review:[id]})；考试 save({exams:[{name,date}]})。
-错题文件夹：每天定时任务、或每次主动交互（get_inbox 提示有新题时），自己调用 get_data({kind:"folder"}) 取 Max 整理好的（题干、错答、错因、薄弱考点），不用问学生，照附言做。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
+错题文件夹：每天定时任务、或每次主动交互（get_inbox 提示有新题时），自己调用 get_data({kind:"folder"}) 取 Max 整理好的（题干、错答、错因、薄弱考点），不用问学生，照附言做。文件夹每天北京时间 2:30 清空，要在这之前取。作答标记：[计算]步骤 [作图]画板描述(单位=格,方程/交点已算) [电路]网表+通电结果。`;
 
 // 题目（短字段名省输出）
 const Q = z.object({
@@ -74,7 +74,7 @@ async function insertQuestion(db: D1Database, q: QIn, def: Partial<QIn>, source:
 
 // ---------- 错题文件夹：Claude 来取（网站不再主动推送） ----------
 // Claude 每天定时来取，或主动交互时 get_data({kind:"folder"})。Max 先整理好：总结 + 薄弱考点 + 每题一行（题干、错答、正确答案、错因）。
-// 取过的记进 meta.folder_seen，下次只给新的；题留在文件夹里，取走 14 天后每日清理再删（学生也能手动清空）。
+// 取过的记进 meta.folder_seen，下次只给新的；题留在文件夹里，每天北京时间 2:30 整个文件夹清空（学生也能手动清空）。
 const FOLDER_LIMIT = 40;
 const FOLDER_SQL = `SELECT q.id, q.no, q.subject, COALESCE(q.topic, q.category) topic, q.type, q.stem, q.options, q.answer, q.explanation, q.max_reason, q.max_note,
 	a.id aid, a.answer_text, a.error_reason, a.comment, a.time_spent_sec
