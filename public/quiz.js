@@ -77,15 +77,15 @@ function tick() { secs[cur] += Math.round((Date.now() - shownAt) / 1000); shownA
 
 // ---------- 一题一交：离开这题（上/下一题、交卷、退出页面）就提交做过的题；回来改了再离开，会更新那次提交 ----------
 // 算不算做了：以答案框为准（选项、填空框、作答框/照片）；作图类画板（几何/电路/光学力学）本身就是答案也算。
-// 计算板是草纸：不算作答、不发给 Claude；只有题目要求写过程时，草纸才作为过程一起交。
-const needProcess = (q) => q.tag === "解答" || /过程|步骤|写出.{0,4}(解|推理|推导)|说明理由/.test(q.stem);
-const sends = (i, b) => !b.isEmpty() && (b.kind !== "calc" || (qs[i].type === "short" && needProcess(qs[i])));
+// 画板只有作图类的题（作图/函数/电路/光路/受力/证明）才算答案、才提交；其余题的画板（计算解答板、几何板…）都是草纸：
+// 不算作答、不上传、不发给 Max/Claude，交卷时完全不带。要交步骤，用「打字整理步骤」或「手写答案」。
+const sends = (i, b) => !b.isEmpty() && DRAWN.has(qs[i].tag);
 const handed = (i) => hands[i] && !hands[i].isEmpty(); // 用了手写答案板：网站判不了，交给 Claude 看图批改
 const answered = (i) => (Array.isArray(ans[i]) ? ans[i].length : String(ans[i]).trim()) || handed(i) || (qs[i].type === "short" && (files[i].length || boards[i].some((b) => sends(i, b))));
 // 画板转成文字发给 Claude（省用量），和答案分开存：选择/填空照样自动判分
 const work = (i) => [...boards[i].filter((b) => sends(i, b)).map((b) => BOARDS[b.kind][1] + " " + b.describe()), handed(i) ? "[手写答案] 见附图" : ""].filter(Boolean).join("\n");
 const item = (i, photo_keys = []) => ({ question_id: qs[i].id, answer: ans[i], work: work(i), photo_keys, time_spent_sec: secs[i], attempt_id: typeof done[i] === "number" ? done[i] : undefined, hand: !!handed(i) });
-const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].map((f) => f.name + f.size + f.lastModified), hands[i]?.ver, boards[i].map((b) => (b.pad || b).ver)]); // 擦掉重画、换照片也算改了
+const sigOf = (i) => JSON.stringify([ans[i], work(i), files[i].map((f) => f.name + f.size + f.lastModified), hands[i]?.ver, boards[i].filter((b) => sends(i, b)).map((b) => (b.pad || b).ver)]); // 擦掉重画、换照片也算改了
 const pending = (i) => answered(i) && done[i] !== "…" && (!done[i] || sigOf(i) !== sig[i]); // 没交过，或交过又改了
 async function save(i) {
 	if (!pending(i)) return;
@@ -107,9 +107,9 @@ async function save(i) {
 		// 画板图：动了画笔的、计算板的草纸 → 发给 Claude（kind=board）；其余只存一份自己看（kind=view），Claude 读文字描述就够
 		if (handed(i)) { await up(await hands[i].toFile(true), "view"); await up(await hands[i].toFile(), "board"); } // 手写答案：高清给自己看，裁剪小图发 Claude
 		for (const b of boards[i]) {
-			if (b.isEmpty()) continue;
-			if (b.kind !== "calc" || !b.pad.isEmpty()) await up(await b.toFile(true), "view"); // 高清整图：自己看结果
-			if (sends(i, b) && (b.kind === "calc" ? !b.pad.isEmpty() : b.hasPen?.())) await up(await b.toFile(), "board"); // 裁剪压缩小图：只发给 Claude
+			if (!sends(i, b)) continue; // 草纸：不上传
+			await up(await b.toFile(true), "view"); // 高清整图：自己看结果
+			if (b.kind === "calc" ? !b.pad.isEmpty() : b.hasPen?.()) await up(await b.toFile(), "board"); // 裁剪压缩小图：只发给 Claude
 		}
 		done[i] = (await api("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: [{ ...it, photo_keys }] }) })).attempt_ids[0];
 		sig[i] = s;
@@ -160,7 +160,7 @@ function render(anim) {
 	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
-		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);
+		box.append(el("div", { className: "bhead" }, el("b", { textContent: BOARDS[b.kind][0] }), DRAWN.has(q.tag) ? "" : el("span", { className: "mute", style: "font-size:13px;flex:1;margin-left:8px", textContent: "草纸，不提交" }), el("button", { type: "button", textContent: "收起 ×", onclick: close })), b.el);
 		b.mount?.();
 	}
 
