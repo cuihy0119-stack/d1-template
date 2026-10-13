@@ -7,7 +7,8 @@ import type { Context, Next } from "hono";
 
 const ip = (c: Context) => c.req.header("cf-connecting-ip") || "?";
 const SCAN = /\.(php\d?|aspx?|jsp|cgi|env|git|sql|bak|ini|ya?ml)(\/|$)|wp-(admin|login|content|includes)|phpmyadmin|\/\.well-known\/(?!oauth)|\.\.\//i;
-const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'inline-speculation-rules'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'inline-speculation-rules'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests";
+const PERMS = "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"; // 拍照上传要用摄像头，其余都关
 
 /** 记一次可疑事件（被限流、口令错）：只在出事时写库，平时不花用量 */
 export const flag = (c: Context<{ Bindings: Env }>, kind: string) =>
@@ -24,19 +25,27 @@ export async function guard(c: Context<{ Bindings: Env }>, next: Next) {
 	if (SCAN.test(p)) return c.text("Not Found", 404);
 	if (m === "POST" && (p === "/login" || p === "/authorize") && (await over(c.env.RL_LOGIN, "login:" + ip(c)))) {
 		flag(c, "login");
-		return c.text("尝试太频繁，1 分钟后再试", 429);
+		return c.text("尝试太频繁，1 分钟后再试", 429, { "Retry-After": "60" });
 	}
 	if (p.startsWith("/api/")) {
-		if (await over(c.env.RL_API, "api:" + ip(c))) { flag(c, "api"); return c.json({ error: "请求太频繁，稍等一下" }, 429); }
-		if (m === "POST" && p.startsWith("/api/max/") && (await over(c.env.RL_AI, "ai:" + ip(c)))) { flag(c, "ai"); return c.json({ error: "问得太快啦，歇一分钟再问 Max" }, 429); }
+		if (await over(c.env.RL_API, "api:" + ip(c))) { flag(c, "api"); return c.json({ error: "请求太频繁，稍等一下" }, 429, { "Retry-After": "60" }); }
+		if (m === "POST" && p.startsWith("/api/max/") && (await over(c.env.RL_AI, "ai:" + ip(c)))) { flag(c, "ai"); return c.json({ error: "问得太快啦，歇一分钟再问 Max" }, 429, { "Retry-After": "60" }); }
 	}
 	await next();
 	try { c.res.headers.get("x"); c.res.headers.set("X-Content-Type-Options", "nosniff"); } catch { c.res = new Response(c.res.body, c.res); } // 有的响应头是只读的：复制一份再改
 	const h = c.res.headers;
 	h.set("X-Content-Type-Options", "nosniff");
 	h.set("Referrer-Policy", "strict-origin-when-cross-origin");
+	h.set("Permissions-Policy", PERMS);
+	h.set("X-Robots-Tag", "noindex, nofollow"); // 私人站点，不让搜索引擎收录
 	if (url.protocol === "https:") h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-	if ((h.get("content-type") || "").includes("text/html")) { h.set("Content-Security-Policy", CSP); h.set("X-Frame-Options", "DENY"); }
+	if ((h.get("content-type") || "").includes("text/html")) {
+		const oauth = p === "/authorize"; // 授权页要跳回 Claude：不加 form-action / COOP，免得被拦
+		h.set("Content-Security-Policy", oauth ? CSP : CSP + "; form-action 'self'");
+		h.set("X-Frame-Options", "DENY");
+		if (!oauth) h.set("Cross-Origin-Opener-Policy", "same-origin");
+		if (oauth || p === "/login") h.set("Cache-Control", "no-store"); // 登录/授权页不缓存
+	}
 }
 
 /** Max 对话每天上限（防 DeepSeek 被刷钱、Cloudflare 额度被刷光） */
@@ -50,6 +59,6 @@ export async function chatQuota(db: D1Database) {
 export async function edge(req: Request, env: Env): Promise<Response | null> {
 	const p = new URL(req.url).pathname;
 	if (SCAN.test(p)) return new Response("Not Found", { status: 404 });
-	if ((p === "/register" || p === "/token") && (await over(env.RL_LOGIN, "oauth:" + (req.headers.get("cf-connecting-ip") || "?")))) return new Response("Too Many Requests", { status: 429 });
+	if ((p === "/register" || p === "/token") && (await over(env.RL_LOGIN, "oauth:" + (req.headers.get("cf-connecting-ip") || "?")))) return new Response("Too Many Requests", { status: 429, headers: { "Retry-After": "60" } });
 	return null;
 }

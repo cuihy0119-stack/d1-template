@@ -41,6 +41,15 @@ const app = new Hono<{ Bindings: Env }>();
 app.onError((e, c) => c.json({ error: e.message }, 500));
 app.use("*", guard); // 安全头、限流、拦扫描器
 
+// 公开文件（不需要登录）：robots.txt、PWA manifest
+app.get("/robots.txt", (c) => c.text("User-agent: *\nDisallow: /\n", 200, { "Cache-Control": "public, max-age=86400" }));
+app.get("/manifest.webmanifest", async (c) => {
+	const r = new Response((await c.env.ASSETS.fetch(c.req.raw)).body);
+	r.headers.set("Content-Type", "application/manifest+json; charset=utf-8");
+	r.headers.set("Cache-Control", "public, max-age=86400");
+	return r;
+});
+
 // ---------- 登录 ----------
 app.get("/login", (c) => c.html(loginPage()));
 app.post("/login", async (c) => {
@@ -235,10 +244,12 @@ app.get("/photo/*", async (c) => {
 		.bind(key)
 		.first<{ content_type: string; data: string }>();
 	if (!row) return c.notFound();
+	const etag = `"${key}"`; // 文件名随机、内容不变，当作强校验值
+	if (c.req.header("if-none-match") === etag) return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "private, max-age=31536000, immutable" } });
 	const bin = atob(row.data), bytes = new Uint8Array(bin.length); // 普通循环解码：比 Uint8Array.from(…, 回调) 快，大图省 CPU
 	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 	return new Response(bytes, {
-		headers: { "content-type": row.content_type, "cache-control": "private, max-age=31536000, immutable" }, // 文件名随机，内容不会变
+		headers: { "content-type": row.content_type, "cache-control": "private, max-age=31536000, immutable", etag }, // 文件名随机，内容不会变
 	});
 });
 
@@ -476,6 +487,7 @@ app.post("/api/max/chat", async (c) => {
 
 // 其余请求：已登录后交给静态页面
 app.all("*", async (c) => {
+	if (c.req.method !== "GET" && c.req.method !== "HEAD") return c.text("Method Not Allowed", 405, { Allow: "GET, HEAD" });
 	const res = await c.env.ASSETS.fetch(c.req.raw), r = new Response(res.body, res);
 	r.headers.set("Cache-Control", "no-cache"); // 页面每次向服务器确认（没变只回 304）；脚本、样式、字体由 Cloudflare 直接发（见 _headers）
 	return r;

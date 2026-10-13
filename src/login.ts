@@ -1,7 +1,10 @@
 export function loginPage(error = "") {
 	return `<!doctype html>
-<html lang="zh"><head><meta charset="utf-8">
+<html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Max Note 登录">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.png" type="image/png">
 <link rel="apple-touch-icon" href="/icon.png">
 <meta name="apple-mobile-web-app-title" content="MAX NOTE">
@@ -15,8 +18,8 @@ export function loginPage(error = "") {
 <h1 class="brand">Max Note</h1>
 <p class="sub">不积跬步，无以至千里</p>
 <form method="post" action="/login">
-<input type="password" name="passcode" placeholder="口令" autofocus required>
+<input type="password" name="passcode" placeholder="口令" aria-label="口令" autocomplete="current-password" autofocus required>
 <button class="btn primary" type="submit">进入</button>
-${error ? `<p class="err">${error}</p>` : ""}
+${error ? `<p class="err" role="alert">${error}</p>` : ""}
 </form></main></body></html>`;
 }
