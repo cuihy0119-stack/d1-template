@@ -100,11 +100,15 @@ function lab(e, s) {
 	return e;
 }
 // ---------- 手绘字「颤动」：三张不同噪声的扭曲滤镜，CSS 每 0.14 秒轮换一张（像逐格动画）；全站共用，页面加载时插一次 ----------
-const BOIL = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="boil0"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="2"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil1"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="9"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil2"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="17"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter></svg>';
+const BOIL = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter color-interpolation-filters="sRGB" id="boil0"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="1" seed="2"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter color-interpolation-filters="sRGB" id="boil1"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="1" seed="9"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter color-interpolation-filters="sRGB" id="boil2"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="1" seed="17"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter></svg>';
 const boilDefs = () => { if (!document.getElementById("boil0")) document.body.insertAdjacentHTML("beforeend", BOIL); };
 document.body ? boilDefs() : addEventListener("DOMContentLoaded", boilDefs, { once: true });
 /** Max 的手写字标志（会颤动），用在标题、Max 窗口顶部 */
-const maxWord = () => el("span", { className: "hw mword", textContent: "Max" });
+const maxWord = () => watchHw(el("span", { className: "hw mword", textContent: "Max" }));
+// 省电：颤动的字滚出屏幕就暂停（只有看得见的才逐格重画）
+const hwSeen = "IntersectionObserver" in window ? new IntersectionObserver((es) => { for (const e of es) e.target.classList.toggle("off", !e.isIntersecting); }) : null;
+function watchHw(e) { hwSeen?.observe(e); return e; }
+addEventListener("DOMContentLoaded", () => document.querySelectorAll(".hw").forEach(watchHw), { once: true });
 // ---------- 手绘涂鸦特效（像蜡笔在画面上随手画的爱心、星星、感叹号，逐格颤动地蹦出来再消失）----------
 // 只在「值得庆祝 / 要提醒」的瞬间出现，平时页面保持安静；低配和「减少动态」时不画
 const DOODLE = {
@@ -117,7 +121,7 @@ const DOODLE = {
 function doodle(kind, x, y, o = {}) {
 	if (matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("lite")) return;
 	if (!document.getElementById("dz0")) document.body.insertAdjacentHTML("beforeend", `<svg width="0" height="0" style="position:absolute" aria-hidden="true">${[3, 11, 23].map((s, i) =>
-		`<filter id="dz${i}"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="${s}"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter>`).join("")}</svg>`);
+		`<filter color-interpolation-filters="sRGB" id="dz${i}"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="1" seed="${s}"/><feDisplacementMap in="SourceGraphic" scale="5"/></filter>`).join("")}</svg>`);
 	const d = document.createElement("i"), fill = kind !== "check" && kind !== "swirl";
 	d.className = "doodle" + (o.stay ? " stay" : "");
 	d.style.cssText = `left:${x}px;top:${y}px;--s:${o.size || 40}px;--r:${o.rot ?? (Math.random() - 0.5) * 40}deg;animation-delay:${o.delay || 0}s,0s,${(o.delay || 0) + 1.2}s`;
