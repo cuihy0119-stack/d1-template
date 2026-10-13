@@ -545,3 +545,14 @@ h2 .mword{font-size:1.25em;vertical-align:-.08em}
 @keyframes bigboil{0%{filter:url(#bigboil0)}33%{filter:url(#bigboil1)}66%{filter:url(#bigboil2)}}
 /* 提示气泡：半透明（约 75%），能隐约看到底下的内容；低配模式也保持半透明 */
 .mpeek,.lite .mpeek{background:var(--mg-bg);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%)}
+
+/* ================= 画板的深色版：深色模式下画板变成深色纸面、笔迹变白、网格偏灰 =================
+   不改画板的绘制代码：画布里存的还是白纸黑笔，显示时整体反色（invert 0.92 保留一点柔和）再把色相转回来，
+   所以红笔蓝笔仍是红蓝；导出给 Max/Claude 看、给自己看的图仍是白纸黑笔，清楚不变 */
+@media(prefers-color-scheme:dark){
+  .bwrap{background:#151311}
+  .bwrap canvas,.btools .ico canvas{-webkit-filter:invert(.92) hue-rotate(180deg);filter:invert(.92) hue-rotate(180deg)}
+  .btools .ico canvas{background:#151311}
+  .bwrap input.btext{background:#2a2622;color:#f1ece4}
+  .btools .dot[style*="111111"]{background:#f1ece4!important}
+}
