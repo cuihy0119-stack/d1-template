@@ -54,10 +54,56 @@ const haptic = (() => {
 		let t = 0; for (const g of gaps) setTimeout(tick, (t += g));
 	};
 })();
+// ---------- 站内图标：全站统一的线条图标（24 格、线宽 1.7、圆头），颜色跟着文字走；Max 自己的标志是放射星（光芒会呼吸，思考时更活跃）----------
+const LOGO = `<svg viewBox="-12 -12 24 24" width="26" height="26" aria-hidden="true"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round">${
+	[10, 7.6, 9.4, 7.2, 10, 8, 9.2, 7.4, 10, 7.8, 9.6, 7.3].map((r, i) => {
+		const a = ((i * 30 + (i % 3) * 4) * Math.PI) / 180, f = (n) => n.toFixed(2);
+		return `<line x1="${f(Math.cos(a) * 2.2)}" y1="${f(Math.sin(a) * 2.2)}" x2="${f(Math.cos(a) * r)}" y2="${f(Math.sin(a) * r)}" style="animation-delay:-${f(((i * 5) % 12) * 0.09)}s"/>`;
+	}).join("")}</g></svg>`;
+const ICONS = {
+	camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.2"/>',
+	calc: '<rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>',
+	book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/>',
+	note: '<path d="M5 19l1-4 9.5-9.5a1.8 1.8 0 0 1 2.5 0l.5.5a1.8 1.8 0 0 1 0 2.5L9 18z"/><path d="M13.5 7.5l3 3"/>',
+	pin: '<path d="M9 4h6l-1 5 3 3v1.5H7V12l3-3z"/><path d="M12 13.5V20"/>',
+	search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+	trash: '<path d="M5 7h14M10 7V4.5h4V7M7 7l1 12.5h8L17 7M10.5 11v5M13.5 11v5"/>',
+	clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+	calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+	hourglass: '<path d="M7 3.5h10M7 20.5h10"/><path d="M8 3.5c0 4.5 8 4.5 8 8.5s-8 4-8 8.5M16 3.5c0 4.5-8 4.5-8 8.5"/>',
+	target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12h.01"/>',
+	folder: '<path d="M3.5 7a2 2 0 0 1 2-2H10l2 2.5h6.5a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+	tag: '<path d="M3.5 12.5V4.5h8l9 9-8 8z"/><path d="M8 8.5h.01"/>',
+	plug: '<path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3.5a5.5 5.5 0 0 1-11 0zM12 16.5v4"/>',
+	pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+	eraser: '<path d="M9 19.5h10.5M5 14.5l8-8a1.8 1.8 0 0 1 2.5 0l3 3a1.8 1.8 0 0 1 0 2.5l-6 6H9.5z"/>',
+	locate: '<circle cx="12" cy="12" r="6.5"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4"/>',
+	shapes: '<path d="M4 20l7-14 7 14z"/><circle cx="18" cy="6" r="2.2"/>',
+	circuit: '<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M8 12h2.5l1.5-3 2 6 1.5-3H17"/>',
+	lens: '<path d="M12 3.5c-4 3-4 14 0 17 4-3 4-14 0-17z"/><path d="M3.5 12h17"/>',
+	pen: '<path d="M4 20l1-4L16 5a2 2 0 0 1 3 3L8 19z"/>',
+	bookmark: '<path d="M7 4h10v16l-5-3.5L7 20z"/>',
+	compare: '<path d="M7 4v16M17 4v16M3.5 8L7 4l3.5 4M13.5 16L17 20l3.5-4"/>',
+	repeat: '<path d="M4 11V9a3 3 0 0 1 3-3h11l-3-3M20 13v2a3 3 0 0 1-3 3H6l3 3"/>',
+	check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+	x: '<path d="M6 6l12 12M18 6L6 18"/>',
+	warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.5h.01"/>',
+	gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5M6 6l1.8 1.8M16.2 16.2L18 18M18 6l-1.8 1.8M7.8 16.2L6 18"/>',
+};
+/** 图标的 HTML 字符串（用在拼 innerHTML 的地方）；max = Max 的放射星标志 */
+const ico = (name) => name === "max" ? `<span class="ic mlogo">${LOGO}</span>` : ICONS[name] ? `<span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg></span>` : "";
+const icon = (name) => { const t = document.createElement("template"); t.innerHTML = ico(name); return t.content.firstChild; };
+/** 文字前面可以写 {图标名}：「{trash}删除」→ 图标 + 文字（图标名不认识就原样当文字，不会误伤题目内容） */
+function lab(e, s) {
+	const m = /^\{(\w+)\}\s*/.exec(s);
+	if (m && (m[1] === "max" || ICONS[m[1]])) { e.textContent = s.slice(m[0].length); e.prepend(icon(m[1])); } else e.textContent = s;
+	return e;
+}
 // 画布清晰度：按屏幕真实倍率（iPhone 3 倍），低配设备 2 倍
 const DPR = () => Math.min(devicePixelRatio || 1, document.documentElement.classList.contains("lite") ? 2 : 3);
 function el(tag, props = {}, ...kids) {
 	const e = Object.assign(document.createElement(tag), props);
+	if (typeof props.textContent === "string" && props.textContent[0] === "{") lab(e, props.textContent); // 开头的 {图标名}
 	for (const k of kids) e.append(k);
 	return e;
 }

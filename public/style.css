@@ -274,7 +274,7 @@ body.drawing .rail.show{opacity:.3}
 .rcard[open]>*:not(summary){animation:rise .3s var(--ease) both}
 .burst{position:fixed;width:0;height:0;z-index:40;pointer-events:none}
 .burst span{position:absolute;left:0;top:0;animation:fly 1.3s cubic-bezier(.2,.7,.3,1) both}
-.burst .em{font-size:26px;margin:-14px 0 0 -14px}
+.burst .em{margin:-13px 0 0 -13px}
 .burst .cf{width:7px;height:11px;border-radius:2px;margin:-5px 0 0 -3px}
 @keyframes fly{0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0)}12%,60%{opacity:1}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 40px)) scale(1) rotate(var(--r))}}
 .lite .burst{display:none}
@@ -475,3 +475,17 @@ body.drawing .maxball{opacity:0;pointer-events:none}                   /* 写字
 @keyframes mturn{to{transform:rotate(120deg)}}
 @keyframes mstretch{0%{transform:scale(.72)}35%{transform:scale(1.6)}100%{transform:scale(1)}}
 .lite .brandmark svg g,.lite .brandmark line{animation:none!important}
+
+/* ================= 站内图标（统一线条）与 Max 标志动效 ================= */
+.ic{display:inline-grid;place-items:center;vertical-align:-.17em;margin-right:.4em}
+.ic svg{width:1.1em;height:1.1em;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ic.mlogo svg{width:1.15em;height:1.15em;stroke:none}.ic.mlogo svg g{stroke:#D97757;stroke-width:2.3}
+button>.ic:only-child,.del>.ic,.mark>.ic{margin-right:0}
+/* Max 标志：到处都在缓缓呼吸（悬浮球、窗口顶部、按钮里的小星、首页标题），思考时更活跃；思考的规则在前面、优先 */
+.mlogo svg g{animation:mspin 40s linear infinite}
+.mlogo line{animation:mbreathe 4.6s ease-in-out infinite}
+.mlogo line:nth-child(3n){animation-duration:6.2s}.mlogo line:nth-child(3n+1){animation-duration:3.8s}
+.lite body:not(.max-busy) .mlogo svg g,.lite body:not(.max-busy) .mlogo line{animation:none}
+/* 配色收敛：背景光斑只留珊瑚和沙色两个暖色，去掉绿/蓝，页面更安静、利于专注 */
+body::before{background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.34),transparent 70%),radial-gradient(34% 28% at 84% 34%,rgba(226,196,160,.32),transparent 70%),
+  radial-gradient(40% 32% at 58% 84%,rgba(217,138,106,.22),transparent 70%)}

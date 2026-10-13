@@ -33,12 +33,7 @@ const Max = (() => {
 	const savePrefs = () => { ls("max_prefs", JSON.stringify(prefs)); applyFade(); };
 	const applyFade = () => document.documentElement.style.setProperty("--ball-idle", String(prefs.fade));
 
-	// Claude 风格的橙色放射状标志；每根光芒带不同的动画延迟，思考时错落伸缩
-	const LOGO = `<svg viewBox="-12 -12 24 24" width="26" height="26" aria-hidden="true"><g stroke="#D97757" stroke-width="2.3" stroke-linecap="round">${
-		[10, 7.6, 9.4, 7.2, 10, 8, 9.2, 7.4, 10, 7.8, 9.6, 7.3].map((r, i) => {
-			const a = ((i * 30 + (i % 3) * 4) * Math.PI) / 180, f = (n) => n.toFixed(2);
-			return `<line x1="${f(Math.cos(a) * 2.2)}" y1="${f(Math.sin(a) * 2.2)}" x2="${f(Math.cos(a) * r)}" y2="${f(Math.sin(a) * r)}" style="animation-delay:-${f(((i * 5) % 12) * 0.09)}s"/>`;
-		}).join("")}</g></svg>`;
+	// Claude 风格的橙色放射状标志（定义在 common.js 的 LOGO，全站共用，到处都会动）
 	const logo = (cls = "") => el("span", { className: "mlogo " + cls, innerHTML: LOGO });
 	const setBusy = (on) => { document.body.classList.toggle("max-busy", on); if (!on) wake(); };
 
@@ -212,7 +207,7 @@ const Max = (() => {
 		ui.status = () => { // 两个引擎的状态：打开窗口时才查，10 分钟内用缓存
 			if (ui.statusDone) return;
 			ui.statusDone = true;
-			const show = (ui.show = (s) => { ui.dsOn = !!s.ds.on; sub.textContent = `Cloudflare ${s.cfu.pct}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · ⚙ 看详情`; });
+			const show = (ui.show = (s) => { ui.dsOn = !!s.ds.on; sub.textContent = `Cloudflare ${s.cfu.pct}% · DeepSeek ${s.ds.on ? (s.ds.pct ?? 0) + "%" : "未接上"} · 看详情`; });
 			let st = null; try { st = JSON.parse(ss("max_st") || "null"); } catch {}
 			if (st && Date.now() - st.at < 600000) show(st.s);
 			else api("/api/max/status").then((s) => { show(s); ss("max_st", JSON.stringify({ at: Date.now(), s })); }).catch(() => {});
@@ -256,8 +251,8 @@ const Max = (() => {
 			seg("悬浮球闲置", "fade", [[0.2, "淡到 20%"], [0.5, "50%"], [1, "不变淡"]]),
 			el("h3", { textContent: "工具" }),
 			el("div", { className: "mtools" },
-				tool("🗂 整理错题本", async () => { const r = await api("/api/max/organize", { method: "POST" }); window.dispatchEvent(new Event("max:changed")); return r.done ? `整理好 ${r.done} 道` : "都整理过了"; }),
-				tool("🏷 整理分类", async () => { // 后台整理：等它的结果（和题库页的按钮一样）
+				tool("{folder}整理错题本", async () => { const r = await api("/api/max/organize", { method: "POST" }); window.dispatchEvent(new Event("max:changed")); return r.done ? `整理好 ${r.done} 道` : "都整理过了"; }),
+				tool("{tag}整理分类", async () => { // 后台整理：等它的结果（和题库页的按钮一样）
 					await api("/api/max/classify", { method: "POST" });
 					const s = await pollUntil("/api/max/classify", (x) => x.status !== "running");
 					if (!s) return "还在整理，稍后刷新页面看看";
@@ -265,10 +260,10 @@ const Max = (() => {
 					window.dispatchEvent(new Event("max:changed"));
 					return s.n ? `整理好 ${s.n} 个考点` : "没有新考点，不用整理";
 				}),
-				tool("🩺 Kimi 自检", async () => { const r = await api("/api/max/kimi", { method: "POST" }); box.querySelector(".mkimi")?.remove(); box.querySelector(".mtools").after(el("p", { className: "mute mnote mkimi", style: "white-space:pre-wrap", textContent: "Kimi 自检：" + r.text })); return r.ai ? "发现问题，结果在下面" : "自检完成"; }),
-				tool("🔌 检查 DeepSeek", async () => { settings(box, true); return ""; }),
-				tool("📍 悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
-				tool("🧹 清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
+				tool("{pulse}Kimi 自检", async () => { const r = await api("/api/max/kimi", { method: "POST" }); box.querySelector(".mkimi")?.remove(); box.querySelector(".mtools").after(el("p", { className: "mute mnote mkimi", style: "white-space:pre-wrap", textContent: "Kimi 自检：" + r.text })); return r.ai ? "发现问题，结果在下面" : "自检完成"; }),
+				tool("{plug}检查 DeepSeek", async () => { settings(box, true); return ""; }),
+				tool("{locate}悬浮球归位", async () => { pos = { side: document.body.classList.contains("focus") ? "l" : "r", y: 0.62 }; ls(POS, JSON.stringify(pos)); snap(); return "已归位"; }),
+				tool("{eraser}清空对话", async () => { stop(); hist = []; keep(); oneOff(); ui.log.replaceChildren(); hello(); quick(); return "对话已清空"; })),
 			el("p", { className: "mute mnote", textContent: "Cloudflare 免费额度每天北京时间 8 点重置；用量按模型返回的 token 数折算，和 Cloudflare 后台可能略有出入。DeepSeek 每天最多用 40 万 token（防止多花钱）。" }));
 		api("/api/max/status" + (fresh ? "?fresh=1" : "")).then((s) => {
 			ss("max_st", JSON.stringify({ at: Date.now(), s }));
@@ -302,11 +297,11 @@ const Max = (() => {
 		if (k >= 0) text = text.slice(0, k) + "\u0002";
 		if (figs.length || k >= 0) needFig().catch(() => {}); // 提前加载，写完就能马上画
 		const h = esc(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*/gm, "")
-			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">📝 练：${t.trim()}</a>`)
+			.replace(/\[\[练[:：]([^\]|]+)(?:\|(\d+))?\]\]/g, (_, t, n) => `<a class="mgo" href="${/今日|今天/.test(t) ? "/quiz" : "/quiz?topic=" + encodeURIComponent(t.trim()) + (n ? "&n=" + Math.min(10, +n) : "")}">${ico("note")}练：${t.trim()}</a>`)
 			.replace(/\[\[去[:：]\s*(\/[\w/]*)\]\]/g, (_, p) => (PAGES[p] ? `<a class="mgo" href="${p}">→ ${PAGES[p]}</a>` : ""))
 			.replace(/\[\[笔记[:：]([^\]]+)\]\]/g, (_, t) => `<a class="mgo" data-note="${t.trim()}" hidden target="_blank" rel="noopener">Notion 笔记</a>`)
-			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|(.*?))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">⚡ ${n.trim()}${a.trim() ? "：" + actLabel(n.trim(), a.trim()) : ""}</button>`)
-			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">🗂 让 Max 整理错题本</button>`)
+			.replace(/\[\[做[:：]\s*([^\]|]+)(?:\|(.*?))?\]\]/g, (_, n, a = "") => `<button type="button" class="mgo" data-do="${n.trim()}" data-arg="${a.trim()}">${ico("check")}${n.trim()}${a.trim() ? "：" + actLabel(n.trim(), a.trim()) : ""}</button>`)
+			.replace(/\[\[整理错题\]\]/g, `<button type="button" class="mgo" data-act="org">${ico("folder")}让 Max 整理错题本</button>`)
 			.replace(/\[\[[^\]]*$/, "") // 流式输出时半截的 [[…：先不显示
 			.replace(/\u0001(\d+)\u0001/g, '<span class="mfigslot" data-i="$1">画图中…</span>').replace(/\u0002/, `<span class="mfigslot">${final ? "（图没写完，换个问法再试）" : "画图中…"}</span>`);
 		div.innerHTML = h;
@@ -392,9 +387,9 @@ const Max = (() => {
 		job = new AbortController();
 		try {
 			const r = await api("/api/max/organize", { method: "POST", signal: job.signal });
-			paint(out, r.done ? `整理好 ${r.done} 道错题（错因 + 一句话诊断）${r.left ? `，还剩 ${r.left} 道，再点一次继续` : "，全部整理完了"}。` : "错题本都整理过了 👍", true);
+			paint(out, r.done ? `整理好 ${r.done} 道错题（错因 + 一句话诊断）${r.left ? `，还剩 ${r.left} 道，再点一次继续` : "，全部整理完了"}。` : "错题本都整理过了", true);
 			window.dispatchEvent(new Event("max:changed"));
-		} catch (e) { paint(out, e.name === "AbortError" ? "已停止" : "⚠ " + e.message, true); }
+		} catch (e) { paint(out, e.name === "AbortError" ? "已停止" : e.message, true); }
 		finally { out.classList.remove("thinking"); job = null; lock(false); }
 	}
 
@@ -417,7 +412,7 @@ const Max = (() => {
 			if (r.empty) return toast(r.msg);
 			if (!confirm(r.msg + "\n确定执行吗？")) return;
 			const f = await post(false);
-			b.textContent = "✓ " + f.msg; b.classList.add("done");
+			lab(b, "{check}" + f.msg); b.classList.add("done");
 			window.dispatchEvent(new Event("max:changed"));
 		} catch (e) { toast(e.message); }
 		finally { if (!b.classList.contains("done")) b.disabled = false; }
@@ -523,7 +518,7 @@ const Max = (() => {
 			ok = true;
 		} catch (e) {
 			const why = ctl.signal.aborted ? (timedOut ? "Max 太久没回应，已停止" : "已停止") : /fetch|network|load failed/i.test(e.message) ? "网络断了，检查一下再试" : e.message;
-			all = all.trim() ? all + "\n\n⚠ " + why : "⚠ " + why;
+			all = all.trim() ? all + "\n\n" + why : why;
 		} finally {
 			clearTimeout(t); clearTimeout(tm);
 			out.classList.remove("thinking");

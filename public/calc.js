@@ -47,14 +47,14 @@ class CalcBoard {
 			el("button", { type: "button", className: "chip", textContent: f, onclick: () => this.paste(f) })));
 		const tog = (box, name) => el("button", { type: "button", className: box.hidden ? "" : "on", textContent: name,
 			onclick: () => { box.hidden = !box.hidden; this.pad.build(); } });
-		this.pad.extra = () => [tog(this.panel, "🧮计算器"), subject === "物理" ? tog(this.forms, "📘公式") : ""];
+		this.pad.extra = () => [tog(this.panel, "{calc}计算器"), subject === "物理" ? tog(this.forms, "{book}公式") : ""];
 		this.pad.build();
 		this.lines = el("div", { className: "clines", hidden: true });
 		this.lines.addEventListener("keydown", (e) => { // 回车 = 下一步
 			const i = this.fields?.indexOf(e.target);
 			if (e.key === "Enter" && i >= 0) { e.preventDefault(); e.stopPropagation(); this.addLine(i + 1); }
 		}, { capture: true });
-		const more = el("button", { type: "button", className: "btn small", textContent: "📝 打字整理步骤（Claude 读文字更准更省）", onclick: () => {
+		const more = el("button", { type: "button", className: "btn small", textContent: "{note}打字整理步骤（Claude 读文字更准更省）", onclick: () => {
 			more.remove(); this.lines.hidden = false; this.lines.textContent = "公式键盘加载中…";
 			loadMathLive().then(() => this.renderLines(0), (e) => (this.lines.textContent = e.message));
 		} });
@@ -87,7 +87,7 @@ class CalcBoard {
 			el("div", { className: "row" }, inp, el("div", { className: "res" }, out)),
 			el("div", { className: "keysg" }, ...keys.map((k) => el("button", { type: "button", textContent: k, onclick: () => put(k) })),
 				el("button", { type: "button", textContent: "C", onclick: () => put("C") }),
-				el("button", { type: "button", className: "wide", textContent: "📌 贴到画板", onclick: paste })));
+				el("button", { type: "button", className: "wide", textContent: "{pin}贴到画板", onclick: paste })));
 	}
 
 	paste(s) { // 写到画板：从上往下第一行空行

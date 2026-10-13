@@ -14,10 +14,10 @@ let qs = [], ans = [], files = [], boards = [], want = [], secs = [], done = [],
 
 // 画板：题目标签（tag）决定默认画板；简答题还可按科目手动开：数学 计算+几何函数，物理 计算+电路+光学力学，其它 作图
 const BOARDS = {
-	calc: ["🧮 计算解答板", "[计算]", (q) => new CalcBoard(q.subject)],
-	geo: ["📐 几何函数板", "[作图]", (q, axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
-	circuit: ["🔌 电路图板", "[电路]", () => new CircuitBoard()],
-	phys: ["🔦 光学力学板", "[作图]", () => Object.assign(new Board({ phys: true }), { kind: "phys" })],
+	calc: ["{calc}计算解答板", "[计算]", (q) => new CalcBoard(q.subject)],
+	geo: ["{shapes}几何函数板", "[作图]", (q, axes) => Object.assign(new Board({ axes }), { kind: "geo" })],
+	circuit: ["{circuit}电路图板", "[电路]", () => new CircuitBoard()],
+	phys: ["{lens}光学力学板", "[作图]", () => Object.assign(new Board({ phys: true }), { kind: "phys" })],
 };
 const DRAWN = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图类：Max 不批不讲，交给 Claude
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
@@ -40,7 +40,7 @@ async function start() {
 	if (topic && fresh) return Drill.start(topic, Math.min(10, +p.get("n") || 0), { like: +p.get("like") || 0, master: +p.get("master") || 0 });
 	try { qs = await (early || api(practiceUrl())); } catch (e) { return loadFail(e); } finally { early = null; }
 	if (topic && !qs.length) return Drill.start(topic, Math.min(10, +p.get("n") || 0));
-	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题 🎉" })); return; }
+	if (!qs.length) { app.replaceChildren(el("p", { className: "mute", textContent: "今天没有要做的题" })); return; }
 	ans = qs.map((q) => (q.type === "multi" ? [] : ""));
 	files = qs.map(() => []);
 	boards = qs.map(() => []);
@@ -134,8 +134,8 @@ async function go(i) {
 function handPad(q) {
 	if (!/数学|物理|化学/.test(q.subject)) return "";
 	const h = hands[cur];
-	if (!h) return el("button", { type: "button", className: "btn small hand-open", textContent: "✍️ 手写答案", onclick: () => { const h = Object.assign(new Board({ calc: true }), { extra: () => [] }); h.tools = h.tools.filter(([k]) => k === "pen" || k === "erase"); h.build(); hands[cur] = h; render(); } }); // 只留画笔和橡皮
-	return el("div", { className: "handpad" }, el("div", { className: "bhead" }, el("b", { textContent: "✍️ 手写答案（会发给 Claude 批改）" }),
+	if (!h) return el("button", { type: "button", className: "btn small hand-open", textContent: "{pen}手写答案", onclick: () => { const h = Object.assign(new Board({ calc: true }), { extra: () => [] }); h.tools = h.tools.filter(([k]) => k === "pen" || k === "erase"); h.build(); hands[cur] = h; render(); } }); // 只留画笔和橡皮
+	return el("div", { className: "handpad" }, el("div", { className: "bhead" }, el("b", { textContent: "{pen}手写答案（会发给 Claude 批改）" }),
 		el("button", { type: "button", textContent: "收起 ×", onclick: () => (h.isEmpty() || confirm("收起手写答案？写的内容会丢掉")) && ((hands[cur] = null), render()) })), h.el);
 }
 
@@ -149,12 +149,12 @@ function render(anim) {
 		// 专注：题头只留科目/题型和两个小图标（标记、删题）
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
 			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（做对的进错题文件夹，Claude 来取）
-			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "🔖", onclick: (e) => {
+			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "{bookmark}", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
 				b.classList.toggle("on", on);
 				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});
 			} }),
-			el("button", { type: "button", className: "del", title: "删题", textContent: "🗑", onclick: async () => {
+			el("button", { type: "button", className: "del", title: "删题", textContent: "{trash}", onclick: async () => {
 				if (!(await delQuestion(q.id))) return;
 				for (const a of [qs, ans, files, boards, want, secs, done, sig, marks, hands]) a.splice(cur, 1);
 				if (!qs.length) { isle.hide(); return app.replaceChildren(el("p", { className: "mute", textContent: "题都删完了" })); }
@@ -162,7 +162,7 @@ function render(anim) {
 			} })),
 		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }),
 		Fig.view(q.fig)); // 题图：题干正下方、选项和画板之前
-	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "✓ 已提交，改了答案离开时会自动更新" }));
+	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "{check}已提交，改了答案离开时会自动更新" }));
 	if (want[cur]) { boards[cur].push(BOARDS[kindOf(want[cur])][2](q, want[cur] === "coord")); want[cur] = null; }
 	for (const b of boards[cur]) {
 		const close = () => (b.isEmpty() || confirm("收起画板？画的内容会丢掉")) && ((boards[cur] = boards[cur].filter((x) => x !== b)), render());
@@ -200,7 +200,7 @@ function render(anim) {
 			el("button", { type: "button", textContent: "×", onclick: () => { URL.revokeObjectURL(f.url); files[cur].splice(i, 1); render(); } }))));
 		box.append(ta, handPad(q),
 			el("div", { className: "row", style: "margin-top:8px" },
-				el("label", { className: "btn small", textContent: "📷 拍照上传" }, pick),
+				el("label", { className: "btn small", textContent: "{camera}拍照上传" }, pick),
 				...offer(q).filter((k) => !boards[cur].some((b) => b.kind === k)).map((k) => el("button", { type: "button", className: "btn small", textContent: BOARDS[k][0],
 					onclick: () => { boards[cur].push(BOARDS[k][2](q, false)); render(); } }))),
 			att);
@@ -333,13 +333,13 @@ async function showResult(ids, got) {
 	const wrap = el("div", {}, el("h1", { textContent: "结果" }), score);
 	if (fold) wrap.append(el("p", { className: "mute", textContent: "点题目展开看答案和解析" }));
 	for (const r of rows) {
-		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : r.max_sure != null ? "Max 拿不准 · 转 Claude" : "待 Claude 批改", "wait"] : r.is_correct ? ["✓ 正确", "ok"] : ["✗ 错误", "bad"];
+		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : r.max_sure != null ? "Max 拿不准 · 转 Claude" : "待 Claude 批改", "wait"] : r.is_correct ? ["{check}正确", "ok"] : ["{x}错误", "bad"];
 		const card = el("details", { className: "card rcard", open: !fold || open.has(String(r.id)) });
 		if (resultShown) card.style.animation = "none"; else card.style.setProperty("--i", Math.min(rows.indexOf(r), 12)); // 只在第一次显示时依次浮现，轮询刷新不重播
 		card.dataset.id = r.id;
 		card.append(el("summary", {},
 			el("span", { className: "badge " + badge[1], textContent: badge[0] }),
-			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "🔖" }) : "",
+			el("span", { className: "tag", textContent: r.subject }), r.topic ? el("span", { className: "tag", textContent: "考点：" + r.topic }) : "", r.marked ? el("span", { className: "tag", textContent: "{bookmark}" }) : "",
 			el("p", { className: "rstem", textContent: r.stem })), Fig.view(r.fig, "small"));
 		if (r.options.length) card.append(el("div", { className: "mute", textContent: r.options.join("\n"), style: "white-space:pre-wrap" }));
 		card.append(el("div", { className: "ans", textContent: "你的答案：" + (plain(r.answer_text) || "（空）") }));
@@ -359,10 +359,10 @@ async function showResult(ids, got) {
 		if (r.status === "已判" && r.is_correct === 0 && r.topic) card.append(noteLink(r.subject, r.topic)); // 做错了：同考点的 Notion 笔记
 		const ask = r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max"); // 作图题 Max 批过的也能问
 		const btns = el("div", { className: "row", style: "margin-top:8px" },
-			ask ? el("button", { type: "button", className: "btn small", textContent: "🤖 问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }) : "",
-			ask && r.prev ? el("button", { type: "button", className: "btn small", textContent: "🆚 和上次比", onclick: () => Max.open({ explain: r.id, cmp: true }, "这次和上次比怎么样？") }) : "", // 重做的题：是不是错在同一个地方
+			ask ? el("button", { type: "button", className: "btn small", textContent: "{max}问 Max", onclick: () => Max.open({ explain: r.id }, "讲讲这道题") }) : "",
+			ask && r.prev ? el("button", { type: "button", className: "btn small", textContent: "{compare}和上次比", onclick: () => Max.open({ explain: r.id, cmp: true }, "这次和上次比怎么样？") }) : "", // 重做的题：是不是错在同一个地方
 			r.status === "已判" && r.is_correct === 0 && !DRAWN.has(r.tag) && r.question_id // 做错了：Max 马上按这题出一道变式（不进题库）
-				? el("a", { className: "btn small", style: "text-decoration:none", href: `/quiz?topic=${encodeURIComponent(r.subject + "/" + (r.topic || "综合"))}&n=1&like=${r.question_id}`, textContent: "🔁 来道同类" }) : "");
+				? el("a", { className: "btn small", style: "text-decoration:none", href: `/quiz?topic=${encodeURIComponent(r.subject + "/" + (r.topic || "综合"))}&n=1&like=${r.question_id}`, textContent: "{repeat}来道同类" }) : "");
 		if (btns.childElementCount) card.append(btns);
 		wrap.append(card);
 	}
@@ -373,32 +373,31 @@ async function showResult(ids, got) {
 	if (forClaude) wrap.append(askClaude(CLAUDE_ASK.grade, unsure ? `转给 Claude 批改（Max 拿不准 ${unsure} 题${forClaude > unsure ? `，照片/手写 ${forClaude - unsure} 题` : ""}）` : `让 Claude 批改照片/手写题（${forClaude} 题）`),
 		el("p", { className: "mute", textContent: "Claude 批完后，评语会自动出现在这里" }));
 	if (rows.some((r) => r.marked)) wrap.append(
-		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: "🤖 让 Max 解析标记的题", onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
+		el("button", { type: "button", className: "btn", style: "margin-top:10px", textContent: "{max}让 Max 解析标记的题", onclick: () => Max.open({ marked: true }, "解析我标记的题") }),
 		askClaude(CLAUDE_ASK.marked, "让 Claude 解析标记的题"));
 	wrap.append(el("a", { className: "btn primary", href: "/", textContent: "回首页", style: "text-decoration:none;margin-top:10px" }));
 	app.replaceChildren(wrap);
 	math(wrap);
 	resultShown = true;
-	// 结算特效（只放一次）：客观题全对 🥳 + 彩纸；全错 😭
+	// 结算特效（只放一次）：客观题全对 → Max 的小星星 + 暖色纸片
 	if (!burstDone && objective.length) {
 		burstDone = true;
-		if (right === objective.length) burst(score, "🥳", true);
-		else if (!right) burst(score, "😭", false);
+		if (right === objective.length) burst(score, true); // 全对：Max 的小星星四散；没全对不放特效，安静一点
 	}
 }
 
 // 小范围爆开特效：几个 emoji 从比分处向外飞散淡出；confetti=true 时加一圈彩纸片。只动 transform/opacity，1.6 秒后清掉
-function burst(anchor, emoji, confetti) {
+function burst(anchor, confetti) {
 	if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 	const r = anchor.getBoundingClientRect(), box = el("div", { className: "burst", style: `left:${r.left + Math.min(r.width, 200) / 2}px;top:${r.top + r.height / 2}px` });
 	const fly = (cls, txt, i, n, dist) => {
 		const a = (i / n) * Math.PI * 2 + Math.random() * 0.5, d = dist * (0.6 + Math.random() * 0.4);
-		const s = el("span", { className: cls, textContent: txt });
+		const s = el("span", { className: cls === "em" ? "em mlogo" : cls, innerHTML: cls === "em" ? LOGO : "" });
 		s.style.cssText = `--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d - 20}px;--r:${(Math.random() - 0.5) * 540}deg;animation-delay:${Math.random() * 0.12}s`;
-		if (cls === "cf") s.style.background = ["#c96442", "#e0b060", "#5e8c61", "#6b8fd6", "#d98a6a"][i % 5];
+		if (cls === "cf") s.style.background = ["#c96442", "#d98a6a", "#e8c4a8", "#b35537", "#a89684"][i % 5];
 		box.append(s);
 	};
-	for (let i = 0; i < 6; i++) fly("em", emoji, i, 6, 90);
+	for (let i = 0; i < 6; i++) fly("em", "", i, 6, 90);
 	if (confetti) for (let i = 0; i < 22; i++) fly("cf", "", i, 22, 120);
 	document.body.append(box);
 	setTimeout(() => box.remove(), 1700);
