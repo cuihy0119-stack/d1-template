@@ -8,7 +8,7 @@ import { judge } from "./judge";
 import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
-import { addDays, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
+import { addDays, clearFolder, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
 import { brief, byMax, chat, classifyState, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
 import { check as kimiCheck, run as kimiRun } from "./kimi";
@@ -505,6 +505,6 @@ function providerFor(origin: string) {
 
 export default {
 	fetch: async (req, env, ctx) => (await edge(req, env)) ?? providerFor(new URL(req.url).origin).fetch(req, env, ctx),
-	// 每分钟：做后台任务队列里的活（见 jobs.ts）；每天凌晨：清理 + Max 把当天要用的先想好
-	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? Promise.all([runJobs(env, "cron"), kimiCheck(env), env.DB.prepare("DELETE FROM marks WHERE created_at < datetime('now','-1 day')").run()]) : dailyCleanup(env.DB).then(() => maxDaily(env))),
+	// 每分钟：做后台任务队列里的活（见 jobs.ts）；北京时间 2:30：清空错题文件夹；3:17：清理 + Max 把当天要用的先想好
+	scheduled: (e, env, ctx) => ctx.waitUntil(e.cron === "* * * * *" ? Promise.all([runJobs(env, "cron"), kimiCheck(env), env.DB.prepare("DELETE FROM marks WHERE created_at < datetime('now','-1 day')").run()]) : e.cron === "30 18 * * *" ? clearFolder(env.DB) : dailyCleanup(env.DB).then(() => maxDaily(env))),
 } satisfies ExportedHandler<Env>;

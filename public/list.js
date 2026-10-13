@@ -43,7 +43,7 @@ function render() {
 	const top = $("#redo");
 	top.replaceChildren();
 	if (MODE === "wrong" && tab === "mastered") {
-		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length} 道。Max 会整理好总结，Claude 每天来取，做后续（讲评、归档、出巩固题）` }));
+		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length} 道。Max 会整理好总结，Claude 每天来取，做后续（讲评、归档、出巩固题）。每天凌晨 2:30 自动清空` }));
 		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
 	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {

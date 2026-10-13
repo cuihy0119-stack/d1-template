@@ -45,7 +45,7 @@ export async function runAction(env: Env, ctx: ExecutionContext, name: string, a
 		}
 		case "清空错题文件夹": {
 			const sub = "SELECT id FROM questions WHERE status = 'mastered'";
-			return clear(await count(db, `SELECT COUNT(*) n FROM (${sub})`), "错题文件夹", "清空后 Claude 就取不到这些题了（没取过的也会删）。", () => sql(...delQuestions(sub), "DELETE FROM meta WHERE k IN ('folder_sum', 'folder_seen')"));
+			return clear(await count(db, `SELECT COUNT(*) n FROM (${sub})`), "错题文件夹", "清空后 Claude 就取不到这些题了（没取过的也会删）；每天凌晨 2:30 也会自动清空。", () => sql(...delQuestions(sub), "DELETE FROM meta WHERE k IN ('folder_sum', 'folder_seen')"));
 		}
 		case "清空照片收件箱":
 			return clear(await count(db, "SELECT COUNT(*) n FROM uploads"), "照片收件箱", "没处理的照片也会删。", () => sql("DELETE FROM photos WHERE key IN (SELECT r2_key FROM uploads)", "DELETE FROM uploads"));
