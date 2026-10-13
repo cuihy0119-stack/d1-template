@@ -371,7 +371,7 @@ async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,
 			        (SELECT is_correct FROM attempts a WHERE a.question_id = q.id ORDER BY a.id DESC LIMIT 1) last
 			 FROM questions q LEFT JOIN review_queue r ON r.question_id = q.id
-			 WHERE ${wrong ? WRONG_SQL[wrong] : `q.status = 'active' AND ${live()}`}
+			 WHERE ${wrong ? WRONG_SQL[wrong] : `q.status = 'active' AND ${live()} AND NOT ${wrongSql()}`}
 			 ORDER BY q.subject, q.category, q.topic, q.id`,
 		)
 		.all();
