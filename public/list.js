@@ -1,7 +1,7 @@
 // 题库 / 错题本：简洁列表（学科标签 + 题目 + 状态）
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
-let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，满 20 道发给 Claude 整理后清掉）
+let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，Max 整理好，Claude 来取）
 let subject = new URLSearchParams(location.search).get("subject") || "", cat = ""; // cat：章节（选了科目后再细分）
 tabbar("/" + MODE);
 
@@ -43,7 +43,7 @@ function render() {
 	const top = $("#redo");
 	top.replaceChildren();
 	if (MODE === "wrong" && tab === "mastered") {
-		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length}/20。Max 会整理成总结，满 20 道时发给 Claude 做后续（讲评、归档、出巩固题），然后清掉` }));
+		top.append(el("p", { className: "mute", textContent: `重做做对的错题先放这里：${data.items.length} 道。Max 会整理好总结，Claude 每天来取，做后续（讲评、归档、出巩固题）` }));
 		if (data.folder) top.append(el("div", { className: "card maxcard" }, el("h2", { textContent: "🤖 Max 的整理" }), el("p", { textContent: data.folder, style: "white-space:pre-wrap" })));
 	}
 	if (MODE === "bank") top.append(el("button", { type: "button", className: "btn small", style: "margin-bottom:10px", textContent: "🗂 让 Max 整理分类（合并同义考点、归章节）", onclick: async (e) => {

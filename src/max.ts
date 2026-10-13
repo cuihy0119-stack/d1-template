@@ -694,7 +694,7 @@ export async function wrongSummary(env: Env, force = false, ctx?: ExecutionConte
 	return { total: rs.length, max, summary, thinking, stale: !!saved && saved.sig !== sig && rs.length >= 3, todo: await unorganized(db) };
 }
 
-// ---------- 错题文件夹：Max 总结，攒满 20 道发给 Claude 的就是这份总结（Claude 少读很多字） ----------
+// ---------- 错题文件夹：Max 总结，Claude 来取时附上的就是这份总结（Claude 少读很多字） ----------
 const FOLDER_SYS = `这些是初三学生错过、后来重做做对的题。≤200字写给老师（Claude）：主要问题（按科目/考点）、反复出现的错因、该出巩固题的考点。只写结论。`;
 export async function folderSummary(env: Env, force = false): Promise<{ ids: number[]; text: string } | null> {
 	const db = env.DB;
@@ -707,7 +707,7 @@ export async function folderSummary(env: Env, force = false): Promise<{ ids: num
 	const text = await ask(env, [{ role: "system", content: FOLDER_SYS }, { role: "user", content: list }], { max: 450 });
 	const v = { ids, text: text.slice(0, 600) };
 	const still = (await db.prepare(`SELECT COUNT(*) n FROM questions WHERE status = 'mastered' AND id IN (${ids.join(",")})`).first<{ n: number }>())?.n;
-	if (still) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run(); // 写之前题已经发给 Claude 清掉了就不写
+	if (still) await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_sum', ?)").bind(JSON.stringify(v)).run(); // 写之前题已经被清掉了就不写
 	return v;
 }
 

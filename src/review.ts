@@ -1,4 +1,4 @@
-// 错题本规则：做错 → 进错题本，明天重做；之后每做对一次往后推一档（间隔重复），四档都过了才隐藏进错题文件夹，攒满 20 道发给 Claude 整理后清掉
+// 错题本规则：做错 → 进错题本，明天重做；之后每做对一次往后推一档（间隔重复），四档都过了才隐藏进错题文件夹，Max 整理好后由 Claude 来取（不主动推送），取走 14 天后清掉
 /** 今天的日期（北京时间）YYYY-MM-DD */
 export function today(): string {
 	return new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -53,6 +53,11 @@ export async function masterQuestion(db: D1Database, id: number) {
 	await setStatus(db, id, "mastered");
 }
 
+/** 错题文件夹里 Claude 已经取走的题 id（meta.folder_seen） */
+export async function folderSeen(db: D1Database): Promise<number[]> {
+	try { return JSON.parse((await db.prepare("SELECT v FROM meta WHERE k = 'folder_seen'").first<{ v: string }>())?.v ?? "[]"); } catch { return []; }
+}
+
 /** 每日清理（Cron）：精简题库和照片，作答记录永久保留供统计 */
 export async function dailyCleanup(db: D1Database) {
 	await db.prepare("DELETE FROM marks WHERE created_at < datetime('now','-1 day')").run(); // 标记的题 24 小时过期
@@ -62,7 +67,7 @@ export async function dailyCleanup(db: D1Database) {
 			await db.prepare(`DELETE FROM photos WHERE key IN (${part.map(() => "?").join(",")})`).bind(...part).run();
 		}
 	};
-	// 1. 一次做对的题 超过 30 天：删题（attempts 保留）；错题文件夹里的等打包发给 Claude 后再清；题库里隐藏（超过 24/48 小时）满 30 天的也清掉
+	// 1. 一次做对的题 超过 30 天：删题（attempts 保留）；错题文件夹里的等 Claude 取走 14 天后再清（见下面第 4 步）；题库里隐藏（超过 24/48 小时）满 30 天的也清掉
 	await db.batch([
 		// 排到以后才做的题（due）从那天起算，别在还没出现前就被删掉（和 live.ts 的计时起点一致）
 		db.prepare("DELETE FROM questions WHERE status = 'active' AND created_at < datetime('now','-30 days') AND (due IS NULL OR datetime(due, '-8 hours') < datetime('now','-30 days')) AND NOT (id IN (SELECT question_id FROM review_queue) AND (source = '原错题' OR id IN (SELECT question_id FROM attempts WHERE is_correct = 0)))"), // 还在间隔复习的错题不删
@@ -81,6 +86,19 @@ export async function dailyCleanup(db: D1Database) {
 	const ups = (await db.prepare("SELECT id, r2_key FROM uploads WHERE status = '已处理' AND created_at < datetime('now','-14 days') LIMIT 500").all<{ id: number; r2_key: string }>()).results;
 	await delKeys(ups.map((u) => u.r2_key));
 	if (ups.length) await db.prepare(`DELETE FROM uploads WHERE id IN (${ups.map((u) => u.id)})`).run();
-	// 4. 总结只留最近 30 条
+	// 4. 错题文件夹：Claude 取走满 14 天的题清掉（没取过的不动）；取走记录只留还在文件夹里的
+	const seen = (await folderSeen(db)).filter((i) => Number.isInteger(i));
+	if (seen.length) {
+		const ids = seen.join(",");
+		await db.batch([
+			db.prepare(`DELETE FROM review_queue WHERE question_id IN (SELECT id FROM questions WHERE status = 'mastered' AND status_at < datetime('now','-14 days') AND id IN (${ids}))`),
+			db.prepare(`DELETE FROM marks WHERE question_id IN (SELECT id FROM questions WHERE status = 'mastered' AND status_at < datetime('now','-14 days') AND id IN (${ids}))`),
+			db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND question_id IN (SELECT id FROM questions WHERE status = 'mastered' AND status_at < datetime('now','-14 days') AND id IN (${ids}))`),
+			db.prepare(`DELETE FROM questions WHERE status = 'mastered' AND status_at < datetime('now','-14 days') AND id IN (${ids})`),
+		]);
+		const left = (await db.prepare(`SELECT id FROM questions WHERE status = 'mastered' AND id IN (${ids})`).all<{ id: number }>()).results.map((r) => r.id);
+		await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('folder_seen', ?)").bind(JSON.stringify(left)).run();
+	}
+	// 5. 总结只留最近 30 条
 	await db.prepare("DELETE FROM summaries WHERE id NOT IN (SELECT id FROM summaries ORDER BY id DESC LIMIT 30)").run();
 }
