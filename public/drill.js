@@ -43,7 +43,6 @@ const Drill = (() => {
 			Max.setCtx({ tmp: tmpOf(q, mine, true) });
 			if (q.type === "single") for (const b of box.querySelectorAll(".opt")) { b.disabled = true; b.classList.toggle("ok", ok && b === btn); b.classList.toggle("bad", !ok && b === btn); }
 			else for (const x of box.querySelectorAll("input,.fsub")) x.disabled = true;
-			if (ok) setTimeout(() => res.firstChild && doodles(res.firstChild, ["spark", "heart", "spark"], 3), 30); // 答对：蹦出两颗星一颗心
 			res.replaceChildren(ok
 				? el("div", { className: "ans", textContent: "{check}答对了" + (q.explanation ? "：" + q.explanation : "") })
 				: el("div", {}, el("div", { className: "ans bad", textContent: "{x}这题没对，点下面让 Max 帮你分析错在哪" }),

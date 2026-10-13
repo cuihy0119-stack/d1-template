@@ -131,7 +131,6 @@ function showBrief(b) {
 		m.addEventListener("click", () => {
 			m.classList.remove("pop"); void m.offsetWidth; m.classList.add("pop"); // 重新触发动画
 			haptic(0, 110, 120);
-			const t = $(".brand .bt"); if (t) doodles(t, ["spark", "heart", "spark", "swirl"], 4); // 标题周围蹦出手绘小星星和爱心
 			clearTimeout(m._t); m._t = setTimeout(() => m.classList.remove("pop"), 1400);
 		});
 	}
