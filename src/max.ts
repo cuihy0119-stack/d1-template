@@ -513,7 +513,8 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	const bankText = c.text ? "" : bank;
 	let sys = [CHAT_SYS + (len[0] ? "\n" + len[0] : "") + (drawing ? "\n" + DRAW_DOC : "") + (NOTE_RE.test(q) ? "\n" + NOTE_DOC : "") + (ACT_RE.test(q) ? "\n" + ACT_DOC : ""), c.text || bankText, page].filter(Boolean).join("\n\n");
 	// 同一个问题（常用按钮、同一页同一题）1 小时内问第二次直接用上次的回答，不花额度
-	const qkey = !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null;
+	const guard = await answerGuard(db, ctx); // 正在做（还没交）的题：拦截 Max 直接说出答案
+	const qkey = !guard && !fresh && !oneShot && messages.length === 1 ? "cq:" + (await digest(q + "\n" + sys)) : null; // 有拦截时不读不写缓存（缓存的是没拦过的原文）
 	if (qkey) { const hit = await cacheGet(db, qkey, 1); if (hit) return { cached: hit }; }
 	const prompt = ctx.marked && oneShot ? "逐题简要解析（每题≤80字：错因+关键思路），最后一句总结共性问题。"
 		: ctx.explain && oneShot && ctx.cmp ? "对比这次和上一次作答：是不是错在同一个地方？一句话说进步了什么、还差什么（≤80字）。"
@@ -532,7 +533,64 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		max: (ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : len[1]) + (drawing ? 400 : 0), // 深度思考的思考过程也算在 max 里，要给足
 		route: ctx.deep || ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
 		done: !ctx.web && oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
-	return { stream, engine, web: ctx.web ? web : undefined };
+	return { stream: guard ? guarded(stream, guard) : stream, engine, web: ctx.web ? web : undefined };
+}
+
+// ---------- 答案拦截：学生还没交的题，Max 只能给提示，回答里一出现完整答案就截住，换成一句解释 ----------
+// 依据：Claude 推题时一起存进来的参考答案（题库题），或临时题网页带来的答案。只在「还没交」时生效，交卷后讲题不拦
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const KEY = "(?:答案|应选|故选|所以选|选|正确(?:选项|答案)?|结果|最终|就是|应该是|应填|填)";
+async function answerGuard(db: D1Database, ctx: Ctx): Promise<((t: string) => number) | null> {
+	let ans: string[] = [], opts: string[] = [], stem = "";
+	if (ctx.q && !ctx.a && !ctx.explain) {
+		const r = await db.prepare("SELECT stem, options, answer FROM questions WHERE id = ?").bind(ctx.q).first<{ stem: string; options: string | null; answer: string }>();
+		if (!r) return null;
+		ans = arr(r.answer); opts = arr(r.options); stem = r.stem;
+	} else if (ctx.tmp && !ctx.tmp.done && ctx.tmp.answer) { ans = [ctx.tmp.answer]; opts = ctx.tmp.options ?? []; stem = ctx.tmp.stem; }
+	ans = ans.map((a) => String(a).trim()).filter(Boolean);
+	if (!ans.length) return null;
+	const res: RegExp[] = [];
+	for (const a of ans) {
+		if (/^[A-Ha-h]+$/.test(a) && opts.length) { // 选择题：「选B」「答案是 B」「B 正确」，以及正确选项的内容跟着「答案/选/正确」出现
+			const L = a.toUpperCase().split("").join("[、,，和与及\\s]*");
+			res.push(new RegExp(`${KEY}[\\s:：是为]{0,3}[（(]?${L}(?![A-Za-z])`), new RegExp(`(?<![A-Za-z])${L}[）)]?\\s*(?:选项)?(?:是|为)?\\s*(?:正确|对的|是对的|是答案)`));
+			for (const ch of a.toUpperCase()) {
+				const o = opts.find((x) => x.trim().toUpperCase().startsWith(ch))?.replace(/^\s*[A-Za-z][.．、:：]?\s*/, "").trim();
+				if (o) res.push(new RegExp(o.length >= 2 ? `${KEY}[^。！？\\n]{0,8}${esc(o.slice(0, 20))}` : `${KEY}[\\s:：是为]{0,3}${esc(o)}`)); // 一个字的选项（如「硫」）要紧跟关键词
+			}
+		} else {
+			const t = a.length > 14 ? a.slice(0, 14) : a; // 长答案只认开头一段
+			if (t.length >= 2 && !/^[\d.\s+\-−×÷=%/]+$/.test(t) && !stem.includes(t)) res.push(new RegExp(esc(t))); // 填空/简答的文字答案：原文一出现就算
+			else res.push(new RegExp(`(?:${KEY}|等于|=|＝|是|为)[\\s:：]{0,3}${esc(t)}(?![\\d.%])`)); // 数字或很短的答案：要跟着「答案/等于/=/是」才算（「第44页」不算）
+		}
+	}
+	return (t) => { let i = -1; for (const r of res) { const m = r.exec(t); if (m && (i < 0 || m.index < i)) i = m.index; } return i; };
+}
+const GUARD_NOTE = "\n\n> 已拦截：这题你还没交，Max 刚才要直接说出答案，帮你挡下了。可以继续问提示和思路；交卷后点「问 Max」再看完整讲解。";
+/** 边转发边检查：留最后 60 个字不发，发现答案就从那句话开头截断、补一句解释，并停掉模型（不再白白生成） */
+function guarded(src: ReadableStream<Uint8Array>, find: (t: string) => number): ReadableStream<Uint8Array> {
+	const dec = new TextDecoder(), enc = new TextEncoder(), HOLD = 60;
+	let all = "", sent = 0;
+	const cut = (ctl: TransformStreamDefaultController<Uint8Array>, i: number) => {
+		const s = Math.max(sent, Math.max(all.lastIndexOf("。", i), all.lastIndexOf("\n", i), all.lastIndexOf("！", i), all.lastIndexOf("？", i)) + 1);
+		if (s > sent) ctl.enqueue(enc.encode(all.slice(sent, s)));
+		ctl.enqueue(enc.encode(GUARD_NOTE));
+		ctl.terminate();
+	};
+	return src.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, ctl) {
+			all += dec.decode(chunk, { stream: true });
+			const i = find(all);
+			if (i >= 0) return cut(ctl, i);
+			if (all.length - HOLD > sent) { ctl.enqueue(enc.encode(all.slice(sent, all.length - HOLD))); sent = all.length - HOLD; }
+		},
+		flush(ctl) {
+			all += dec.decode();
+			const i = find(all);
+			if (i >= 0) return cut(ctl, i);
+			if (all.length > sent) ctl.enqueue(enc.encode(all.slice(sent)));
+		},
+	}));
 }
 
 // ---------- 看图：学生在 Max 里发的照片，先用 Cloudflare 的看图模型转写成文字，再交给平常的问答（DeepSeek 深度思考也能用） ----------
