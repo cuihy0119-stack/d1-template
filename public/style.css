@@ -543,3 +543,5 @@ h2 .mword{font-size:1.25em;vertical-align:-.08em}
 /* 首页大标题：更细的笔画（像钢笔写的线条），颤动更明显（单独一组幅度更大的扭曲） */
 .hw.bt.big{font-weight:500;font-size:1.7em;letter-spacing:.02em;-webkit-text-stroke:.4px currentColor;filter:url(#bigboil0);animation:bigboil .39s steps(1) infinite}
 @keyframes bigboil{0%{filter:url(#bigboil0)}33%{filter:url(#bigboil1)}66%{filter:url(#bigboil2)}}
+/* 提示气泡：半透明（约 75%），能隐约看到底下的内容；低配模式也保持半透明 */
+.mpeek,.lite .mpeek{background:var(--mg-bg);-webkit-backdrop-filter:blur(18px) saturate(180%);backdrop-filter:blur(18px) saturate(180%)}
