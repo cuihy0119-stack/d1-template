@@ -102,7 +102,7 @@ const clientQ = (q: Q) => ({
 	category: q.category,
 	topic: q.topic,
 	type: q.type,
-	stem: label(q) + q.stem,
+	stem: q.stem, // 做题卡片：科目只显示在左上角标签，题干不重复
 	options: parse<string[]>(q.options, []),
 	...pick({ ...q, opts: !!q.options }), // tag、board：旧题按题干补判
 	fig: parse<any>(q.fig ?? null, null), // 题图（Claude 的画板），网页画出来
@@ -412,6 +412,7 @@ app.get("/api/question/:id", async (c) => {
 		.all<Record<string, any>>();
 	return c.json({
 		...clientQ(q),
+		stem: label(q) + q.stem, // 错题本展开：仍是「科目·题干」
 		answer: parse<string[]>(q.answer, []),
 		explanation: q.explanation,
 		attempts: results.map((r) => ({ ...r, error_reason: r.is_correct === 0 ? q.max_reason || r.error_reason : r.error_reason, photos: r.photo_key ? String(r.photo_key).split(",") : [], photo_key: undefined })),
