@@ -99,6 +99,12 @@ function lab(e, s) {
 	if (m && (m[1] === "max" || ICONS[m[1]])) { e.textContent = s.slice(m[0].length); e.prepend(icon(m[1])); } else e.textContent = s;
 	return e;
 }
+// ---------- 手绘字「颤动」：三张不同噪声的扭曲滤镜，CSS 每 0.14 秒轮换一张（像逐格动画）；全站共用，页面加载时插一次 ----------
+const BOIL = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="boil0"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="2"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil1"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="9"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil2"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="17"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter></svg>';
+const boilDefs = () => { if (!document.getElementById("boil0")) document.body.insertAdjacentHTML("beforeend", BOIL); };
+document.body ? boilDefs() : addEventListener("DOMContentLoaded", boilDefs, { once: true });
+/** Max 的手写字标志（会颤动），用在标题、Max 窗口顶部 */
+const maxWord = () => el("span", { className: "hw mword", textContent: "Max" });
 // ---------- 手绘涂鸦特效（像蜡笔在画面上随手画的爱心、星星、感叹号，逐格颤动地蹦出来再消失）----------
 // 只在「值得庆祝 / 要提醒」的瞬间出现，平时页面保持安静；低配和「减少动态」时不画
 const DOODLE = {

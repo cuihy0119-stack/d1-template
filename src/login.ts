@@ -15,7 +15,7 @@ export function loginPage(error = "") {
 <link rel="stylesheet" href="/style.css">
 </head><body>
 <main class="login">
-<h1 class="brand">Max Note</h1>
+<h1 class="brand"><span class="hw bt">Max Note<svg class="squig" viewBox="0 0 120 10" preserveAspectRatio="none" aria-hidden="true"><path d="M2 6C18 2 32 9 52 5s38-4 66 1"/></svg></span></h1><svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="boil0"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="2"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil1"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="9"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter><filter id="boil2"><feTurbulence type="fractalNoise" baseFrequency=".04" numOctaves="2" seed="17"/><feDisplacementMap in="SourceGraphic" scale="3.6"/></filter></svg>
 <p class="sub">不积跬步，无以至千里</p>
 <form method="post" action="/login">
 <input type="password" name="passcode" placeholder="口令" aria-label="口令" autocomplete="current-password" autofocus required>

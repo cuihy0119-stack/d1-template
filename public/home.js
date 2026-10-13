@@ -107,7 +107,7 @@ function showBrief(b) {
 	lastBrief = JSON.stringify(b);
 	const go = (ids, label) => (ids.length ? el("a", { className: "btn primary small", href: "/quiz?ids=" + ids.join(","), textContent: label }) : "");
 	box.replaceChildren(
-		el("h2", {}, icon("max"), "Max 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
+		el("h2", {}, icon("max"), maxWord(), " 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
 		el("p", { textContent: b.say || "" }),
 		b.soon.length && b.sprint ? el("p", {}, el("b", { textContent: `{hourglass}${b.soon[0].name} 冲刺：` }), b.sprint) : "",
 		b.topics.length ? el("div", { className: "weak mute" }, "薄弱点：", ...b.topics.map((w) => el("span", { className: "tag", textContent: `${w.subject}·${w.topic} 错${w.wrong}/${w.n}` }))) : "",

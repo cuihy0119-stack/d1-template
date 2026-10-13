@@ -488,12 +488,17 @@ body::before{background:radial-gradient(38% 30% at 18% 22%,rgba(217,138,106,.34)
    手写字：英文和数字用 Caveat，中文用霞鹜文楷；墨水色写在纸上，只有大标题的线条会轻轻颤动（像逐格动画），其余静止 */
 :root{--hand:'Caveat','LXGW WenKai Screen','Kaiti SC',cursive;--ink:#3b2e24}
 @media(prefers-color-scheme:dark){:root{--ink:#efe4cf}}
-.brand .bt{position:relative;display:inline-block;padding:0 .1em .12em;font:700 1.45em/1 var(--hand);letter-spacing:.01em;color:var(--ink);
-  transform:rotate(-2deg);filter:url(#boil0);animation:boil .42s steps(1) infinite}
-.brand .squig{position:absolute;left:2%;width:96%;bottom:-.06em;height:.3em;overflow:visible}
-.brand .squig path{fill:none;stroke:var(--pri);stroke-width:2.6;stroke-linecap:round;vector-effect:non-scaling-stroke}
+/* 手写字（会颤动）：.hw 通用；.bt 是大标题（带手画波浪线） */
+.hw{display:inline-block;font-family:var(--hand);font-weight:700;color:var(--ink);filter:url(#boil0);animation:boil .42s steps(1) infinite}
+.hw.bt{position:relative;padding:0 .1em .12em;font-size:1.45em;line-height:1;letter-spacing:.01em;transform:rotate(-2deg)}
+.hand-h1 .hw.bt{font-size:1.5em;margin:4px 0 8px}
+.login .brand .hw.bt{font-size:1.5em}
+.mword{font-size:1.3em;line-height:1;margin:0 .05em;transform:rotate(-3deg);color:var(--ink)}
+h2 .mword{font-size:1.25em;vertical-align:-.08em}
+.bt .squig{position:absolute;left:2%;width:96%;bottom:-.06em;height:.3em;overflow:visible}
+.bt .squig path{fill:none;stroke:var(--pri);stroke-width:2.6;stroke-linecap:round;vector-effect:non-scaling-stroke}
 @keyframes boil{0%{filter:url(#boil0)}33%{filter:url(#boil1)}66%{filter:url(#boil2)}}
-.lite .brand .bt{animation:none}
+.lite .hw{animation:none}
 .hero .sub{font:19px/1.5 var(--hand);font-style:normal;color:var(--mute);transform:rotate(-.6deg);transform-origin:left}
 /* 统计：手写大数字，一个个略微歪着，像随手记在本子上 */
 .stat b{font:700 40px/1 var(--hand);color:var(--pri);margin-bottom:2px}
