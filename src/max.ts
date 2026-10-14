@@ -359,25 +359,24 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 			FROM attempts a LEFT JOIN questions q ON q.id = a.question_id
 			WHERE a.status = '已判' AND a.created_at > datetime('now', '-30 days') GROUP BY 1, 2 HAVING wrong > 0 ORDER BY wrong * 1.0 / n DESC, wrong DESC LIMIT 8`).all<{ subject: string; topic: string; n: number; wrong: number }>(),
 		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem, r.stage FROM questions q JOIN review_queue r ON r.question_id = q.id
-			WHERE r.next_date <= ? AND q.status = 'active' AND ${live()} ORDER BY r.next_date LIMIT 20`).bind(d).all<any>(),
+			WHERE r.next_date <= ? AND q.status = 'active' AND ${live()} AND NOT EXISTS (SELECT 1 FROM attempts ap WHERE ap.question_id = q.id AND ap.status = '待批改') ORDER BY r.next_date LIMIT 20`).bind(d).all<any>(),
 		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
-			WHERE q.status = 'active' AND ${live()} AND ${ready()} AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id DESC LIMIT 20`).bind(d).all<any>(),
+			WHERE q.status = 'active' AND ${live()} AND ${ready()} AND COALESCE(q.topic, '') <> '' AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id DESC LIMIT 20`).bind(d).all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
 	]);
 	const weak = stats.results.slice(0, 5);
 	const soon = arr(exams?.v).map((e: any) => ({ ...e, days: Math.round((Date.parse(e.date) - Date.parse(d)) / 864e5) })).filter((e: any) => e.days >= 0 && e.days <= 7);
-	// 薄弱考点的题（错过的优先），给「练薄弱点」「冲刺」按钮
-	const weakIds = weak.length
-		? (await db.prepare(`SELECT q.id FROM questions q WHERE q.status = 'active' AND ${live()} AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
-			ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 15`).bind(...weak.flatMap((w) => [w.subject, w.topic])).all<{ id: number }>()).results.map((r) => r.id)
-		: [];
-	// 以前错过的薄弱考点题（含已进错题文件夹的）：给 Max 挑几道穿插着练
+	// 薄弱考点的题（错过的优先）给「练薄弱点」「冲刺」按钮；以前错过的薄弱考点题（含已进错题文件夹的）给 Max 挑几道穿插着练——两个查询同时跑
 	const seen = [...due.results, ...fresh.results].map((q) => q.id);
-	const old = weak.length ? (await db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
-		WHERE q.status IN ('active', 'mastered') AND ${wrongSql()} AND q.id NOT IN (${seen.map(() => "?").join(",") || "0"})
-		  AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
-		  AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') ORDER BY q.id DESC LIMIT 6`)
-		.bind(...seen, ...weak.flatMap((w) => [w.subject, w.topic])).all<any>()).results : [];
+	const [weakIds, old] = weak.length ? await Promise.all([
+		db.prepare(`SELECT q.id FROM questions q WHERE q.status = 'active' AND ${live()} AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
+			ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 15`).bind(...weak.flatMap((w) => [w.subject, w.topic])).all<{ id: number }>().then((r) => r.results.map((x) => x.id)),
+		db.prepare(`SELECT q.id, q.subject, q.no, COALESCE(q.topic, q.category) topic, substr(q.stem, 1, 40) stem FROM questions q
+			WHERE q.status IN ('active', 'mastered') AND ${wrongSql()} AND q.id NOT IN (${seen.map(() => "?").join(",") || "0"})
+			  AND (${weak.map(() => "(q.subject = ? AND COALESCE(q.topic, q.category, '未分类') = ?)").join(" OR ")})
+			  AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') ORDER BY q.id DESC LIMIT 6`)
+			.bind(...seen, ...weak.flatMap((w) => [w.subject, w.topic])).all<any>().then((r) => r.results),
+	]) : [[] as number[], [] as any[]];
 	const cands = [...due.results.map((q) => ({ ...q, kind: "复习" })), ...fresh.results.map((q) => ({ ...q, kind: "新题" })), ...old.map((q) => ({ ...q, kind: "旧错题" }))];
 	const exs = arr(exams?.v).map((e: any) => ({ ...e, days: Math.round((Date.parse(e.date) - Date.parse(d)) / 864e5) })).filter((e: any) => e.days >= 0 && e.days <= 60);
 	const base = { topics: weak, weakIds, soon, cands: cands.length };
@@ -414,7 +413,7 @@ const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学�
 只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
 说到某道题一律写「科目·题干开头」（如 数学·解方程…），绝不对学生说「数学3」这类数字题号；题号只能写在 [[做:…]] 的参数里。
 需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]
-学生想练某类题就给 [[练:科目/考点]]（题库有同类题就直接跳过去，没有网站会让你现场出题，不用你出）。`;
+学生想练某类题就给 [[练:科目/考点]]：考点必须原样抄「题库概况」里写的名字（科目/考点 一字不改、不自己编、不合并），概况里没有的考点才按学生说的写（网站会现场出题）。\n推荐具体的题只能用概况里有的科目和考点，不要把别的科目的题说成这一科。`;
 const NOTE_RE = /错|讲|解析|为什么|看不懂|没懂/;
 const NOTE_DOC = "讲解学生做错的题时，末尾加一行 [[笔记:科目/考点]]（网站去学生的 Notion 找同考点笔记，没有就不显示）。";
 const BANK_RE = /题|练|考点|科目|错|薄弱|复习|今天|推荐/; // 这些问题才附上题库概况

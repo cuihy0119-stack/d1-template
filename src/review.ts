@@ -88,6 +88,9 @@ export async function dailyCleanup(db: D1Database) {
 		db.prepare("DELETE FROM questions WHERE status = 'done' AND status_at < datetime('now','-30 days')"),
 		db.prepare("DELETE FROM review_queue WHERE question_id NOT IN (SELECT id FROM questions WHERE status = 'active')"),
 		db.prepare("DELETE FROM attempts WHERE status = '待批改' AND question_id NOT IN (SELECT id FROM questions)"), // 题删了，待批改的作答没法批
+		// 幽灵作答：什么都没写、照片也不存在的待批改作答（批不了、也看不见），直接清掉
+		db.prepare(`DELETE FROM attempts WHERE status = '待批改' AND TRIM(COALESCE(answer_text, '')) = ''
+			AND (photo_key IS NULL OR NOT EXISTS (SELECT 1 FROM photos p WHERE instr(',' || attempts.photo_key || ',', ',' || p.key || ',') > 0))`), // instr 不用 LIKE：D1 的 LIKE 模式长度有上限
 		db.prepare("UPDATE attempts SET grader = NULL WHERE status = '待批改' AND grader = 'maxing'"), // Max 批到一半断了：交给 Claude
 		db.prepare("DELETE FROM max_cache WHERE at < datetime('now', '-14 days')"),
 		db.prepare("DELETE FROM jobs WHERE at < datetime('now', '-3 days')"),
