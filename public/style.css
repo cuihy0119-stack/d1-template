@@ -688,3 +688,12 @@ body.has-tabs main{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 /* 胶囊和圆形用正圆角（squircle 在 999px 圆角下会变成方圆，不像胶囊） */
 .chip,.tag,.st,.btn.small,button.del,button.mark,.bhead button,.bhint button,.tabs,.tab,.tabbar,.tabbar>a,.opt .ol{corner-shape:round}
 .tabs{margin-bottom:16px}
+/* ================= 更圆：全站同一套大圆角，按钮一律胶囊 ================= */
+:root{--r-xl:28px;--r-l:24px;--r-m:20px;--r-s:16px}
+@supports (corner-shape:squircle){:root{--r-xl:36px;--r-l:30px;--r-m:26px;--r-s:20px}}
+.btn,.btn.small,.keys button,.keysg button,.btools button,.bhint button,.nav .btn,.detail .row .btn{border-radius:999px;corner-shape:round}
+.keys{gap:8px}.keys button{min-height:var(--h-m);font-size:var(--fs-m)}
+input[type=text],input[type=password],textarea,.calcpad,.cline math-field{border-radius:var(--r-l)}
+.opt{border-radius:var(--r-l)}
+.ans{border-radius:var(--r-s)}
+.qfig canvas,.qfig img,.thumbs img{border-radius:var(--r-m)}
