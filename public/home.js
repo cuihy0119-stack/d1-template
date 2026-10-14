@@ -4,6 +4,10 @@ tabbar("/");
 const LINES = ["学而不思则罔，思而不学则殆", "不积跬步，无以至千里", "博观而约取，厚积而薄发", "业精于勤，荒于嬉", "纸上得来终觉浅，绝知此事要躬行",
 	"温故而知新，可以为师矣", "千淘万漉虽辛苦，吹尽狂沙始到金", "路漫漫其修远兮，吾将上下而求索", "问渠那得清如许，为有源头活水来", "宝剑锋从磨砺出，梅花香自苦寒来"];
 const now = new Date();
+// 法语小句：问候 + 每天一句谚语（只是点缀）
+const FR = ["Petit à petit, l'oiseau fait son nid.", "Qui veut aller loin ménage sa monture.", "Rome ne s'est pas faite en un jour.", "Il n'y a pas de sot métier.", "Vouloir, c'est pouvoir.",
+	"Après la pluie, le beau temps.", "L'union fait la force.", "Mieux vaut tard que jamais.", "Chaque jour est une nouvelle chance.", "Le savoir est une arme."];
+$("#frq").textContent = greetFr() + ", Max. — " + FR[Math.floor(now / 864e5) % FR.length];
 $("#date").textContent = now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }) + " · " + LINES[Math.floor(now / 864e5) % LINES.length];
 
 // 坚持打卡 + 考试倒计时
@@ -30,7 +34,7 @@ function renderHero(h) {
 		return el("div", { className: "exam" + (i ? "" : " first") },
 			el("div", { className: "en", textContent: "距离 " + e.name }),
 			el("div", { className: "ed" }, watchHw(el("span", { className: "num hw", innerHTML: RING }, el("b", { textContent: d || "今天" }))), d ? "天" : ""),
-			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }));
+			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }, d <= 7 && d ? fr(" Allez, on y va !") : d ? fr(" Plus que " + d + " jours") : fr(" C'est le jour J ! Bonne chance.")));
 	}));
 }
 
@@ -43,7 +47,7 @@ async function loadHome() {
 	if (sig === lastHome) return; // 没变化就不重画（每 30 秒检查一次）
 	lastHome = sig;
 	renderHero(h);
-	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了");
+	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了 · Bien joué !");
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
 	const ask = $("#ask");
 	ask.replaceChildren();

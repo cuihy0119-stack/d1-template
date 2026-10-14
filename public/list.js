@@ -67,6 +67,7 @@ function render() {
 	const list = $("#list");
 	list.replaceChildren();
 	if (!shown.length) list.append(el("p", { className: "mute", textContent: MODE === "wrong" ? (tab === "mastered" ? "文件夹是空的，错题重做做对后会放进来" : "还没有错题，做错的题会自动收进来") : "还没有题" }));
+	if (!shown.length) list.append(el("p", { className: "frline" }, fr(MODE === "wrong" ? "Rien à corriger ! Bravo." : "Tout est fait ! Repose-toi un peu.")));
 	shown.forEach((q, i) => { const r = row(q); if (i < 16) r.style.setProperty("--i", i); list.append(r); }); // 前 16 条依次浮现
 	math(list);
 }

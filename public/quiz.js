@@ -374,7 +374,7 @@ async function showResult(ids, got) {
 	const open = new Set([...app.querySelectorAll("details[open]")].map((d) => d.dataset.id)); // 刷新后保持展开
 	const fold = rows.length > 3; // 题多就折叠，点开看详情
 	const score = el("p", { className: "score", textContent: `已批 ${right} / ${objective.length} 对` + (pending ? `，${pending} 题待批改` : "") });
-	const wrap = el("div", {}, el("h1", { textContent: "结果" }), score);
+	const wrap = el("div", {}, el("h1", { textContent: "结果" }), el("p", { className: "frline big" }, fr(pending && !objective.length ? "Merci ! Claude va corriger." : bravo(right, objective.length))), score);
 	if (fold) wrap.append(el("p", { className: "mute", textContent: "点题目展开看答案和解析" }));
 	for (const r of rows) {
 		const badge = r.status === "待批改" ? [r.grader ? "Max 批改中…" : r.max_sure != null ? "Max 拿不准 · 转 Claude" : "待 Claude 批改", "wait"] : r.is_correct ? ["{check}正确", "ok"] : ["{x}错误", "bad"];
