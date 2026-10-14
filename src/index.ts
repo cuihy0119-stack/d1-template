@@ -9,7 +9,7 @@ import { pick } from "./tags";
 import { loginPage } from "./login";
 import { chatQuota, edge, flag, guard } from "./security";
 import { addDays, clearFolder, dailyCleanup, masterQuestion, removeQuestion, today, updateQueue } from "./review";
-import { brief, byMax, chat, classifyState, gen, see, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
+import { brief, byMax, chat, classifyState, gen, hint, see, why, MaxErr, maxDaily, organize, startClassify, status, unorganized, used, wrongSummary } from "./max";
 import { live, ready, wrongSql } from "./live";
 import { check as kimiCheck, run as kimiRun } from "./kimi";
 import { findNote } from "./notion";
@@ -446,6 +446,17 @@ app.get("/api/notion", async (c) => {
 	try { return c.json(await findNote(c.env, String(c.req.query("subject") ?? ""), String(c.req.query("topic") ?? ""))); }
 	catch (e) { return c.json({ note: null, error: (e as Error).message }); }
 });
+// 分级提示（1~3 级，不给答案）和交卷即讲（做错的题一句话讲错在哪）：都先走 Cloudflare，有缓存
+app.post("/api/max/hint", async (c) => {
+	const b = await c.req.json<{ q?: number; level?: number }>().catch(() => ({}) as { q?: number; level?: number });
+	try { return c.json({ text: await hint(c.env, Number(b.q) || 0, Number(b.level) || 1, () => chatQuota(c.env.DB)) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "提示失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
+});
+app.post("/api/max/why", async (c) => {
+	const b = await c.req.json<{ a?: number }>().catch(() => ({}) as { a?: number });
+	try { return c.json({ text: await why(c.env, Number(b.a) || 0, () => chatQuota(c.env.DB)) }); }
+	catch (e) { return c.json({ error: e instanceof MaxErr ? e.message : "讲解失败：" + (e as Error).message }, e instanceof MaxErr ? 429 : 500); }
+});
 // Max 看图：学生发的照片先转写成文字（前端再把文字连同问题发给 /api/max/chat）
 app.post("/api/max/see", async (c) => {
 	const b = await c.req.json<{ image?: string; q?: string }>().catch(() => ({}) as { image?: string; q?: string });
@@ -478,7 +489,7 @@ app.post("/api/max/chat", async (c) => {
 	const tmp = t ? { stem: t.stem.slice(0, 500), options: (Array.isArray(t.options) ? t.options : []).slice(0, 4).map((o: unknown) => String(o).slice(0, 120)), answer: String(t.answer ?? "").slice(0, 120),
 		mine: String(t.mine ?? "").slice(0, 120), exp: String(t.exp ?? "").slice(0, 150), done: !!t.done } : undefined;
 	try {
-		const r = await chat(c.env, messages, { q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, cmp: !!ctx.cmp, marked: !!ctx.marked, web: !!ctx.web, deep: !!ctx.deep, tmp, page: pg,
+		const r = await chat(c.env, messages, { pending: !!ctx.pending, q: Number(ctx.q) || undefined, a: Number(ctx.a) || undefined, explain: Number(ctx.explain) || undefined, cmp: !!ctx.cmp, marked: !!ctx.marked, web: !!ctx.web, deep: !!ctx.deep, tmp, page: pg,
 			len: ["s", "m", "l"].includes(ctx.len) ? ctx.len : "m", pref: ["auto", "ds", "cf"].includes(ctx.pref) ? ctx.pref : "auto" }, () => chatQuota(c.env.DB));
 		return new Response(r.cached ?? r.stream!, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store", "x-max-engine": r.cached ? "cache" : r.engine ?? "", ...(r.web != null ? { "x-max-web": String(r.web) } : {}) } });
 	} catch (e) {
