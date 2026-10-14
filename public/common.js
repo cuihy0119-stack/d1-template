@@ -180,12 +180,12 @@ function compress(file, max = 1280) {
 // 底部导航
 function tabbar(active) {
 	document.body.classList.add("has-tabs");
-	// 线条平面图标（不用 emoji）：首页 = 房子，题库 = 书架，错题本 = 带叉的笔记本
+	// 线条平面图标（瑞士风格：几何、等粗）：首页 = 房子，题库 = 列表，错题本 = 带叉的方框
 	const ico = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 	const tabs = [
-		["/", "首页", ico('<path d="M3 11.2L12 3.8l9 7.4"/><path d="M5.5 9.6V20h13V9.6"/><path d="M10 20v-5.6h4V20"/>')],
-		["/bank", "题库", ico('<path d="M4 4.5h4v15H4z"/><path d="M10 4.5h4v15h-4z"/><path d="M15.4 6.3l3.7-.9 3 13.2-3.7.9z"/>')],
-		["/wrong", "错题本", ico('<path d="M5 3.5h12.5A1.5 1.5 0 0119 5v14a1.5 1.5 0 01-1.5 1.5H5z"/><path d="M9 3.5v17"/><path d="M12.4 9.2l3.2 3.2m0-3.2l-3.2 3.2"/>')],
+		["/", "首页", ico('<path d="M4 10.5L12 4l8 6.5V20H4z"/><path d="M10 20v-5.5h4V20"/>')],
+		["/bank", "题库", ico('<path d="M4 5.5h16M4 12h16M4 18.5h16"/>')],
+		["/wrong", "错题本", ico('<path d="M5 4h14v16H5z"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5"/>')],
 	];
 	const nav = el("nav", { className: "tabbar" });
 	for (const [href, name, icon] of tabs) {
