@@ -556,3 +556,38 @@ h2 .mword{font-size:1.25em;vertical-align:-.08em}
   .bwrap input.btext{background:#2a2622;color:#f1ece4}
   .btools .dot[style*="111111"]{background:#f1ece4!important}
 }
+
+/* ================= 瑞士风格（国际主义平面设计）：去装饰、平面色块、细线分隔、8px 网格，提高专注 =================
+   只改「外观层」：字体、配色（含护眼/夜间/深色）、无障碍与动态偏好都不动；Max 助手和画板保持原样 */
+:root{--sw-line:rgba(80,55,30,.16)}
+@media(prefers-color-scheme:dark){:root{--sw-line:rgba(255,240,220,.14)}}
+:root{--r-xl:12px;--r-l:10px;--r-m:8px;--r-s:6px}
+@supports (corner-shape:squircle){:root{--r-xl:14px;--r-l:12px;--r-m:10px;--r-s:7px}}
+/* 背景：纯色纸面，去掉流动光斑和颗粒（减少视觉噪声） */
+body::before,body::after{display:none}
+/* 版面：8px 网格，标题左对齐、层级清楚 */
+main{padding:24px 16px 16px}
+h1{margin:8px 0 8px;letter-spacing:0}
+h1+.sub,.sub{margin:0 0 24px}
+h2{margin:0 0 8px;letter-spacing:.01em}
+.card{padding:16px;margin-bottom:16px}
+/* 平面块面：实色 + 细线，无模糊、无渐变、无投影 */
+.card,.subj,#list,.tabs,.stat,.exam{background:var(--solid);-webkit-backdrop-filter:none;backdrop-filter:none;border:1px solid var(--sw-line);box-shadow:none}
+.btn:not(.primary),.chip,.opt,button.del,button.mark,.bhead button,.bhint button,.keys button{background:transparent;border:1px solid var(--sw-line);box-shadow:none}
+.card .opt,.card .btn:not(.primary){box-shadow:none}
+.tabbar{background:var(--solid);-webkit-backdrop-filter:none;backdrop-filter:none;border:1px solid var(--sw-line);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.tabbar::before{display:none}
+.tabbar a{border-radius:var(--r-l)}
+/* 强调色只用于「当前/主要」：主按钮、选中项、进度 —— 一处一个焦点 */
+.btn.primary,.lite .btn.primary{background:var(--pri);box-shadow:none}
+.btn.primary::after{display:none}
+.opt.on,.chip.on{border-color:var(--pri)}
+.chip.on{background:var(--pri)}
+.opt.on{background:color-mix(in srgb,var(--pri) 10%,var(--solid))}
+.bar,.bar>i{border-radius:0}.bar{height:4px}.bar>i{background:var(--pri)}
+.exam.first{background:var(--pri)}
+.ans{border-radius:0 var(--r-s) var(--r-s) 0;border-left-width:2px}
+/* 列表：细线分隔，悬停不再上浮 */
+.wrapitem+.wrapitem,.item+.item{border-top-color:var(--sw-line)}
+@media(hover:hover){.btn:hover,.subj:hover{transform:none;box-shadow:none;border-color:color-mix(in srgb,var(--fg) 30%,transparent)}}
+.qfig canvas,.qfig img{box-shadow:0 0 0 1px var(--sw-line)}
