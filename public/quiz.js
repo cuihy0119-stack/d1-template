@@ -19,6 +19,8 @@ const BOARDS = {
 	circuit: ["{circuit}电路图板", "[电路]", () => new CircuitBoard()],
 	phys: ["{lens}光学力学板", "[作图]", () => Object.assign(new Board({ phys: true }), { kind: "phys" })],
 };
+const hints = {}; // 分级提示：题 id → 已拿到的提示（最多 3 级）
+const whys = {}; // 交卷即讲：作答 id → Max 的一句话讲解
 const DRAWN = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图类：Max 不批不讲，交给 Claude
 const kindOf = (b) => (b === "coord" || b === "grid" ? "geo" : b);
 const offer = (q) => (q.subject === "数学" ? ["calc", "geo"] : q.subject === "物理" ? ["calc", "circuit", "phys"] : q.subject === "语文" ? [] : ["geo"]); // 语文没有画板
@@ -148,6 +150,9 @@ function render(anim) {
 	box.append(
 		// 专注：题头只留科目/题型和标记图标
 		el("div", { className: "qhead" }, el("span", { className: "tag", textContent: q.subject + (q.tag ? " · " + q.tag : "") }), el("span", { style: "flex:1" }),
+			// 卡住了：分级提示（只给思路，不给答案）；交过就不用提示了，直接问 Max
+			typeof done[cur] === "number" ? "" : el("button", { type: "button", className: "mark", title: "提示（一级一级给，不给答案）", textContent: "{bulb}", onclick: () => getHint(q) }),
+			el("button", { type: "button", className: "mark", title: "问 Max 这道题", textContent: "{max}", onclick: () => Max.open() }),
 			// 标记：放进临时文件夹，交卷后可以让 Claude 解析（24 小时过期）；错题本重做不需要（做对的进错题文件夹，Claude 来取）
 			FROM_WRONG ? "" : el("button", { type: "button", className: "mark" + (marks[cur] ? " on" : ""), title: "标记：交卷后可让 Claude 解析", textContent: "{bookmark}", onclick: (e) => {
 				const on = (marks[cur] = !marks[cur]), b = e.currentTarget;
@@ -155,7 +160,8 @@ function render(anim) {
 				api("/api/mark", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question_id: q.id, on }) }).catch(() => {});
 			} })),
 		el("p", { className: "stem", textContent: q.stem, style: "white-space:pre-wrap" }),
-		Fig.view(q.fig)); // 题图：题干正下方、选项和画板之前
+		Fig.view(q.fig), // 题图：题干正下方、选项和画板之前
+		hintBox(q));
 	if (typeof done[cur] === "number") box.append(el("div", { className: "ans", textContent: "{check}已提交，改了答案离开时会自动更新" }));
 	// 还没打开的画板/草纸按钮：收起后从这里再打开（选择、填空、解答题都有；简答题的在拍照那一行里）
 	const offerRow = () => {
@@ -226,6 +232,42 @@ function render(anim) {
 	math(box);
 	isle.fill(q);
 	Max.setCtx(typeof done[cur] === "number" ? { a: done[cur], qid: q.id } : { q: q.id }); // 没交：只给提示；交了：可以讲（qid：同一题交卷前后算一段对话）
+}
+
+// ---------- 交卷即讲：一次只问一题（排队），有缓存，轮询重画时不重复请求 ----------
+let whyQ = Promise.resolve();
+function whyLine(r) {
+	const d = el("div", { className: "ans hint" }, el("b", { textContent: "Max：" }), whys[r.id] ?? "正在看错在哪…");
+	if (whys[r.id] == null) {
+		whys[r.id] = "正在看错在哪…";
+		whyQ = whyQ.then(() => api("/api/max/why", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ a: r.id }) }))
+			.then((x) => x.text, (e) => "暂时没讲成（" + e.message + "），点「问 Max」再看")
+			.then((t) => { whys[r.id] = t; for (const n of document.querySelectorAll(`[data-why="${r.id}"]`)) { n.lastChild.textContent = t; math(n); } });
+	}
+	d.dataset.why = r.id;
+	math(d);
+	return d;
+}
+
+// ---------- 分级提示 ----------
+const HINT_NAME = ["思路", "关键一步", "差最后一步"];
+function hintBox(q) {
+	const h = hints[q.id];
+	if (!h?.length && !h?.busy) return "";
+	const box = el("div", { className: "hints" }, ...h.map((t, i) => el("div", { className: "ans hint" }, el("b", { textContent: `提示 ${i + 1} · ${HINT_NAME[i]}：` }), t)),
+		h.busy ? el("div", { className: "ans hint mute", textContent: "Max 想提示中…" }) : "");
+	box.append(el("div", { className: "row" }, h.length < 3 && !h.busy ? el("button", { type: "button", className: "btn small", textContent: "{bulb}再给一点提示", onclick: () => getHint(q) }) : "",
+		el("button", { type: "button", className: "btn small", textContent: "{max}还是不会，问 Max", onclick: () => Max.open(undefined, "这题我还是不会，再给我讲讲思路（先别说答案）") })));
+	math(box);
+	return box;
+}
+async function getHint(q) {
+	const h = (hints[q.id] ||= []);
+	if (h.busy || h.length >= 3) return h.length >= 3 && toast("提示给完了，还不会就问 Max");
+	h.busy = true; render();
+	try { h.push((await api("/api/max/hint", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q: q.id, level: h.length + 1 }) })).text); }
+	catch (e) { toast(e.message); }
+	finally { h.busy = false; if (qs[cur] === q) render(); }
 }
 
 // ---------- 浮岛 ----------
@@ -357,6 +399,7 @@ async function showResult(ids, got) {
 		}
 		if (r.status === "待批改" && !r.grader && r.max_score != null) // Max 的初评（作图题拿不准时给 Claude 参考）
 			card.append(el("div", { className: "ans", textContent: `Max 初评：${r.max_score} 分，${r.max_comment || ""}（把握不大，已交给 Claude 定）` }));
+		if (r.status === "已判" && r.is_correct === 0 && !DRAWN.has(r.tag)) card.append(whyLine(r)); // 交卷即讲：做错的题 Max 自动说一句错在哪
 		if (r.status === "已判" && r.is_correct === 0 && r.topic) card.append(noteLink(r.subject, r.topic)); // 做错了：同考点的 Notion 笔记
 		const ask = r.status === "已判" && (!DRAWN.has(r.tag) || r.grader === "max"); // 作图题 Max 批过的也能问
 		const btns = el("div", { className: "row", style: "margin-top:8px" },

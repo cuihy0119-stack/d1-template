@@ -2,7 +2,7 @@
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
 let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，Max 整理好，Claude 来取）
-let subject = new URLSearchParams(location.search).get("subject") || "", cat = ""; // cat：章节（选了科目后再细分）
+let subject = new URLSearchParams(location.search).get("subject") || "", cat = "", why = ""; // why：按 Max 分析的错因筛（错题本） // cat：章节（选了科目后再细分）
 tabbar("/" + MODE);
 
 const quizHref = (ids) => "/quiz?ids=" + ids.join(",") + (MODE === "wrong" ? "&from=wrong" : ""); // 错题重做不需要标记按钮
@@ -38,7 +38,12 @@ function render() {
 	if (cats.length > 1) chips.append(el("div", { className: "chips2" }, ...["", ...cats].map((c) =>
 		el("button", { className: "chip small" + (c === cat ? " on" : ""), textContent: c || "全部章节", onclick: () => { cat = c; render(); } }))));
 
-	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat));
+	// 错题本：按错因归类（Max 分析的），点一个只看这类错
+	const whys = MODE === "wrong" && tab === "active" ? [...new Set(data.items.filter((q) => (!subject || q.subject === subject) && q.max_reason).map((q) => q.max_reason))] : [];
+	if (why && !whys.includes(why)) why = "";
+	if (whys.length > 1) chips.append(el("div", { className: "chips2" }, ...["", ...whys].map((w) =>
+		el("button", { className: "chip small" + (w === why ? " on" : ""), textContent: w ? "错因：" + w : "全部错因", onclick: () => { why = w; render(); } }))));
+	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat) && (!why || q.max_reason === why));
 	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries && !(q.due && q.due > data.today)));
 	const top = $("#redo");
 	top.replaceChildren();

@@ -544,6 +544,28 @@ const Max = (() => {
 		}
 	}
 
+	// ---------- 选中就问：在页面上选中一段文字（题干、解析、公式），旁边出一个「问 Max」 ----------
+	let selB = null, selT = 0;
+	const hideSel = () => selB?.classList.remove("on");
+	document.addEventListener("selectionchange", () => { clearTimeout(selT); selT = setTimeout(showSel, 350); });
+	function showSel() {
+		const s = getSelection(), t = String(s || "").trim().replace(/\s+/g, " ");
+		const at = s?.anchorNode?.nodeType === 1 ? s.anchorNode : s?.anchorNode?.parentElement;
+		if (!t || t.length < 2 || t.length > 200 || !s.rangeCount || !at || at.closest("input,textarea,.island,.mpeek,.selask,math-field")) return hideSel();
+		const r = s.getRangeAt(0).getBoundingClientRect();
+		if (!r.width && !r.height) return hideSel();
+		if (!selB) {
+			selB = el("button", { type: "button", className: "selask" }, logo(), el("span", { textContent: "问 Max" }));
+			selB.addEventListener("pointerdown", (e) => e.preventDefault()); // 点按钮时不让选区消失
+			selB.onclick = () => { const q = selB.dataset.q; hideSel(); getSelection()?.removeAllRanges(); open(undefined, `「${q}」是什么意思？结合当前内容讲讲`); };
+			document.body.append(selB);
+		}
+		selB.dataset.q = t.slice(0, 120);
+		const y = r.bottom + 10 + 40 > innerHeight ? r.top - 48 : r.bottom + 10; // 放在选区下面（上面留给系统的拷贝菜单），贴底了就放上面
+		selB.style.transform = `translate(${Math.round(Math.min(Math.max(8, r.left + r.width / 2 - 50), innerWidth - 108))}px,${Math.round(Math.max(8, y))}px)`;
+		selB.classList.add("on");
+	}
+
 	return {
 		logo, // 首页标题的小太阳用同一个标志（和思考时一样会动）
 		setCtx(c) { ctx = base = c || {}; prefetch(ctx); if (ui?.island.classList.contains("open")) quick(); },

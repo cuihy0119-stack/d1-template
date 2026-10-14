@@ -1,6 +1,6 @@
 // Max 助手 = 两个模型：
 //   总管：Cloudflare Workers AI（免费额度每天 1 万神经元，UTC 0 点重置）→ 默认干所有活
-//   备用：DeepSeek API（Worker 运行时密钥 DEEPSEEK_API_KEY）→ 遇到难题直接上；总管额度用完、出错、超时、答得不靠谱时顶上
+//   备用：DeepSeek API（Worker 运行时密钥 DEEPSEEK_API_KEY）→ 只在总管额度用完、出错、超时、答得不靠谱时顶上（难题也先让总管用强模型答）
 // 同一件事只由一个模型答（按顺序试，成功就停），不会两边重复花钱；批改有抢占标记，不会重复批。
 // 省用量：关掉深度思考、限制输出长度、只发必要字段、能缓存的都缓存；作图/照片/手写题不碰，照旧交给 Claude。
 import { today, updateQueue } from "./review";
@@ -13,7 +13,7 @@ import { enqueueNow } from "./jobs";
 import { info as kimiInfo, note as kimiNote, patch as kimiPatch } from "./kimi";
 
 const CF = ["@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwen3.8-27b"]; // 默认先用便宜的 glm（输出价只有 qwen 的 1/8）；批改（strong）先用 qwen
-const CHAT_DS = 20; // 聊天一句话超过这么多字才换 DeepSeek，短问短答全留在 Cloudflare
+const CHAT_DS = 20; // 聊天一句话超过这么多字算「难」：总管换强模型（qwen）先答，答不了再交给 DeepSeek
 const DAILY = 9800, SOFT = 8500; // Cloudflare 估算神经元：超过 SOFT 只留批改，超过 DAILY 不再用
 const DS_DAILY = 400_000; // DeepSeek 每天最多用的 token（防止意外花钱）
 const PASS = 80;
@@ -21,7 +21,7 @@ const REASONS = ["概念不清", "表述不规范", "审题失误", "计算错�
 const DRAW = new Set(["作图", "函数", "电路", "光路", "受力", "证明"]); // 作图题：Max 不批，交给 Claude
 
 type Msg = { role: "system" | "user" | "assistant"; content: string };
-type Route = "work" | "hard"; // work=平常（总管优先），hard=难题（备用优先）
+type Route = "work" | "hard" | "ds"; // work=平常；hard=难题（总管的强模型优先，DeepSeek 兜底）；ds=学生自己选了「尽量 DeepSeek」
 export class MaxErr extends Error {}
 
 // ---------- 用量 ----------
@@ -58,7 +58,7 @@ async function providers(env: Env, route: Route, must = false, only?: string, de
 	const db = env.DB, key = (env as any).DEEPSEEK_API_KEY as string | undefined;
 	const kp = await kimiPatch(db); // Kimi 自检的补丁（只有白名单里的几个数字/开关）
 	const [cfUsed, dsUsed] = await Promise.all([used(db), key ? meter(db, "ds:") : Promise.resolve(Infinity)]);
-	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? (strong ? [...CF].reverse() : CF).map((model) => ({
+	const cf: Prov[] = !deep && cfUsed < (must ? DAILY : SOFT) ? (strong || route === "hard" ? [...CF].reverse() : CF).map((model) => ({
 		name: "cf", model, firstMs: kp.cfMs ?? 12000,
 		call: (messages, max, stream) => within((signal) => {
 			// 这两个都是会「先想后答」的模型：思考也算在输出上限里，不留余量会想完就没字了（「Max 没说话」）。
@@ -89,7 +89,7 @@ async function providers(env: Env, route: Route, must = false, only?: string, de
 		},
 		bill: (u, i, o) => Promise.all([add(db, "ds:", (u?.prompt_tokens ?? i) + (u?.completion_tokens ?? o)), add(db, "dsn:", 1)]),
 	}] : [];
-	const all = (route === "hard" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
+	const all = (route === "ds" ? [...ds, ...cf] : [...cf, ...ds]).filter((p) => !only || p.name === only);
 	const ok = all.filter((p) => !kp.skip?.[p.model]); // 被熔断的模型先跳过；全被熔断就都试（总得有人答）
 	const list = ok.length ? ok : all;
 	if (!list.length) throw new MaxErr("Max 今天的额度用完了，明天再来" + (key ? "" : "（可以接 DeepSeek 备用）"));
@@ -275,7 +275,7 @@ export async function grade(env: Env, id: number, fallback: number | null) {
 			return;
 		}
 		if (r && !draw && by === "cf" && ((r.sure ?? 1) < 0.6 || (Math.abs(r.score - PASS) < 10 && (r.sure ?? 1) < 0.8)) && (await hasDs(env)))
-			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "hard", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
+			r = json<any>(await ask(env, msgs, { max: 220, must: true, route: "ds", only: "ds", ok: valid }).catch(() => "")) ?? r; // 只问 DeepSeek，不再让总管重复批
 		if (!r || typeof r.score !== "number") throw new Error("Max 没给出分数");
 		const score = Math.max(0, Math.min(100, Math.round(r.score))), ok = score >= PASS;
 		await db.prepare("UPDATE attempts SET score = ?, comment = ?, error_reason = ?, is_correct = ?, status = '已判', grader = 'max' WHERE id = ?")
@@ -438,10 +438,16 @@ const WEB_NOTE = "有“联网搜索结果”时优先依据结果回答，结�
 
 // len：回答长短（s 简洁省额度 / m 标准 / l 详细）；pref：优先引擎（auto 自动 / ds 尽量 DeepSeek / cf 只用 Cloudflare）
 type Tmp = { stem: string; options?: string[]; answer?: string; mine?: string; exp?: string; done?: boolean }; // Max 现场出的临时题（不在题库）
-type Ctx = { q?: number; a?: number; explain?: number; cmp?: boolean; marked?: boolean; web?: boolean; deep?: boolean; tmp?: Tmp; page?: { path?: string; title?: string; text?: string }; len?: "s" | "m" | "l"; pref?: "auto" | "ds" | "cf" };
+type Ctx = { pending?: boolean; q?: number; a?: number; explain?: number; cmp?: boolean; marked?: boolean; web?: boolean; deep?: boolean; tmp?: Tmp; page?: { path?: string; title?: string; text?: string }; len?: "s" | "m" | "l"; pref?: "auto" | "ds" | "cf" };
 const LEN = { s: ["回答≤80字，只说要点。", 350], m: ["", 600], l: ["可以讲详细些（≤400字）。", 1000] } as const;
 
 async function context(db: D1Database, ctx: Ctx): Promise<{ text: string; key?: string; hard?: boolean }> {
+	if (ctx.pending) { // 等 Claude 批改的题：带上 Max 的初评，学生先在网站里看个大概，不用每次都去叫 Claude
+		const { results } = await db.prepare(`SELECT a.id aid, a.answer_text, a.max_score, a.max_comment, a.max_sure, q.subject, q.stem, q.answer FROM attempts a JOIN questions q ON q.id = a.question_id
+			WHERE a.status = '待批改' AND a.grader IS NULL ORDER BY a.id DESC LIMIT 8`).all<any>();
+		if (!results.length) return { text: "（现在没有等 Claude 批改的题）" };
+		return { text: "等 Claude 批改的题（Max 初评仅供参考，最终以 Claude 为准）：\n" + results.map((r) => `${r.subject}·${String(r.stem).slice(0, 30)}｜参考：${arr(r.answer).join("/").slice(0, 40)}｜作答：${String(r.answer_text || "（照片）").slice(0, 80)}｜${r.max_score != null ? `Max 初评 ${r.max_score} 分（把握 ${Math.round((r.max_sure ?? 0) * 100)}%）${r.max_comment || ""}` : "Max 还没看"}`).join("\n") };
+	}
 	if (ctx.marked) {
 		const { results } = await db.prepare(
 			`SELECT q.id, q.no, q.subject, q.topic, q.type, q.stem, q.options, q.answer, q.explanation, a.id aid, a.answer_text, a.is_correct, a.status, a.error_reason, a.comment, a.time_spent_sec
@@ -507,7 +513,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 		if (hit) return { cached: hit };
 	}
 	// 省额度：历史里 Max 的旧回答只留开头
-	const hard = q.trim().length > CHAT_DS || !!c.hard; // 真难（一句话超过 20 字、或数理化大题讲解）才上 DeepSeek；其余全在 Cloudflare
+	const hard = q.trim().length > CHAT_DS || !!c.hard; // 难（一句话超过 20 字、或数理化大题讲解）：总管用强模型先答，DeepSeek 只兜底
 	const hist = messages.slice(hard ? -4 : -3).map((m) => m.role === "assistant" ? { role: "assistant", content: String(m.content).slice(0, 300) } as Msg : { role: "user", content: String(m.content).slice(0, 500) } as Msg);
 	const len = LEN[ctx.len ?? "m"] ?? LEN.m;
 	const drawing = DRAW_RE.test(q) || /题图/.test(c.text); // 和图有关：附上画图说明、多留输出
@@ -532,7 +538,7 @@ export async function chat(env: Env, messages: Msg[], ctx: Ctx = {}, allow?: () 
 	let engine = "";
 	const stream = await askStream(env, [{ role: "system", content: sys }, ...hist], {
 		max: (ctx.deep ? 4000 : ctx.marked ? Math.max(900, len[1]) : len[1]) + (drawing ? 400 : 0), // 深度思考的思考过程也算在 max 里，要给足
-		route: ctx.deep || ctx.pref === "ds" || (hard && ctx.pref !== "cf") ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
+		route: ctx.deep || ctx.pref === "ds" ? "ds" : hard ? "hard" : "work", only: ctx.deep ? "ds" : ctx.pref === "cf" ? "cf" : undefined, deep: ctx.deep,
 		done: !ctx.web && oneShot && c.key ? (t) => cachePut(db, c.key!, t) : qkey ? (t) => cachePut(db, qkey, t) : undefined, engine: (n) => (engine = n) });
 	return { stream: guard ? guarded(stream, guard) : stream, engine, web: ctx.web ? web : undefined };
 }
@@ -592,6 +598,43 @@ function guarded(src: ReadableStream<Uint8Array>, find: (t: string) => number): 
 			if (all.length > sent) ctl.enqueue(enc.encode(all.slice(sent)));
 		},
 	}));
+}
+
+// ---------- 分级提示：卡住时一级一级给（1 思路方向 → 2 关键一步 → 3 差最后一步），不给答案 ----------
+// 只走总管（Cloudflare），总管不行才 DeepSeek；同一题同一级缓存 30 天，再点不花额度；回答里露出答案就截掉
+const HINT_SYS = ["只给思路方向：考什么知识点、该从哪里想（≤40字）。", "给出关键的第一步或要用的公式/性质（≤60字）。", "带着做到离答案只差最后一步（≤90字），最后一步留给学生。"];
+export async function hint(env: Env, qid: number, level: number, allow?: () => Promise<boolean>): Promise<string> {
+	const db = env.DB, lv = Math.min(3, Math.max(1, level | 0)), key = `hint:${qid}:${lv}`;
+	const hit = await cacheGet(db, key, 24 * 30);
+	if (hit) return hit;
+	const q = await db.prepare("SELECT subject, topic, stem, fig, options, answer, explanation FROM questions WHERE id = ?").bind(qid).first<any>();
+	if (!q) throw new MaxErr("找不到这道题");
+	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来");
+	const prev: string[] = [];
+	for (let i = 1; i < lv; i++) { const p = await cacheGet(db, `hint:${qid}:${i}`, 24 * 30); if (p) prev.push(p); }
+	const sys = `你是初三辅导老师 Max，学生做题卡住了。${HINT_SYS[lv - 1]}绝不说出最终答案或正确选项。中文，公式 $..$，化学式 $\\ce{..}$。`;
+	const user = `${q.subject}（${q.topic || ""}）：${q.stem}${q.options ? "｜选项：" + arr(q.options).join(" ") : ""}${q.fig ? "｜" + figText(q.fig) : ""}
+参考答案（只给你看，不许说出）：${arr(q.answer).join(" / ") || q.answer}${q.explanation ? "｜解析：" + String(q.explanation).slice(0, 200) : ""}${prev.length ? "\n已经给过的提示：" + prev.join(" / ") : ""}`;
+	let t = await ask(env, [{ role: "system", content: sys }, { role: "user", content: user }], { max: 80 + lv * 60 });
+	const guard = await answerGuard(db, { q: qid });
+	const i = guard ? guard(t) : -1;
+	if (i >= 0) t = t.slice(0, Math.max(0, t.lastIndexOf("。", i) + 1)) || "先回到题目条件，想想要用哪个公式或性质。";
+	await cachePut(db, key, t);
+	return t;
+}
+
+// ---------- 交卷即讲：做错的题自动给一句「错在哪 + 怎么改」（≤60字），每条作答只算一次 ----------
+export async function why(env: Env, aid: number, allow?: () => Promise<boolean>): Promise<string> {
+	const db = env.DB, key = `why:${aid}`;
+	const hit = await cacheGet(db, key, 24 * 30);
+	if (hit) return hit;
+	const c = await context(db, { explain: aid });
+	if (!c.text || !/【错】/.test(c.text)) throw new MaxErr("这题不用讲");
+	if (allow && !(await allow())) throw new MaxErr("今天和 Max 聊得够多了，明天再来");
+	const t = await ask(env, [{ role: "system", content: "你是初三辅导老师 Max。一句话（≤60字）指出学生错在哪一步、正确思路是什么。中文，公式 $..$，化学式 $\\ce{..}$。不要客套。" },
+		{ role: "user", content: c.text }], { max: 160 });
+	await cachePut(db, key, t);
+	return t;
 }
 
 // ---------- 看图：学生在 Max 里发的照片，先用 Cloudflare 的看图模型转写成文字，再交给平常的问答（DeepSeek 深度思考也能用） ----------
@@ -784,11 +827,20 @@ export async function maxDaily(env: Env) { // 北京时间凌晨 3 点：Max 把
 // 只看文字（画板描述里有算好的方程/交点、电路网表），不看图，省额度；Claude 同意就一键确认，拿不准再看图
 export async function pregrade(env: Env, ids: number[]) {
 	for (const id of ids) {
-		const a = await env.DB.prepare(`SELECT a.answer_text, q.subject, q.stem, q.answer, q.explanation FROM attempts a JOIN questions q ON q.id = a.question_id
+		const a = await env.DB.prepare(`SELECT a.answer_text, a.photo_key, q.subject, q.stem, q.answer, q.explanation FROM attempts a JOIN questions q ON q.id = a.question_id
 			WHERE a.id = ? AND a.status = '待批改' AND a.grader IS NULL`).bind(id).first<any>();
-		if (!a || !/\[(作图|电路|计算)\]/.test(String(a.answer_text ?? ""))) continue; // 没有画板文字描述（纯照片/手写）：Max 看不了图，不白花额度
+		if (!a) continue;
+		let seen = "";
+		if (!/\[(作图|电路|计算)\]/.test(String(a.answer_text ?? ""))) { // 纯照片/手写：Max 先用 Cloudflare 看图模型转写，写个初评给 Claude 参考（额度紧时不看）
+			const k = String(a.photo_key ?? "").split(",").find((x) => x && !x.startsWith("views/"));
+			if (!k || (await used(env.DB)) >= SOFT) continue;
+			const ph = await env.DB.prepare("SELECT content_type, data FROM photos WHERE key = ?").bind(k).first<{ content_type: string; data: string }>();
+			if (!ph || ph.data.length > 2_800_000) continue;
+			try { seen = await see(env, `data:${ph.content_type};base64,${ph.data}`, "这是学生对下面这道题的作答，只转写学生写的内容：" + String(a.stem).slice(0, 150)); } catch { continue; }
+			a.answer_text = [a.answer_text, "[照片转写，可能有误]" + seen].filter(Boolean).join("\n");
+		}
 		try {
-			const r = json<{ score: number; comment?: string; sure?: number }>(await ask(env, [{ role: "system", content: GRADE_SYS + "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好）。" },
+			const r = json<{ score: number; comment?: string; sure?: number }>(await ask(env, [{ role: "system", content: GRADE_SYS + "\n作答里的 [作图]/[电路] 是画板的文字描述（坐标单位=格，方程和交点已算好）。" + (seen ? "\n作答是从照片转写的，看不清的地方别扣分，sure 最多 0.7。" : "") },
 				{ role: "user", content: `题（${a.subject}）：${a.stem}\n参考：${arr(a.answer).join(" / ")}${a.explanation ? "\n要点：" + a.explanation : ""}\n作答：${a.answer_text}` }], { max: 220, strong: true, ok: (t) => typeof json<any>(t)?.score === "number" }));
 			if (r) await env.DB.prepare("UPDATE attempts SET max_score = ?, max_comment = ?, max_sure = ? WHERE id = ?")
 				.bind(Math.max(0, Math.min(100, Math.round(r.score))), (r.comment || "").slice(0, 120), Math.max(0, Math.min(1, r.sure ?? 0.5)), id).run();

@@ -88,6 +88,7 @@ const ICONS = {
 	check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
 	x: '<path d="M6 6l12 12M18 6L6 18"/>',
 	warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.5h.01"/>',
+	bulb: '<path d="M9.5 18h5M10.5 21h3"/><path d="M12 3a6 6 0 00-3.6 10.8c.6.5 1.1 1.3 1.1 2.1V16h5v-.1c0-.8.5-1.6 1.1-2.1A6 6 0 0012 3z"/>',
 	gear: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5M6 6l1.8 1.8M16.2 16.2L18 18M18 6l-1.8 1.8M7.8 16.2L6 18"/>',
 };
 /** 图标的 HTML 字符串（用在拼 innerHTML 的地方）；max = Max 的放射星标志 */
@@ -215,10 +216,20 @@ const CLAUDE_ASK = {
 };
 // iPhone/iPad：同页打开链接，系统会直接拉起 Claude App（通用链接）；App 不一定读得到预填内容，所以同时把指令复制好，进去粘贴即可
 const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
-const askClaude = (text, label) =>
-	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), textContent: label, style: "text-decoration:none;margin-top:10px",
+// 和 Claude 的交互也先过 Max：Max 能先做的（看初评、设考试）放在前面，省得每次都去叫 Claude
+const MAX_FIRST = {
+	[CLAUDE_ASK.grade]: ["{max}先看 Max 初评", { pending: true }, "等 Claude 批改的题，你的初评怎么样？哪些拿不准？"],
+	[CLAUDE_ASK.exams]: ["{max}让 Max 设考试", undefined, "帮我设考试倒计时（问我考试名称和日期）"],
+};
+const claudeLink = (text, label) =>
+	el("a", { className: "btn", href: "https://claude.ai/new?q=" + encodeURIComponent(text), textContent: label, style: "text-decoration:none",
 		...(IOS ? {} : { target: "_blank", rel: "noopener" }),
 		onclick: () => { dropCache(); navigator.clipboard?.writeText(text).then(() => toast("指令已复制，在 Claude 里粘贴发送即可"), () => {}); } });
+const askClaude = (text, label) => {
+	const m = MAX_FIRST[text];
+	if (!m || typeof Max === "undefined") return el("div", { style: "margin-top:10px" }, claudeLink(text, label));
+	return el("div", { className: "row", style: "margin-top:10px" }, el("button", { type: "button", className: "btn", textContent: m[0], onclick: () => Max.open(m[1], m[2]) }), claudeLink(text, label));
+};
 function toast(msg) {
 	const t = el("div", { className: "toast", textContent: msg });
 	document.body.append(t);

@@ -697,3 +697,12 @@ input[type=text],input[type=password],textarea,.calcpad,.cline math-field{border
 .opt{border-radius:var(--r-l)}
 .ans{border-radius:var(--r-s)}
 .qfig canvas,.qfig img,.thumbs img{border-radius:var(--r-m)}
+/* ---- AI 交互：分级提示、交卷即讲、选中就问 ---- */
+.hints{margin-top:12px}.hints .row{margin-top:8px}
+.ans.hint{white-space:normal;border-left-color:var(--pri)}.ans.hint b{font-weight:600;color:var(--pri);margin-right:4px}
+.selask{position:fixed;left:0;top:0;z-index:40;display:flex;align-items:center;gap:6px;height:var(--h-s);padding:0 14px 0 10px;border:1px solid var(--ge);border-radius:999px;corner-shape:round;
+  background:color-mix(in srgb,var(--solid) 70%,transparent);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--gh),0 8px 24px -10px rgba(40,25,10,.4);color:var(--fg);font:500 var(--fs-s)/1 var(--serif);opacity:0;pointer-events:none;transition:opacity .15s}
+.selask.on{opacity:1;pointer-events:auto}
+.selask .mlogo{width:18px;height:18px}.selask .mlogo svg{width:100%;height:100%}
+.qhead button.mark{margin-left:4px}
