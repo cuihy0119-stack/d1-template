@@ -45,7 +45,6 @@ async function loadHome() {
 	renderHero(h);
 	Max.tip(h.today_count ? `今天还有 ${h.today_count} 题要练` + (h.pending_grades ? `，${h.pending_grades} 题等 Claude 批改` : "") : "今天的题都练完了");
 	$("#today").textContent = `今日练习（${h.today_count} 题）`;
-	$("#upmsg").textContent = h.pending_uploads ? `${h.pending_uploads} 张照片等 Claude 处理` : "";
 	const ask = $("#ask");
 	ask.replaceChildren();
 	if (h.pending_grades) ask.append(askClaude(CLAUDE_ASK.grade, `让 Claude 批改（${h.pending_grades} 题待批改）`));
@@ -70,29 +69,6 @@ async function loadHome() {
 			el("div", { className: "mute", textContent: s.undone ? `${s.undone} 题未做` : `共 ${s.total} 题` })));
 	}
 }
-
-$("#pick").onchange = async (e) => {
-	const files = [...e.target.files];
-	if (!files.length) return;
-	const msg = $("#upmsg");
-	uploading = true;
-	msg.textContent = `上传中… 0/${files.length}`;
-	try {
-		for (let i = 0; i < files.length; i++) {
-			const fd = new FormData();
-			fd.append("files", await compress(files[i]));
-			await api("/api/uploads", { method: "POST", body: fd });
-			msg.textContent = `上传中… ${i + 1}/${files.length}`;
-		}
-		uploading = false;
-		await loadHome().catch(() => {}); // 照片已经传上去了：刷新首页失败不算上传失败
-		msg.textContent = `已上传 ${files.length} 张。` + msg.textContent;
-	} catch (err) {
-		uploading = false;
-		msg.textContent = "上传失败：" + err.message;
-	}
-	e.target.value = "";
-};
 
 // Max：今天先做什么 + 薄弱点 + 考前冲刺（服务器按天缓存，做题有变化才重算，不怎么花额度）
 let lastBrief = "";

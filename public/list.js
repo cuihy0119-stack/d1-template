@@ -2,7 +2,7 @@
 const MODE = document.body.dataset.mode;
 let data = { items: [], today: "" };
 let tab = "active"; // 错题本：active 复习中 / mastered 错题文件夹（重做做对的，Max 整理好，Claude 来取）
-let subject = new URLSearchParams(location.search).get("subject") || "", cat = "", why = ""; // why：按 Max 分析的错因筛（错题本） // cat：章节（选了科目后再细分）
+let subject = new URLSearchParams(location.search).get("subject") || "", cat = ""; // cat：章节（选了科目后再细分）
 tabbar("/" + MODE);
 
 const quizHref = (ids) => "/quiz?ids=" + ids.join(",") + (MODE === "wrong" ? "&from=wrong" : ""); // 错题重做不需要标记按钮
@@ -38,12 +38,7 @@ function render() {
 	if (cats.length > 1) chips.append(el("div", { className: "chips2" }, ...["", ...cats].map((c) =>
 		el("button", { className: "chip small" + (c === cat ? " on" : ""), textContent: c || "全部章节", onclick: () => { cat = c; render(); } }))));
 
-	// 错题本：按错因归类（Max 分析的），点一个只看这类错
-	const whys = MODE === "wrong" && tab === "active" ? [...new Set(data.items.filter((q) => (!subject || q.subject === subject) && q.max_reason).map((q) => q.max_reason))] : [];
-	if (why && !whys.includes(why)) why = "";
-	if (whys.length > 1) chips.append(el("div", { className: "chips2" }, ...["", ...whys].map((w) =>
-		el("button", { className: "chip small" + (w === why ? " on" : ""), textContent: w ? "错因：" + w : "全部错因", onclick: () => { why = w; render(); } }))));
-	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat) && (!why || q.max_reason === why));
+	const shown = data.items.filter((q) => (!subject || q.subject === subject) && (!cat || (q.category || "未分章节") === cat));
 	const todo = shown.filter((q) => (MODE === "wrong" ? tab === "active" && !q.pending : !q.tries && !(q.due && q.due > data.today)));
 	const top = $("#redo");
 	top.replaceChildren();
@@ -87,7 +82,7 @@ function row(q) {
 			el("span", { className: "time", textContent: "{clock}" + when(q.created_at) }),
 			el("div", { className: "stem", textContent: short(q.stem) }),
 			MODE === "wrong" ? el("div", { className: "why" },
-				el("span", { className: "mx", textContent: q.max_reason || q.max_note ? "错因：" + [q.max_reason, q.max_note].filter(Boolean).join("，") : "错因：Max 待分析" })) : ""),
+				el("span", { className: "mx", textContent: q.max_reason ? "错因：" + q.max_reason : "错因：Max 待分析" })) : ""),
 		el("div", { className: "side" }, el("span", { className: "st " + cls, textContent: label }), del));
 	if (MODE === "bank") {
 		item.onclick = () => (location.href = quizHref([q.id]));
@@ -136,9 +131,14 @@ async function loadSum() {
 	if (!s || !s.total) return $("#maxsum").replaceChildren();
 	if (JSON.stringify(s) === lastSum) return; // 没变不重画、不再弹提示
 	lastSum = JSON.stringify(s);
-	const bars = (m) => el("div", { className: "bars" }, ...Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) =>
-		el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))));
-	const org = el("button", { type: "button", className: "btn small", textContent: s.todo ? `{folder}让 Max 整理（${s.todo} 道没整理）` : "{folder}Max 已整理完", disabled: !s.todo, onclick: async () => {
+	// 错因只列最多的 3 类，其余合并成一句（Max 给每道题的错因写得很细，全列出来太长）
+	const bars = (m) => {
+		const all = Object.entries(m).filter(([k]) => k !== "待分析").sort((a, b) => b[1] - a[1]), top = all.slice(0, 3), rest = all.slice(3);
+		return el("div", { className: "bars" }, ...top.map(([k, n]) =>
+			el("div", {}, el("span", { textContent: k }), el("i", { style: `width:${Math.round((n / s.total) * 100)}%` }), el("b", { textContent: n }))),
+			rest.length ? el("p", { className: "mute", textContent: `另有 ${rest.length} 类，各 1-${rest[0][1]} 道` }) : "");
+	};
+	const org = !s.todo ? "" : el("button", { type: "button", className: "btn small", textContent: `{folder}让 Max 整理（${s.todo} 道没整理）`, onclick: async () => {
 		const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 150000);
 		org.disabled = true; org.textContent = "整理中…";
 		try { await api("/api/max/organize", { method: "POST", signal: ctl.signal }); load(); }

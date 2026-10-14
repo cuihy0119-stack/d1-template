@@ -132,10 +132,10 @@ async function savePhoto(env: Env, file: File, prefix: string) {
 }
 
 // 今日练习：到期的错题 + 还没做过的新题（有待批改作答的题先不出）
-async function todayQuestions(db: D1Database): Promise<Q[]> {
+async function todayQuestions(db: D1Database, cols = "q.*"): Promise<Q[]> { // 只数数量时 cols 传 q.id，不拉整行（题图 JSON 可能很大）
 	const due = await db
 		.prepare(
-			`SELECT q.* FROM questions q JOIN review_queue r ON r.question_id = q.id
+			`SELECT ${cols} FROM questions q JOIN review_queue r ON r.question_id = q.id
 			 WHERE r.next_date <= ? AND q.status = 'active' AND ${live()}
 			   AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改')
 			 ORDER BY r.next_date, q.id`,
@@ -144,7 +144,7 @@ async function todayQuestions(db: D1Database): Promise<Q[]> {
 		.all<Q>();
 	const fresh = await db
 		.prepare(
-			`SELECT * FROM questions q WHERE q.source = '同类题' AND q.status = 'active' AND ${live()} AND ${ready()}
+			`SELECT ${cols} FROM questions q WHERE q.source = '同类题' AND q.status = 'active' AND ${live()} AND ${ready()}
 			 AND NOT EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id) ORDER BY q.id`,
 		)
 		.bind(today())
@@ -178,7 +178,7 @@ app.get("/api/home", async (c) => {
 });
 async function homeData(db: D1Database) {
 	const [qs, pending, wrong, subjects, ungraded, marked, recent, exams, days_, right7] = await Promise.all([
-		todayQuestions(db),
+		todayQuestions(db, "q.id"),
 		db.prepare("SELECT COUNT(*) n FROM uploads WHERE status = '待处理'").first<{ n: number }>(),
 		db.prepare(`SELECT COUNT(*) n FROM review_queue r JOIN questions q ON q.id = r.question_id WHERE q.status = 'active' AND ${live()}`).first<{ n: number }>(),
 		db
@@ -191,7 +191,7 @@ async function homeData(db: D1Database) {
 			)
 			.bind(today(), today())
 			.all(),
-		db.prepare("SELECT COUNT(*) n FROM attempts WHERE status = '待批改' AND grader IS NULL").first<{ n: number }>(), // Max 在批的不算
+		db.prepare("SELECT COUNT(*) n FROM attempts a JOIN questions q ON q.id = a.question_id WHERE a.status = '待批改' AND a.grader IS NULL").first<{ n: number }>(), // Max 在批的不算；题已不存在的不算
 		db.prepare("SELECT COUNT(*) n FROM marks WHERE attempt_id IS NOT NULL AND created_at > datetime('now','-1 day')").first<{ n: number }>(),
 		db.prepare(`SELECT id, subject, no, type, tag, board, stem, options, created_at FROM questions q WHERE q.status = 'active' AND ${live()} ORDER BY id DESC LIMIT 8`).all<any>(),
 		db.prepare("SELECT v FROM meta WHERE k = 'exams'").first<{ v: string }>(),
@@ -260,10 +260,17 @@ app.get("/api/practice", async (c) => {
 	if (subject) return c.json((await subjectQuestions(c.env.DB, subject)).map(clientQ));
 	const topic = c.req.query("topic"); // Max 推荐的「科目/考点」：错过的优先
 	if (topic) {
-		const [s, t] = topic.split("/");
-		const { results } = await c.env.DB.prepare(
-			`SELECT q.* FROM questions q WHERE q.status = 'active' AND ${live()} AND q.subject = ?1 AND (?2 IS NULL OR COALESCE(q.topic, q.category, '未分类') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%') AND (q.due IS NULL OR q.due <= ?3)
+		const [s, t] = topic.split("/").map((x) => x.trim());
+		// 推题要「分类对」：先按考点/章节/题型标签精确匹配；精确找不到才退到包含匹配（只在这一科里）；两种都没有才让 Max 现场出（网页处理）
+		// 有待批改作答的题不再推（等批完）
+		const run = (like: boolean) => c.env.DB.prepare(
+			`SELECT q.* FROM questions q WHERE q.status = 'active' AND ${live()} AND q.subject = ?1 AND (?2 IS NULL OR ${like
+				? "COALESCE(q.topic, q.category, '') LIKE '%' || ?2 || '%' OR COALESCE(q.tag, '') LIKE '%' || ?2 || '%'"
+				: "q.topic = ?2 OR q.category = ?2 OR q.tag = ?2"}) AND (q.due IS NULL OR q.due <= ?3)
+			   AND NOT EXISTS (SELECT 1 FROM attempts ap WHERE ap.question_id = q.id AND ap.status = '待批改')
 			 ORDER BY EXISTS (SELECT 1 FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) DESC, q.id DESC LIMIT 20`).bind(s, t || null, today()).all<Q>();
+		let { results } = await run(false);
+		if (!results.length && t) results = (await run(true)).results;
 		return c.json(results.map(clientQ));
 	}
 	if (!ids.length) return c.json((await todayQuestions(c.env.DB)).map(clientQ));
@@ -287,7 +294,12 @@ app.post("/api/submit", async (c) => {
 		if (!q) continue;
 		const ans = Array.isArray(it.answer) ? [...it.answer].sort().join("") : String(it.answer ?? "");
 		const text = it.work ? (ans ? ans + "\n" : "") + it.work : ans; // 画板过程附在答案后，给 Claude 看
-		const photo = (it.photo_keys ?? []).filter((k) => /^(attempts|boards|views)\/[\w.-]+$/.test(k)).join(",") || null;
+		const want = (it.photo_keys ?? []).filter((k) => /^(attempts|boards|views)\/[\w.-]+$/.test(k)).slice(0, 12);
+		// 只留真的存在的照片（没传上去的不记，免得留下「照片没了」的作答）；传了照片却一张都没存上、又没写别的：让学生重传，不生成空作答
+		const have = want.length ? new Set((await db.prepare(`SELECT key FROM photos WHERE key IN (${inList(want as unknown as number[])})`).bind(...want).all<{ key: string }>()).results.map((r) => r.key)) : new Set<string>();
+		const keys = want.filter((k) => have.has(k)), photo = keys.join(",") || null;
+		if (it.hand && !photo) return c.json({ error: "手写答案的照片没传上去，请检查网络后重新提交" }, 400); // 手写答案没有图 = 没法批（幽灵作答的来源）
+		if (!text.trim() && !photo && !it.attempt_id) { if (want.length) return c.json({ error: "照片没传上去，请检查网络后重新提交" }, 400); continue; } // 空作答不入库
 		const secs = Math.max(0, Math.min(Math.round(Number(it.time_spent_sec) || 0), 86400));
 		// 改答案：更新原来那条作答（不新增），简答重新待批改，客观题重新判分
 		const old = it.attempt_id
@@ -295,7 +307,7 @@ app.post("/api/submit", async (c) => {
 			: null;
 		// 判分：选择题网站直接判；填空先比对答案，对不上再让 Max 看是不是等价写法；文字解答 Max 批；作图、照片、手写交给 Claude
 		const site = q.type === "short" || it.hand ? null : judge(q.type, parse<string[]>(q.answer, []), it.answer) ? 1 : 0;
-		const mx = !it.hand && (q.type === "short" || (q.type === "fill" && site === 0 && ans.trim() !== "")) ? byMax(q, it.work ?? "", it.photo_keys ?? [], !!it.hand) : false; // 作图题有画板描述也先给 Max
+		const mx = !it.hand && (q.type === "short" || (q.type === "fill" && site === 0 && ans.trim() !== "")) ? byMax(q, it.work ?? "", keys, !!it.hand) : false; // 作图题有画板描述也先给 Max
 		const ok = mx ? null : site;
 		const status = ok == null ? "待批改" : "已判", grader = mx ? "max" : null;
 		let id = old?.id;
@@ -364,8 +376,8 @@ const WRONG_SQL = {
 async function listQuestions(db: D1Database, wrong?: keyof typeof WRONG_SQL) {
 	const { results } = await db
 		.prepare(
-			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.subject || '·' || q.stem stem, q.source, q.created_at, r.next_date, r.stage,
-			        q.max_reason, q.max_note, q.tag, q.due,
+			`SELECT q.id, q.subject, q.category, q.topic, q.type, q.subject || '·' || substr(q.stem, 1, 160) stem, q.source, q.created_at, r.next_date, r.stage,
+			        q.max_reason, q.tag, q.due,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id) tries,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.is_correct = 0) wrongs,
 			        (SELECT COUNT(*) FROM attempts a WHERE a.question_id = q.id AND a.status = '待批改') pending,

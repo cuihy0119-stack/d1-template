@@ -120,6 +120,7 @@ async function save(i) {
 // 中途退出：用 sendBeacon 把当前题发出去（来不及传图，文字和画板描述都在）
 addEventListener("pagehide", () => {
 	if (!qs.length || !pending(cur)) return;
+	if (handed(cur)) return; // 手写答案的图来不及传：不发（发出去只会留下一条没有图的「幽灵作答」）
 	tick();
 	navigator.sendBeacon("/api/submit", new Blob([JSON.stringify({ items: [item(cur)] })], { type: "application/json" }));
 	dropCache(); // 交了题：错题本、首页的缓存作废

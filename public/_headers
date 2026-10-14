@@ -5,10 +5,11 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=()
   X-Robots-Tag: noindex, nofollow
+# 脚本和样式：1 分钟内直接用本地的，之后先显示旧的、后台悄悄更新（少了每个页面十几次「有没有更新」的往返）
 /*.js
-  Cache-Control: no-cache
+  Cache-Control: public, max-age=60, stale-while-revalidate=86400
 /*.css
-  Cache-Control: no-cache
+  Cache-Control: public, max-age=60, stale-while-revalidate=86400
 /fonts/*
   ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
