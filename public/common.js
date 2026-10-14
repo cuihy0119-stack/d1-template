@@ -178,6 +178,16 @@ function compress(file, max = 1280) {
 	});
 }
 
+// 法语点缀（只用在不影响理解的地方：问候、祝贺、空状态、小标题）。法语标点 ! ? : 前用窄不换行空格
+const fr = (t, cls = "") => el("span", { className: "fr " + cls, lang: "fr", textContent: t });
+function greetFr() { const h = new Date().getHours(); return h < 5 ? "Bonne nuit" : h < 12 ? "Bonjour" : h < 18 ? "Bon après-midi" : "Bonsoir"; }
+/** 按正确率给一句法语祝贺 */
+function bravo(right, total) {
+	if (!total) return "Bon travail !";
+	const r = right / total;
+	return r === 1 ? "Parfait ! Félicitations." : r >= 0.8 ? "Bravo ! Très bien joué." : r >= 0.6 ? "Pas mal ! On continue." : "Courage ! Chaque erreur est une leçon.";
+}
+
 // 底部导航
 function tabbar(active) {
 	document.body.classList.add("has-tabs");
