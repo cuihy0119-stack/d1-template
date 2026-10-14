@@ -657,3 +657,34 @@ body.has-tabs main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 /* 子页面标题：保留手写字体，去掉倾斜和波浪线，与正文左边对齐 */
 .hand-h1 .hw.bt{transform:none;padding-left:0;font-size:1.3em}
 .hand-h1 .squig{display:none}
+
+/* ================= 瑞士 + 苹果：版式仍是瑞士（网格、留白、字号档位），形状和材质用苹果的连续圆角与液态玻璃 ================= */
+:root{--r-xl:22px;--r-l:18px;--r-m:14px;--r-s:10px}
+@supports (corner-shape:squircle){:root{--r-xl:30px;--r-l:24px;--r-m:18px;--r-s:13px}}
+/* 小件全部做成胶囊 */
+.chip,.tag,.st,.btn.small,button.del,button.mark,.bhead button,.bhint button{border-radius:999px}
+.qhead button.mark,.qhead button.del{border-radius:50%}
+.opt .ol{border-radius:50%}
+/* 卡片：轻玻璃（半透明 + 顶部高光细边），不做实时模糊，滚动不卡 */
+.card,.subj,#list{background:color-mix(in srgb,var(--solid) 78%,transparent);border-color:color-mix(in srgb,var(--sw-line) 70%,transparent);
+  box-shadow:inset 0 1px 0 var(--edge),0 1px 2px rgba(0,0,0,.04),0 8px 24px -16px rgba(60,40,20,.25)}
+.btn:not(.primary){background:color-mix(in srgb,var(--solid) 60%,transparent);box-shadow:inset 0 1px 0 var(--edge)}
+.btn.primary,.lite .btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 20px -12px var(--pri)}
+/* 分页签：玻璃分段控件 */
+.tabs{display:inline-flex;gap:0;padding:3px;border:1px solid var(--sw-line);border-radius:999px;background:color-mix(in srgb,var(--solid) 55%,transparent);box-shadow:inset 0 1px 0 var(--edge)}
+.tab{padding:6px 18px;border:0;border-radius:999px;margin:0}
+.tab.on{background:var(--solid)!important;color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.1),inset 0 1px 0 var(--edge)!important}
+/* 底栏：悬浮液态玻璃胶囊，当前页是里面一颗玻璃药丸 */
+body.has-tabs main{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+.tabbar,.lite .tabbar{left:50%;right:auto;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);width:min(92vw,400px);padding:6px;gap:4px;
+  border:1px solid var(--ge);border-radius:999px;background:color-mix(in srgb,var(--solid) 62%,transparent);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--gh),0 10px 30px -12px rgba(40,25,10,.35)}
+.lite .tabbar{background:var(--solid)}
+.tabbar::before{display:block;opacity:.5}
+.tabbar>a{max-width:none;margin:0;padding:7px 0 6px;border-radius:999px}
+.tabbar>a::before{display:none}
+.tabbar>a.on{background:color-mix(in srgb,var(--pri) 13%,transparent)!important;box-shadow:inset 0 1px 0 var(--edge)}
+/* 胶囊和圆形用正圆角（squircle 在 999px 圆角下会变成方圆，不像胶囊） */
+.chip,.tag,.st,.btn.small,button.del,button.mark,.bhead button,.bhint button,.tabs,.tab,.tabbar,.tabbar>a,.opt .ol{corner-shape:round}
+.tabs{margin-bottom:16px}
