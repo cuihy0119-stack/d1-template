@@ -34,7 +34,7 @@ function renderHero(h) {
 		return el("div", { className: "exam" + (i ? "" : " first") },
 			el("div", { className: "en", textContent: "距离 " + e.name }),
 			el("div", { className: "ed" }, watchHw(el("span", { className: "num hw", innerHTML: RING }, el("b", { textContent: d || "今天" }))), d ? "天" : ""),
-			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }, d <= 7 && d ? fr(" Allez, on y va !") : d ? fr(" Plus que " + d + " jours") : fr(" C'est le jour J ! Bonne chance.")));
+			el("div", { className: "mute", textContent: e.date.slice(5).replace("-", " 月 ") + " 日" + (d <= 7 && d ? " · 冲刺！" : "") }, d <= 7 && d ? fr(" Allez, on y va !") : d ? "" : fr(" Bonne chance !")));
 	}));
 }
 
@@ -86,16 +86,15 @@ function showBrief(b) {
 	if (!b || JSON.stringify(b) === lastBrief) return;
 	lastBrief = JSON.stringify(b);
 	const go = (ids, label) => (ids.length ? el("a", { className: "btn primary small", href: "/quiz?ids=" + ids.join(","), textContent: label }) : "");
+	// 精简：一句建议 + 最多 3 个薄弱点 + 两个主按钮；冲刺、薄弱点的长段说明不再显示
+	const say = b.soon.length && b.sprint ? `${b.soon[0].name} 冲刺：${b.sprint}` : b.say || "";
 	box.replaceChildren(
-		el("h2", {}, icon("max"), maxWord(), " 的建议", el("span", { className: "maxtag", textContent: b.budget >= 85 ? "今日额度快用完" : "" })),
-		el("p", { textContent: b.say || "" }),
-		b.soon.length && b.sprint ? el("p", {}, el("b", { textContent: `{hourglass}${b.soon[0].name} 冲刺：` }), b.sprint) : "",
-		b.topics.length ? el("div", { className: "weak mute" }, "薄弱点：", ...b.topics.map((w) => el("span", { className: "tag", textContent: `${w.subject}·${w.topic} 错${w.wrong}/${w.n}` }))) : "",
-		b.weakTip ? el("p", { className: "mute", textContent: b.weakTip }) : "",
+		el("h2", {}, icon("max"), maxWord(), el("span", { className: "maxtag", textContent: b.budget >= 85 ? "额度快用完" : "" })),
+		el("p", { textContent: say.length > 48 ? say.slice(0, 47) + "…" : say }),
+		b.topics.length ? el("div", { className: "weak mute" }, ...b.topics.slice(0, 3).map((w) => el("span", { className: "tag", textContent: `${w.subject}·${w.topic}` }))) : "",
 		el("div", { className: "row" },
-			go(b.order, `按 Max 推荐做（${b.order.length} 题）`),
-			go(b.weakIds, b.soon.length ? `冲刺薄弱点（${b.weakIds.length} 题）` : `练薄弱点（${b.weakIds.length} 题）`),
-			b.topics.length ? el("a", { className: "btn small", href: `/quiz?topic=${encodeURIComponent(b.topics[0].subject + "/" + b.topics[0].topic)}&new=1&n=5`, textContent: `{target}Max 出 5 道${b.topics[0].topic}` }) : "", // 临时题，不进题库
+			go(b.order, `按推荐做（${b.order.length}）`),
+			go(b.weakIds, `练薄弱点（${b.weakIds.length}）`),
 			el("button", { type: "button", className: "btn small", textContent: "问 Max", onclick: () => Max.open({}) }),
 			el("button", { type: "button", className: "btn small", textContent: "↻", title: "让 Max 重新看看", onclick: rethink })));
 	box.hidden = false;

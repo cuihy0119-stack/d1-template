@@ -250,7 +250,7 @@ const DRAW_NOTE = "\n作答里的 [作图]/[电路] 是画板的文字描述（�
 const SURE_DRAW = 0.75; // 作图题 Max 把握低于这个：不定分，交给 Claude
 
 const GRADE_SYS = `给初三作答打分 0-100（≥80 算对），依据参考答案和要点，等价写法算对。
-只输出 JSON：{"score":0,"comment":"≤30字","reason":"错因≤6字，对则空","sure":0-1 把握}`;
+只输出 JSON：{"score":0,"comment":"≤30字（得分≥90 可用 Bravo ! / Très bien ! 开头）","reason":"错因≤6字，对则空","sure":0-1 把握}`;
 
 /** 批改一条作答（先抢占，避免重复批）。失败：填空退回网站判，简答留给 Claude */
 export async function grade(env: Env, id: number, fallback: number | null) {
@@ -349,7 +349,7 @@ export async function refine(env: Env, ids: number[]): Promise<string> {
 
 // ---------- 首页：今天先做什么 + 薄弱点 + 考前冲刺（一次调用，按天缓存，做题有变化且过了 3 小时才重算） ----------
 const BRIEF_SYS = `按数据给初三学生排今天的练习。只输出 JSON：
-{"say":"≤50字先做什么+为什么","order":[候选题号≤10个按先后],"weak":"≤60字薄弱点和练法","sprint":"≤60字冲刺重点，无考试则空"}
+{"say":"≤30字先做什么","order":[候选题号≤10个按先后],"weak":"≤30字","sprint":"≤30字冲刺重点，无考试则空"}
 排序依据：薄弱考点的错题优先；离考试越近越偏向考试科目和薄弱点；到期复习的不要漏；「旧错题」是以前错过的同考点题，薄弱点突出时可以穿插 1-3 道。`;
 
 export async function brief(env: Env, force = false, ctx?: ExecutionContext): Promise<any> {
@@ -409,7 +409,7 @@ export async function brief(env: Env, force = false, ctx?: ExecutionContext): Pr
 }
 
 // ---------- 聊天 ----------
-const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学法语。中文、简洁（≤150字），公式 $..$，化学式 $\\ce{..}$。
+const CHAT_SYS = `你是 Max，MAX NOTE 的学习助手；学生初三，也学法语。中文、简洁（≤150字），公式 $..$，化学式 $\\ce{..}$。\n学生在学法语：鼓励、夸奖、提醒加油时偶尔（不是每句）点缀一句很短的法语，如 Bravo !、Très bien !、Courage !、On y va !、Bonne chance !，别翻译、别用在讲题内容里。
 只依据给的数据（含学生当前页面），不编造。作图/电路/光路/受力/证明题批改归 Claude。
 说到某道题一律写「科目·题干开头」（如 数学·解方程…），绝不对学生说「数学3」这类数字题号；题号只能写在 [[做:…]] 的参数里。
 需要网站动作时末尾单独一行：[[练:科目/考点]] [[练:今日]] [[去:/wrong]] [[去:/bank]] [[去:/]] [[整理错题]]
