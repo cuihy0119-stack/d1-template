@@ -585,9 +585,31 @@ h2{margin:0 0 8px;letter-spacing:.01em}
 .chip.on{background:var(--pri)}
 .opt.on{background:color-mix(in srgb,var(--pri) 10%,var(--solid))}
 .bar,.bar>i{border-radius:0}.bar{height:4px}.bar>i{background:var(--pri)}
-.exam.first{background:var(--pri)}
+
 .ans{border-radius:0 var(--r-s) var(--r-s) 0;border-left-width:2px}
 /* 列表：细线分隔，悬停不再上浮 */
 .wrapitem+.wrapitem,.item+.item{border-top-color:var(--sw-line)}
 @media(hover:hover){.btn:hover,.subj:hover{transform:none;box-shadow:none;border-color:color-mix(in srgb,var(--fg) 30%,transparent)}}
 .qfig canvas,.qfig img{box-shadow:0 0 0 1px var(--sw-line)}
+/* ---- 首页（瑞士风格）：去框，靠大数字、细线和留白分区；强调色只给考试倒计时 ---- */
+.hero{margin:0 0 24px}
+.hero .sub{margin:8px 0 0;transform:none}
+.stats{gap:0;margin-top:24px;border-top:1px solid var(--sw-line);border-bottom:1px solid var(--sw-line)}
+.stat,.lite .stat{background:none;border:0;border-radius:0;box-shadow:none;padding:16px 8px;text-align:left}
+.stat+.stat{border-left:1px solid var(--sw-line);padding-left:16px}
+.stat b{color:var(--fg);font-size:56px;margin-bottom:4px}
+.stat:first-child{padding-left:0}
+.stat span{color:var(--mute)}
+.exams{grid-template-columns:1fr;gap:0;margin:0 0 24px}
+.exam,.exam.first,.lite .exam{background:none;border:0;border-radius:0;box-shadow:none;padding:16px 0;color:var(--fg)}
+.exam+.exam{border-top:1px solid var(--sw-line)}
+.exam .ring{display:none}
+.exam .num{padding:0}
+.exam .num b,.exam.first .num b{transform:none;letter-spacing:-.02em;color:var(--fg);font-size:56px}
+.exam.first .num b{color:var(--pri);font-size:96px}
+.exam .en{color:var(--mute)}
+.exam .ed{margin:0}
+#today{margin-bottom:8px}
+#ask{margin-bottom:24px!important}#ask>*+*{margin-top:8px}
+main>h2{margin-top:32px;padding-top:16px;border-top:1px solid var(--sw-line)}
+.subjects{gap:8px}
